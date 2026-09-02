@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#003F72" />
+  <title>Noroeste — Admin</title>
+  <link rel="stylesheet" href="/src/style.css" />
+</head>
+<body>
+
+  <!-- ── Login overlay ──────────────────────────────────────────────────── -->
+  <div id="loginOverlay">
+    <div id="loginBox">
+      <h1>Noroeste</h1>
+      <p class="subtitle">Sistema de gestão congregacional</p>
+
+      <div class="form-group">
+        <label class="form-label" for="inputNome">Usuário</label>
+        <input
+          id="inputNome"
+          class="form-input"
+          type="text"
+          autocomplete="username"
+          placeholder="Seu nome"
+        />
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="inputSenha">Senha</label>
+        <input
+          id="inputSenha"
+          class="form-input"
+          type="password"
+          autocomplete="current-password"
+          placeholder="••••••"
+        />
+      </div>
+
+      <p id="loginError"></p>
+
+      <button id="btnEntrar" class="btn btn-primary btn-full">
+        Entrar
+      </button>
+    </div>
+  </div>
+
+  <!-- ── App shell ──────────────────────────────────────────────────────── -->
+  <div id="appShell" class="hidden">
+
+    <header id="appHeader">
+      <span id="headerTitle">Noroeste</span>
+      <span id="headerUser"></span>
+      <button id="btnSair" class="btn btn-ghost" style="color:#fff;border-color:rgba(255,255,255,.3);padding:5px 12px;font-size:.8rem">
+        Sair
+      </button>
+    </header>
+
+    <main id="appContent"></main>
+
+    <nav id="bottomBar">
+      <button
+        id="btnMenu"
+        title="Menu"
+        style="background:none;border:none;cursor:pointer;font-size:1.3rem;color:var(--ink-2)"
+      >☰</button>
+      <span style="font-size:.7rem;font-weight:700;color:var(--blue-deep);letter-spacing:.06em">
+        NOROESTE
+      </span>
+    </nav>
+
+    <div id="statusBar">Conectando…</div>
+  </div>
+
+  <!-- ── Toast ──────────────────────────────────────────────────────────── -->
+  <div id="toast"></div>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
