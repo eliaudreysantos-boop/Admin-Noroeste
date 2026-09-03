@@ -22,6 +22,21 @@ export type ModuleName =
   | 'programacao'
   | 'secretario'
 
+export type TipoDesignacao =
+  | 'presidente'
+  | 'leitor'
+  | 'microfone'
+  | 'operador'
+  | 'auditorio'
+  | 'entrada'
+  | 'limpeza-super'
+  | 'limpeza-ajudante'
+  | 'limpeza-grupo'
+  | 'escala-campo'
+  | 'discurso-local'
+  | 'discurso-saida'
+  | 'programacao-parte'
+
 // ─── Master ────────────────────────────────────────────────────────────────
 
 export interface MasterLimpeza {
@@ -41,6 +56,56 @@ export interface MasterMeta {
   schemaVersion: number
   createdAt:     string
   description:   string
+}
+
+// ─── Config ────────────────────────────────────────────────────────────────
+
+export interface ConfigCongregacao {
+  nome:     string
+  cidade:   string
+  circuito: string
+  idioma:   string
+}
+
+export interface ConfigReuniao {
+  diaSemana: number   // 0-6: 0=domingo
+  horario:   string   // 'HH:MM'
+}
+
+export interface ConfigReunioes {
+  meiaDeSemana:  ConfigReuniao
+  fimDeSemana:   ConfigReuniao
+  fimDeSemanaS2: ConfigReuniao
+}
+
+export interface ConfigLimpezaGrupo {
+  superintendenteMid: string
+  ajudantesMid:       string[]
+  textoInstrucoes:    string
+  aprovadoEm:         string   // 'YYYY-MM-DD' | ''
+}
+
+export interface ConfigLimpeza {
+  ativa:                 boolean
+  grupos:                number       // qtd de grupos
+  inicioRotacao:         string       // 'YYYY-MM-DD'
+  coordenadorMid:        string
+  textoPadrao:           string
+  textoPadraoAprovadoEm: string       // 'YYYY-MM-DD' | ''
+  gruposConfig:          Record<string, ConfigLimpezaGrupo>
+}
+
+export interface ConfigDesignacao {
+  textoIcs:   string
+  ativo:      boolean
+  aprovadoEm: string   // 'YYYY-MM-DD' | ''
+}
+
+export interface MasterConfig {
+  congregacao?:  ConfigCongregacao
+  reunioes?:     ConfigReunioes
+  limpeza?:      ConfigLimpeza
+  designacoes?:  Partial<Record<TipoDesignacao, ConfigDesignacao>>
 }
 
 // ─── Usuários ──────────────────────────────────────────────────────────────
@@ -69,6 +134,7 @@ export type RawUsuarios  = Record<string, Usuario>
 
 export interface RawMaster {
   meta?:   MasterMeta
+  config?: MasterConfig
   pessoas: RawPessoas
 }
 

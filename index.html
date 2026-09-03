@@ -16,14 +16,14 @@
       <p class="subtitle">Sistema de gestão congregacional</p>
 
       <div class="form-group">
-        <label class="form-label" for="inputNome">Usuário</label>
-        <input
-          id="inputNome"
-          class="form-input"
-          type="text"
-          autocomplete="username"
-          placeholder="Seu nome"
-        />
+        <label class="form-label" for="selectUsuario">Usuário</label>
+        <select
+          id="selectUsuario"
+          class="form-select"
+          disabled
+        >
+          <option value="">Carregando…</option>
+        </select>
       </div>
 
       <div class="form-group">
@@ -39,7 +39,7 @@
 
       <p id="loginError"></p>
 
-      <button id="btnEntrar" class="btn btn-primary btn-full">
+      <button id="btnEntrar" class="btn btn-primary btn-full" disabled>
         Entrar
       </button>
     </div>
@@ -51,7 +51,8 @@
     <header id="appHeader">
       <span id="headerTitle">Noroeste</span>
       <span id="headerUser"></span>
-      <button id="btnSair" class="btn btn-ghost" style="color:#fff;border-color:rgba(255,255,255,.3);padding:5px 12px;font-size:.8rem">
+      <button id="btnSair" class="btn btn-ghost"
+        style="color:#fff;border-color:rgba(255,255,255,.3);padding:5px 12px;font-size:.8rem">
         Sair
       </button>
     </header>

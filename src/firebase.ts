@@ -26,7 +26,7 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig)
 const db  = getDatabase(app)
 
-// ─── Referências ───────────────────────────────────────────────────────────
+// ─── Referências — master ──────────────────────────────────────────────────
 
 export const rootRef: DatabaseReference =
   ref(db, '/')
@@ -41,6 +41,25 @@ export function pessoaRef(mid: string): DatabaseReference {
   return ref(db, `master/pessoas/${mid}`)
 }
 
+// ─── Referências — master/config ───────────────────────────────────────────
+
+export const configRef: DatabaseReference =
+  ref(db, 'master/config')
+
+export const configCongregacaoRef: DatabaseReference =
+  ref(db, 'master/config/congregacao')
+
+export const configReunioesRef: DatabaseReference =
+  ref(db, 'master/config/reunioes')
+
+export const configLimpezaRef: DatabaseReference =
+  ref(db, 'master/config/limpeza')
+
+export const configDesignacoesRef: DatabaseReference =
+  ref(db, 'master/config/designacoes')
+
+// ─── Referências — usuarios ────────────────────────────────────────────────
+
 export const usuariosRef: DatabaseReference =
   ref(db, 'usuarios')
 
@@ -48,8 +67,36 @@ export function usuarioRef(uid: string): DatabaseReference {
   return ref(db, `usuarios/${uid}`)
 }
 
-export const tarefasRef: DatabaseReference =
-  ref(db, 'tarefas')
+// ─── Referências — outros nós ──────────────────────────────────────────────
+
+export const tarefasPeopleRef: DatabaseReference =
+  ref(db, 'tarefas/people')
+
+export function tarefasPessoaRef(pid: string): DatabaseReference {
+  return ref(db, `tarefas/people/${pid}`)
+}
+
+export const tarefasScaleRef: DatabaseReference =
+  ref(db, 'tarefas/scale/periods')
+
+export const tarefasDiscursosRef: DatabaseReference =
+  ref(db, 'tarefas/discursos')
+
+export const tarefasPlanejamentoRef: DatabaseReference =
+  ref(db, 'tarefas/planning')
+
+export const escalaParticipantsRef: DatabaseReference =
+  ref(db, 'escala/participants')
+
+export function escalaParticipantRef(eid: string): DatabaseReference {
+  return ref(db, `escala/participants/${eid}`)
+}
+
+export const escalaPubSnapshotsRef: DatabaseReference =
+  ref(db, 'escala/publishedSnapshots')
+
+export const escalaSettingsRef: DatabaseReference =
+  ref(db, 'escala/settings')
 
 export const escalaRef: DatabaseReference =
   ref(db, 'escala')

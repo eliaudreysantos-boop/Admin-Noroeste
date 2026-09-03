@@ -6,7 +6,7 @@ const MODULE_META: Record<
   ModuleName,
   { label: string; desc: string; icon: string; color: string }
 > = {
-  mestre:      { label: 'Mestre',       desc: 'Pessoas e limpeza',            icon: '👥', color: '#003F72' },
+  mestre:      { label: 'Admin',        desc: 'Pessoas, config e usuários',   icon: '⚙️',  color: '#003F72' },
   tarefas:     { label: 'Tarefas',      desc: 'Designações e discursos',      icon: '📋', color: '#7E3AF2' },
   escala:      { label: 'Escala',       desc: 'Escala de campo TPL',          icon: '🌿', color: '#1A6B3C' },
   programacao: { label: 'Programação',  desc: 'Programação de reuniões',      icon: '📅', color: '#003F72' },
@@ -50,9 +50,10 @@ export async function navigateTo(modulo: ModuleName): Promise<void> {
 export function initRouter(uid: string, usuario: import('./types').Usuario): void {
   _ctx = { uid, usuario }
 
-  const accessList = MODULES_ORDER.filter(
-    (m) => hasAccess(usuario.apps, m),
-  )
+  // apps.mestre = Admin → acesso total a todos os módulos
+  const accessList = usuario.apps.mestre
+    ? MODULES_ORDER
+    : MODULES_ORDER.filter((m) => hasAccess(usuario.apps, m))
 
   if (accessList.length === 0) {
     document.getElementById('appContent')!.innerHTML = `
@@ -68,7 +69,6 @@ export function initRouter(uid: string, usuario: import('./types').Usuario): voi
     return
   }
 
-  // Exibe menu de seleção
   renderMenu(accessList)
 }
 

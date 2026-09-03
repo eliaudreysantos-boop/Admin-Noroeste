@@ -11,7 +11,21 @@ export async function loadUsuarios(): Promise<RawUsuarios> {
   return snap.val() as RawUsuarios
 }
 
-// ─── Autenticação ──────────────────────────────────────────────────────────
+// ─── Autenticação — por UID (novo padrão: select de usuário) ───────────────
+
+export function loginByUid(
+  usuarios: RawUsuarios,
+  uid:      string,
+  senha:    string,
+): { uid: string; usuario: Usuario } | null {
+  const usuario = usuarios[uid]
+  if (!usuario || !usuario.ativo) return null
+  if (usuario.senha !== senha)    return null
+  return { uid, usuario }
+}
+
+// ─── Autenticação — legado (por nome digitado) ─────────────────────────────
+// Mantida para compatibilidade. Preferir loginByUid.
 
 export function login(
   usuarios: RawUsuarios,
@@ -52,5 +66,7 @@ export function hasModuleAccess(
   usuario: Usuario,
   modulo:  keyof AppPermissions,
 ): boolean {
+  // apps.mestre = Admin → acesso total a todos os módulos
+  if (usuario.apps.mestre) return true
   return usuario.apps[modulo] === true
 }

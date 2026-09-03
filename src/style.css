@@ -8,7 +8,7 @@
   --gold:        #C8922A;
   --gold-light:  #F5E6C8;
 
-  /* Módulos */
+  /* Cores por módulo */
   --color-mestre:      #003F72;
   --color-tarefas:     #7E3AF2;
   --color-escala:      #1A6B3C;
@@ -16,32 +16,34 @@
   --color-secretario:  #B3261E;
 
   /* Superfícies */
-  --bg:       #F4F6F9;
-  --surface:  #FFFFFF;
-  --surface2: #F0F4F8;
+  --bg:        #F4F6F9;
+  --surface:   #FFFFFF;
+  --surface-2: #F0F4F8;   /* era --surface2 — unificado com o nome do plano */
 
   /* Texto */
   --ink:   #0D1B2A;
   --ink-2: #4A5568;
   --ink-3: #8899AA;
 
-  /* Borders / feedback */
-  --border:  #D1DCE8;
-  --danger:  #B3261E;
-  --success: #1A6B3C;
-  --warning: #C8922A;
+  /* Feedback */
+  --border:      #D1DCE8;
+  --danger:      #B3261E;
+  --danger-bg:   #FDECEA;
+  --success:     #1A6B3C;
+  --success-bg:  #E6F4ED;
+  --warning:     #C8922A;
 
   /* Header accent */
   --header-accent: linear-gradient(90deg, #C8922A 0%, #006EB6 100%);
 
   /* Layout */
-  --header-h:    52px;
-  --bottom-h:    52px;
-  --max-w:       480px;
-  --radius:      8px;
-  --radius-lg:   14px;
-  --shadow:      0 2px 8px rgba(0,0,0,.10);
-  --shadow-lg:   0 8px 24px rgba(0,0,0,.14);
+  --header-h:  52px;
+  --bottom-h:  52px;
+  --max-w:     480px;
+  --radius:    8px;
+  --radius-lg: 14px;
+  --shadow:    0 2px 8px rgba(0,0,0,.10);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,.14);
 
   /* Tipografia */
   --font: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
@@ -49,15 +51,17 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg:       #0D1B2A;
-    --surface:  #162333;
-    --surface2: #1E2F42;
-    --ink:      #EAF0F7;
-    --ink-2:    #9BB2C8;
-    --ink-3:    #5A7A96;
-    --border:   #2A3F55;
+    --bg:        #0D1B2A;
+    --surface:   #162333;
+    --surface-2: #1E2F42;
+    --ink:       #EAF0F7;
+    --ink-2:     #9BB2C8;
+    --ink-3:     #5A7A96;
+    --border:    #2A3F55;
     --blue-light: #1A2F45;
     --gold-light: #2A1E00;
+    --danger-bg:  #3D1010;
+    --success-bg: #0D2E1A;
   }
 }
 
@@ -130,7 +134,7 @@ body {
 /* Content area */
 #appContent {
   flex: 1;
-  padding: 16px 14px;
+  padding: 16px 14px 80px;   /* padding-bottom evita que o bottom bar tape conteúdo */
   overflow-y: auto;
 }
 
@@ -153,7 +157,7 @@ body {
   font-size: .72rem;
   color: var(--ink-3);
   padding: 2px 14px;
-  background: var(--surface2);
+  background: var(--surface-2);
   border-top: 1px solid var(--border);
   text-align: center;
 }
@@ -202,6 +206,16 @@ body {
   margin-bottom: 8px;
 }
 
+/* Mensagem quando não há usuários ativos (substitui o select via replaceWith) */
+#selectUsuarioEmpty {
+  font-size: .85rem;
+  color: var(--danger);
+  padding: 10px 12px;
+  background: var(--danger-bg);
+  border-radius: var(--radius);
+  margin-bottom: 12px;
+}
+
 /* ─── Botões ───────────────────────────────────────────────────────────── */
 
 .btn {
@@ -235,7 +249,7 @@ body {
   color: var(--ink-2);
   border: 1px solid var(--border);
 }
-.btn-ghost:hover:not(:disabled) { background: var(--surface2); }
+.btn-ghost:hover:not(:disabled) { background: var(--surface-2); }
 
 .btn-danger {
   background: var(--danger);
@@ -272,7 +286,7 @@ body {
   color: var(--ink);
   font-family: var(--font);
   font-size: .92rem;
-  transition: border-color .15s;
+  transition: border-color .15s, box-shadow .15s;
   outline: none;
 }
 
@@ -282,7 +296,29 @@ body {
   box-shadow: 0 0 0 3px rgba(0,110,182,.15);
 }
 
-.form-select { appearance: none; cursor: pointer; }
+.form-input:disabled,
+.form-select:disabled {
+  opacity: .55;
+  cursor: not-allowed;
+  background: var(--surface-2);
+}
+
+/* Select com seta customizada */
+.form-select {
+  appearance: none;
+  cursor: pointer;
+  padding-right: 32px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%238899AA' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+}
+
+/* Textarea dentro de .form-input */
+textarea.form-input {
+  resize: vertical;
+  min-height: 72px;
+  line-height: 1.5;
+}
 
 /* ─── Modal ───────────────────────────────────────────────────────────── */
 
@@ -321,7 +357,7 @@ body {
   position: fixed;
   bottom: calc(var(--bottom-h) + 12px);
   left: 50%;
-  transform: translateX(-50%) translateY(0);
+  transform: translateX(-50%);
   background: var(--ink);
   color: #fff;
   padding: 10px 20px;
@@ -339,7 +375,7 @@ body {
 
 #toast.show { opacity: 1; }
 
-/* ─── Módulo placeholder ──────────────────────────────────────────────── */
+/* ─── Menu de módulos ─────────────────────────────────────────────────── */
 
 .module-placeholder {
   display: flex;
@@ -362,13 +398,11 @@ body {
   color: var(--ink-3);
 }
 
-/* ─── Menu de módulos ─────────────────────────────────────────────────── */
-
 .module-menu {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding: 24px 0;
+  padding: 8px 0 24px;
 }
 
 .module-menu-btn {
@@ -383,9 +417,10 @@ body {
   transition: box-shadow .15s, transform .1s;
   text-align: left;
   font-family: var(--font);
+  width: 100%;
 }
 
-.module-menu-btn:hover { box-shadow: var(--shadow); }
+.module-menu-btn:hover  { box-shadow: var(--shadow); }
 .module-menu-btn:active { transform: scale(.98); }
 
 .module-menu-btn .mod-icon {
@@ -411,14 +446,18 @@ body {
   margin-top: 1px;
 }
 
+/* ─── Scrollbar suave (webkit) ─────────────────────────────────────────── */
+
+::-webkit-scrollbar       { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 10px; }
+::-webkit-scrollbar-thumb:hover { background: var(--ink-3); }
+
 /* ─── Utilitários ─────────────────────────────────────────────────────── */
 
-.hidden { display: none !important; }
-.text-danger { color: var(--danger); }
-.text-success { color: var(--success); }
-.text-muted { color: var(--ink-3); }
-.mt-8  { margin-top: 8px; }
-.mt-16 { margin-top: 16px; }
-.gap-8 { gap: 8px; }
-.flex  { display: flex; }
-.flex-center { display: flex; align-items: center; justify-content: center; }
+.hidden        { display: none !important; }
+.text-danger   { color: var(--danger); }
+.text-success  { color: var(--success); }
+.text-muted    { color: var(--ink-3); }
+.mt-8          { margin-top: 8px; }
+.mt-16         { margin-top: 16px; }

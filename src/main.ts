@@ -1,7 +1,7 @@
 import './style.css'
 import {
   loadUsuarios,
-  login,
+  loginByUid,
   saveSession,
   loadSession,
   clearSession,
@@ -11,17 +11,17 @@ import type { RawUsuarios, Usuario } from './types'
 
 // ─── Elementos ──────────────────────────────────────────────────────────────
 
-const loginOverlay = document.getElementById('loginOverlay')!
-const appShell     = document.getElementById('appShell')!
-const inputNome    = document.getElementById('inputNome')    as HTMLInputElement
-const inputSenha   = document.getElementById('inputSenha')   as HTMLInputElement
-const btnEntrar    = document.getElementById('btnEntrar')     as HTMLButtonElement
-const btnSair      = document.getElementById('btnSair')       as HTMLButtonElement
-const btnMenu      = document.getElementById('btnMenu')       as HTMLButtonElement
-const headerUser   = document.getElementById('headerUser')!
-const loginError   = document.getElementById('loginError')!
-const statusBar    = document.getElementById('statusBar')!
-const toast        = document.getElementById('toast')!
+const loginOverlay  = document.getElementById('loginOverlay')!
+const appShell      = document.getElementById('appShell')!
+const selectUsuario = document.getElementById('selectUsuario') as HTMLSelectElement
+const inputSenha    = document.getElementById('inputSenha')    as HTMLInputElement
+const btnEntrar     = document.getElementById('btnEntrar')     as HTMLButtonElement
+const btnSair       = document.getElementById('btnSair')       as HTMLButtonElement
+const btnMenu       = document.getElementById('btnMenu')       as HTMLButtonElement
+const headerUser    = document.getElementById('headerUser')!
+const loginError    = document.getElementById('loginError')!
+const statusBar     = document.getElementById('statusBar')!
+const toast         = document.getElementById('toast')!
 
 // ─── Toast ──────────────────────────────────────────────────────────────────
 
@@ -34,7 +34,7 @@ function showToast(msg: string, ms = 2800): void {
   _toastTimer = setTimeout(() => toast.classList.remove('show'), ms)
 }
 
-// ─── Status Firebase ────────────────────────────────────────────────────────
+// ─── Status ──────────────────────────────────────────────────────────────────
 
 function setStatus(text: string): void {
   statusBar.textContent = text
@@ -48,11 +48,38 @@ function showApp(usuario: Usuario): void {
   headerUser.textContent = usuario.nome
 }
 
+// ─── Popular select de usuários ─────────────────────────────────────────────
+
+/** Popula o <select> com usuários ativos ordenados por nome.
+ *  Se não houver nenhum usuário ativo, substitui o select por uma mensagem. */
+function populateUsuarioSelect(usuarios: RawUsuarios): void {
+  const ativos = Object.entries(usuarios)
+    .filter(([, u]) => u.ativo)
+    .sort(([, a], [, b]) => a.nome.localeCompare(b.nome, 'pt-BR'))
+
+  if (ativos.length === 0) {
+    // IA2: replaceWith — evita select vazio e confuso
+    const msg = document.createElement('p')
+    msg.id = 'selectUsuarioEmpty'
+    msg.style.cssText = 'color:var(--danger);font-size:.85rem;margin:4px 0 12px'
+    msg.textContent = 'Nenhum usuário ativo encontrado.'
+    selectUsuario.replaceWith(msg)
+    btnEntrar.disabled = true
+    return
+  }
+
+  // Opção vazia inicial — evita enviar como o primeiro usuário por acidente
+  selectUsuario.innerHTML =
+    '<option value="">Selecione seu nome…</option>' +
+    ativos.map(([uid, u]) => `<option value="${uid}">${u.nome}</option>`).join('')
+
+  selectUsuario.disabled = false
+  btnEntrar.disabled = false
+}
+
 // ─── Sessão restaurada ───────────────────────────────────────────────────────
 
-async function tryRestoreSession(
-  usuarios: RawUsuarios,
-): Promise<boolean> {
+async function tryRestoreSession(usuarios: RawUsuarios): Promise<boolean> {
   const uid = loadSession()
   if (!uid) return false
 
@@ -70,18 +97,26 @@ async function tryRestoreSession(
 // ─── Login ──────────────────────────────────────────────────────────────────
 
 function handleLogin(usuarios: RawUsuarios): void {
-  const nome  = inputNome.value.trim()
+  const uid   = selectUsuario.value
   const senha = inputSenha.value
 
-  if (!nome || !senha) {
-    loginError.textContent = 'Preencha usuário e senha.'
+  if (!uid) {
+    loginError.textContent = 'Selecione seu nome.'
+    selectUsuario.focus()
     return
   }
 
-  const result = login(usuarios, nome, senha)
+  if (!senha) {
+    loginError.textContent = 'Digite a senha.'
+    inputSenha.focus()
+    return
+  }
+
+  // loginByUid centraliza a validação (ativo + senha)
+  const result = loginByUid(usuarios, uid, senha)
 
   if (!result) {
-    loginError.textContent = 'Usuário ou senha inválidos.'
+    loginError.textContent = 'Senha incorreta.'
     inputSenha.value = ''
     inputSenha.focus()
     return
@@ -101,13 +136,10 @@ function handleSair(): void {
   location.reload()
 }
 
-// ─── Botão Menu (volta ao menu de módulos) ───────────────────────────────────
+// ─── Botão Menu ──────────────────────────────────────────────────────────────
 
 function handleMenu(): void {
-  const uid = loadSession()
-  if (!uid) return
-  // Re-inicializa o router (exibe menu ou módulo único)
-  // Precisamos dos dados em cache — recarrega página como fallback simples
+  if (!loadSession()) return
   location.reload()
 }
 
@@ -125,25 +157,34 @@ async function init(): Promise<void> {
     setStatus('Erro de conexão com Firebase')
     console.error(err)
     loginError.textContent = 'Sem conexão. Tente novamente.'
+    loginOverlay.classList.remove('hidden')
+    return
   }
 
-  // Tenta restaurar sessão
+  // Tenta restaurar sessão existente
   const restored = await tryRestoreSession(usuarios)
   if (restored) return
 
-  // Exibe login
+  // Exibe tela de login com select populado
   loginOverlay.classList.remove('hidden')
-  inputNome.focus()
+  populateUsuarioSelect(usuarios)
+  selectUsuario.focus()
 
-  // Eventos de login
+  // ─── Eventos de login ────────────────────────────────────────────────────
+
   btnEntrar.addEventListener('click', () => handleLogin(usuarios))
 
   inputSenha.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') handleLogin(usuarios)
   })
 
-  inputNome.addEventListener('keydown', (e) => {
+  selectUsuario.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') inputSenha.focus()
+  })
+
+  // IA2: limpa o erro ao trocar de usuário no select
+  selectUsuario.addEventListener('change', () => {
+    loginError.textContent = ''
   })
 }
 
