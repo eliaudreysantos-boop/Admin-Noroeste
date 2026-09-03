@@ -1,0 +1,18 @@
+[build]
+  command   = "npm run build"
+  publish   = "dist"
+
+[[redirects]]
+  from = "/individual"
+  to   = "/individual.html"
+  status = 200
+
+[[redirects]]
+  from = "/participante"
+  to   = "/participante.html"
+  status = 200
+
+[[redirects]]
+  from = "/*"
+  to   = "/index.html"
+  status = 200

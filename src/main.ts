@@ -1,7 +1,6 @@
 import './style.css'
 import {
   loadUsuarios,
-  loginByUid,
   saveSession,
   loadSession,
   clearSession,
@@ -34,7 +33,7 @@ function showToast(msg: string, ms = 2800): void {
   _toastTimer = setTimeout(() => toast.classList.remove('show'), ms)
 }
 
-// ─── Status ──────────────────────────────────────────────────────────────────
+// ─── Status Firebase ────────────────────────────────────────────────────────
 
 function setStatus(text: string): void {
   statusBar.textContent = text
@@ -48,38 +47,35 @@ function showApp(usuario: Usuario): void {
   headerUser.textContent = usuario.nome
 }
 
-// ─── Popular select de usuários ─────────────────────────────────────────────
+// ─── Select de usuário ───────────────────────────────────────────────────────
 
 /** Popula o <select> com usuários ativos ordenados por nome.
- *  Se não houver nenhum usuário ativo, substitui o select por uma mensagem. */
+ *  Se não houver nenhum usuário ativo, mostra mensagem no lugar do select. */
 function populateUsuarioSelect(usuarios: RawUsuarios): void {
   const ativos = Object.entries(usuarios)
     .filter(([, u]) => u.ativo)
     .sort(([, a], [, b]) => a.nome.localeCompare(b.nome, 'pt-BR'))
 
   if (ativos.length === 0) {
-    // IA2: replaceWith — evita select vazio e confuso
     const msg = document.createElement('p')
     msg.id = 'selectUsuarioEmpty'
-    msg.style.cssText = 'color:var(--danger);font-size:.85rem;margin:4px 0 12px'
     msg.textContent = 'Nenhum usuário ativo encontrado.'
     selectUsuario.replaceWith(msg)
     btnEntrar.disabled = true
     return
   }
 
-  // Opção vazia inicial — evita enviar como o primeiro usuário por acidente
-  selectUsuario.innerHTML =
-    '<option value="">Selecione seu nome…</option>' +
-    ativos.map(([uid, u]) => `<option value="${uid}">${u.nome}</option>`).join('')
-
+  selectUsuario.innerHTML = ativos
+    .map(([uid, u]) => `<option value="${uid}">${u.nome}</option>`)
+    .join('')
   selectUsuario.disabled = false
-  btnEntrar.disabled = false
 }
 
 // ─── Sessão restaurada ───────────────────────────────────────────────────────
 
-async function tryRestoreSession(usuarios: RawUsuarios): Promise<boolean> {
+async function tryRestoreSession(
+  usuarios: RawUsuarios,
+): Promise<boolean> {
   const uid = loadSession()
   if (!uid) return false
 
@@ -100,33 +96,25 @@ function handleLogin(usuarios: RawUsuarios): void {
   const uid   = selectUsuario.value
   const senha = inputSenha.value
 
-  if (!uid) {
-    loginError.textContent = 'Selecione seu nome.'
-    selectUsuario.focus()
+  if (!uid || !senha) {
+    loginError.textContent = 'Selecione o usuário e digite a senha.'
     return
   }
 
-  if (!senha) {
-    loginError.textContent = 'Digite a senha.'
-    inputSenha.focus()
-    return
-  }
+  const usuario = usuarios[uid]
 
-  // loginByUid centraliza a validação (ativo + senha)
-  const result = loginByUid(usuarios, uid, senha)
-
-  if (!result) {
-    loginError.textContent = 'Senha incorreta.'
+  if (!usuario || usuario.senha !== senha || !usuario.ativo) {
+    loginError.textContent = 'Usuário ou senha inválidos.'
     inputSenha.value = ''
     inputSenha.focus()
     return
   }
 
   loginError.textContent = ''
-  saveSession(result.uid)
-  showApp(result.usuario)
-  initRouter(result.uid, result.usuario)
-  showToast(`Bem-vindo, ${result.usuario.nome}!`)
+  saveSession(uid)
+  showApp(usuario)
+  initRouter(uid, usuario)
+  showToast(`Bem-vindo, ${usuario.nome}!`)
 }
 
 // ─── Botão Sair ──────────────────────────────────────────────────────────────
@@ -136,10 +124,13 @@ function handleSair(): void {
   location.reload()
 }
 
-// ─── Botão Menu ──────────────────────────────────────────────────────────────
+// ─── Botão Menu (volta ao menu de módulos) ───────────────────────────────────
 
 function handleMenu(): void {
-  if (!loadSession()) return
+  const uid = loadSession()
+  if (!uid) return
+  // Re-inicializa o router (exibe menu ou módulo único)
+  // Precisamos dos dados em cache — recarrega página como fallback simples
   location.reload()
 }
 
@@ -157,21 +148,18 @@ async function init(): Promise<void> {
     setStatus('Erro de conexão com Firebase')
     console.error(err)
     loginError.textContent = 'Sem conexão. Tente novamente.'
-    loginOverlay.classList.remove('hidden')
-    return
   }
 
-  // Tenta restaurar sessão existente
+  // Tenta restaurar sessão
   const restored = await tryRestoreSession(usuarios)
   if (restored) return
 
-  // Exibe tela de login com select populado
+  // Exibe login
   loginOverlay.classList.remove('hidden')
   populateUsuarioSelect(usuarios)
   selectUsuario.focus()
 
-  // ─── Eventos de login ────────────────────────────────────────────────────
-
+  // Eventos de login
   btnEntrar.addEventListener('click', () => handleLogin(usuarios))
 
   inputSenha.addEventListener('keydown', (e) => {
@@ -182,7 +170,6 @@ async function init(): Promise<void> {
     if (e.key === 'Enter') inputSenha.focus()
   })
 
-  // IA2: limpa o erro ao trocar de usuário no select
   selectUsuario.addEventListener('change', () => {
     loginError.textContent = ''
   })
@@ -196,3 +183,9 @@ btnMenu.addEventListener('click', handleMenu)
 // ─── Start ───────────────────────────────────────────────────────────────────
 
 void init()
+
+// ─── Service Worker (PWA) ─────────────────────────────────────────────────────
+
+if ('serviceWorker' in navigator) {
+  void navigator.serviceWorker.register('/sw.js')
+}

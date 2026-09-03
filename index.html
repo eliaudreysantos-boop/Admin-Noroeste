@@ -6,6 +6,9 @@
   <meta name="theme-color" content="#003F72" />
   <title>Noroeste — Admin</title>
   <link rel="stylesheet" href="/src/style.css" />
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 </head>
 <body>
 
@@ -39,7 +42,7 @@
 
       <p id="loginError"></p>
 
-      <button id="btnEntrar" class="btn btn-primary btn-full" disabled>
+      <button id="btnEntrar" class="btn btn-primary btn-full">
         Entrar
       </button>
     </div>
@@ -51,8 +54,7 @@
     <header id="appHeader">
       <span id="headerTitle">Noroeste</span>
       <span id="headerUser"></span>
-      <button id="btnSair" class="btn btn-ghost"
-        style="color:#fff;border-color:rgba(255,255,255,.3);padding:5px 12px;font-size:.8rem">
+      <button id="btnSair" class="btn btn-ghost" style="color:#fff;border-color:rgba(255,255,255,.3);padding:5px 12px;font-size:.8rem">
         Sair
       </button>
     </header>
