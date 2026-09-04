@@ -152,6 +152,26 @@ body {
   box-shadow: 0 -2px 8px rgba(0,0,0,.06);
 }
 
+.bottom-nav-btn {
+  min-width: 86px;
+  height: 36px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink-2);
+  font-family: var(--font);
+  font-size: .82rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.bottom-nav-btn:active { transform: scale(.97); }
+
+.bottom-nav-spacer {
+  display: block;
+  width: 86px;
+}
+
 /* Status bar */
 #statusBar {
   font-size: .72rem;
@@ -411,7 +431,7 @@ textarea.form-input {
   gap: 14px;
   padding: 16px 18px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius);
   background: var(--surface);
   cursor: pointer;
   transition: box-shadow .15s, transform .1s;

@@ -5,7 +5,7 @@ import {
   loadSession,
   clearSession,
 } from './auth'
-import { initRouter } from './router'
+import { initRouter, navigateBack } from './router'
 import type { RawUsuarios, Usuario } from './types'
 
 // ─── Elementos ──────────────────────────────────────────────────────────────
@@ -16,7 +16,7 @@ const selectUsuario = document.getElementById('selectUsuario') as HTMLSelectElem
 const inputSenha    = document.getElementById('inputSenha')    as HTMLInputElement
 const btnEntrar     = document.getElementById('btnEntrar')     as HTMLButtonElement
 const btnSair       = document.getElementById('btnSair')       as HTMLButtonElement
-const btnMenu       = document.getElementById('btnMenu')       as HTMLButtonElement
+const btnBack       = document.getElementById('btnBack')       as HTMLButtonElement
 const headerUser    = document.getElementById('headerUser')!
 const loginError    = document.getElementById('loginError')!
 const statusBar     = document.getElementById('statusBar')!
@@ -124,14 +124,10 @@ function handleSair(): void {
   location.reload()
 }
 
-// ─── Botão Menu (volta ao menu de módulos) ───────────────────────────────────
+// ─── Botão Voltar ────────────────────────────────────────────────────────────
 
-function handleMenu(): void {
-  const uid = loadSession()
-  if (!uid) return
-  // Re-inicializa o router (exibe menu ou módulo único)
-  // Precisamos dos dados em cache — recarrega página como fallback simples
-  location.reload()
+function handleBack(): void {
+  navigateBack()
 }
 
 // ─── Bootstrap ──────────────────────────────────────────────────────────────
@@ -178,7 +174,12 @@ async function init(): Promise<void> {
 // ─── Eventos globais ─────────────────────────────────────────────────────────
 
 btnSair.addEventListener('click', handleSair)
-btnMenu.addEventListener('click', handleMenu)
+btnBack.addEventListener('click', handleBack)
+
+window.addEventListener('app-route-change', (event) => {
+  const detail = (event as CustomEvent<{ canBack: boolean }>).detail
+  btnBack.classList.toggle('hidden', !detail?.canBack)
+})
 
 // ─── Start ───────────────────────────────────────────────────────────────────
 

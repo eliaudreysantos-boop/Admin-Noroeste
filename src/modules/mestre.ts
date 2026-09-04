@@ -113,7 +113,7 @@ function papelLabel(papel: SecretarioPapel | undefined): string {
 
 function appsList(apps: Usuario['apps']): string {
   const labels: Record<string, string> = {
-    mestre:'Admin', tarefas:'Tarefas', limpeza:'Limpeza', escala:'Escala',
+    mestre:'Admin', tarefas:'Tarefas', limpeza:'Limpeza', oradores:'Oradores', escala:'Escala',
     programacao:'Programação', secretario:'Secretário',
   }
   return (Object.keys(apps) as Array<keyof typeof apps>)
@@ -521,7 +521,7 @@ function openUsuarioModal(uid: string | null): void {
   const u    = uid ? usuarios[uid] : undefined
   const apps = u?.apps ?? {
     mestre:false, tarefas:false, limpeza:false, escala:false,
-    programacao:false, secretario:false,
+    oradores:false, programacao:false, secretario:false,
   }
 
   const overlay = document.createElement('div')
@@ -549,6 +549,7 @@ function openUsuarioModal(uid: string | null): void {
         ${appCheck('mestre',      'Admin',        apps.mestre)}
         ${appCheck('tarefas',     'Tarefas',      apps.tarefas)}
         ${appCheck('limpeza',     'Limpeza',      apps.limpeza ?? false)}
+        ${appCheck('oradores',    'Oradores',     apps.oradores ?? false)}
         ${appCheck('escala',      'Escala',       apps.escala)}
         ${appCheck('programacao', 'Programação',  apps.programacao)}
         ${appCheck('secretario',  'Secretário',   apps.secretario)}
@@ -614,6 +615,7 @@ async function saveUsuario(uid: string | null, overlay: HTMLElement): Promise<vo
       mestre:      checkApp('mestre'),
       tarefas:     checkApp('tarefas'),
       limpeza:     checkApp('limpeza'),
+      oradores:    checkApp('oradores'),
       escala:      checkApp('escala'),
       programacao: checkApp('programacao'),
       secretario:  checkApp('secretario'),

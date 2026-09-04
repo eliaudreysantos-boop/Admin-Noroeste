@@ -19,6 +19,7 @@ export type ModuleName =
   | 'mestre'
   | 'tarefas'
   | 'limpeza'
+  | 'oradores'
   | 'escala'
   | 'programacao'
   | 'secretario'
@@ -115,6 +116,7 @@ export interface AppPermissions {
   mestre:      boolean
   tarefas:     boolean
   limpeza?:    boolean
+  oradores?:   boolean
   escala:      boolean
   programacao: boolean
   secretario:  boolean
@@ -145,6 +147,7 @@ export interface RawRoot {
   usuarios?:    RawUsuarios
   tarefas?:     Record<string, unknown>
   limpeza?:     Record<string, unknown>
+  oradores?:    Record<string, unknown>
   escala?:      Record<string, unknown>
   programacao?: Record<string, unknown>
   secretario?:  Record<string, unknown>

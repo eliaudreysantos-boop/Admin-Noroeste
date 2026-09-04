@@ -205,7 +205,7 @@ function renderGrupos(): void {
   content.innerHTML = `
     ${renderSectionTitle(
       'Grupos de limpeza',
-      'Define o grupo de cada pessoa. Esta tela substitui a antiga aba Limpeza dentro do Admin.',
+      'Defina o grupo de cada pessoa antes de gerar o texto da próxima designação.',
     )}
     <div id="limpezaCounters" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px"></div>
     <div style="font-size:.78rem;color:var(--ink-3);margin-bottom:8px">
