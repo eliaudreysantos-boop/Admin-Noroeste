@@ -18,6 +18,7 @@ export type Sex = 'M' | 'F'
 export type ModuleName =
   | 'mestre'
   | 'tarefas'
+  | 'limpeza'
   | 'escala'
   | 'programacao'
   | 'secretario'
@@ -40,7 +41,7 @@ export type TipoDesignacao =
 // ─── Master ────────────────────────────────────────────────────────────────
 
 export interface MasterLimpeza {
-  grupo: 1 | 2 | 3 | 4 | null
+  grupo: number | null
 }
 
 export interface MasterPessoa {
@@ -113,6 +114,7 @@ export interface MasterConfig {
 export interface AppPermissions {
   mestre:      boolean
   tarefas:     boolean
+  limpeza?:    boolean
   escala:      boolean
   programacao: boolean
   secretario:  boolean
@@ -142,6 +144,7 @@ export interface RawRoot {
   master?:      RawMaster
   usuarios?:    RawUsuarios
   tarefas?:     Record<string, unknown>
+  limpeza?:     Record<string, unknown>
   escala?:      Record<string, unknown>
   programacao?: Record<string, unknown>
   secretario?:  Record<string, unknown>

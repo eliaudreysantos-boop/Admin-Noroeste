@@ -29,10 +29,9 @@ let pessoas:   RawPessoas  = {}
 let usuarios:  RawUsuarios = {}
 let config:    MasterConfig = {}
 
-let activeTab: 'pessoas' | 'limpeza' | 'usuarios' | 'config' = 'pessoas'
+let activeTab: 'pessoas' | 'usuarios' | 'config' = 'pessoas'
 let activeConfigSection: 'congregacao' | 'limpeza' | 'designacoes' = 'congregacao'
 
-const limpezaChanges = new Map<string, 1 | 2 | 3 | 4 | null>()
 let pessoaFilter = { nome: '', role: '', ativo: 'true', sex: '' }
 
 // ─── Constantes ──────────────────────────────────────────────────────────────
@@ -114,7 +113,7 @@ function papelLabel(papel: SecretarioPapel | undefined): string {
 
 function appsList(apps: Usuario['apps']): string {
   const labels: Record<string, string> = {
-    mestre:'Admin', tarefas:'Tarefas', escala:'Escala',
+    mestre:'Admin', tarefas:'Tarefas', limpeza:'Limpeza', escala:'Escala',
     programacao:'Programação', secretario:'Secretário',
   }
   return (Object.keys(apps) as Array<keyof typeof apps>)
@@ -175,7 +174,6 @@ function keepApprovalIfTextUnchanged(
 export default function mount(_ctx: AppContext): void {
   activeTab = 'pessoas'
   activeConfigSection = 'congregacao'
-  limpezaChanges.clear()
   pessoaFilter = { nome: '', role: '', ativo: 'true', sex: '' }
 
   const root = document.getElementById('appContent')!
@@ -195,7 +193,6 @@ function renderTabBar(): void {
   const bar = document.getElementById('mestreTabs')!
   const tabs: Array<{ id: typeof activeTab; label: string }> = [
     { id: 'pessoas',  label: 'Pessoas'  },
-    { id: 'limpeza',  label: 'Limpeza'  },
     { id: 'usuarios', label: 'Usuários' },
     { id: 'config',   label: 'Config'   },
   ]
@@ -232,7 +229,6 @@ async function loadAll(): Promise<void> {
 
 function renderContent(): void {
   if      (activeTab === 'pessoas')  renderPessoas()
-  else if (activeTab === 'limpeza')  renderLimpeza()
   else if (activeTab === 'usuarios') renderUsuarios()
   else                               renderConfig()
 }
@@ -467,114 +463,6 @@ async function deletePessoa(mid: string): Promise<void> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ABA: LIMPEZA (atribuição de grupos)
-// ─────────────────────────────────────────────────────────────────────────────
-
-function renderLimpeza(): void {
-  const mc = document.getElementById('mestreContent')!
-  limpezaChanges.clear()
-
-  const ativos = Object.entries(pessoas)
-    .filter(([, p]) => p.active)
-    .sort((a, b) => a[1].name.localeCompare(b[1].name, 'pt-BR'))
-
-  mc.innerHTML = `
-    <div id="limpezaCounters" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px"></div>
-    <div style="font-size:.78rem;color:var(--ink-3);margin-bottom:8px">
-      ${ativos.length} pessoa${ativos.length !== 1 ? 's' : ''} ativa${ativos.length !== 1 ? 's' : ''}
-    </div>
-    <div id="limpezaList">
-      ${ativos.map(([mid, p]) => `
-        <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;
-          padding:9px 12px;margin-bottom:5px;display:flex;align-items:center;gap:10px">
-          <span style="flex:1;font-size:.88rem;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
-            ${p.name}
-          </span>
-          <select class="form-select limpeza-sel" data-mid="${mid}"
-            style="width:120px;font-size:.82rem;padding:5px 8px">
-            <option value="">Sem grupo</option>
-            ${[1,2,3,4].map(g => `
-              <option value="${g}" ${(p.limpeza?.grupo ?? null) === g ? 'selected' : ''}>
-                Grupo ${g}
-              </option>`).join('')}
-          </select>
-        </div>`).join('')}
-    </div>
-    <div style="position:sticky;bottom:8px;margin-top:14px">
-      <button id="btnSalvarLimpeza" class="btn btn-primary btn-full">
-        Salvar Limpeza
-      </button>
-    </div>`
-
-  updateLimpezaCounters(ativos)
-
-  document.querySelectorAll<HTMLSelectElement>('.limpeza-sel').forEach(sel => {
-    sel.addEventListener('change', () => {
-      const mid = sel.dataset['mid']!
-      const val = sel.value ? (parseInt(sel.value, 10) as 1 | 2 | 3 | 4) : null
-      limpezaChanges.set(mid, val)
-      updateLimpezaCounters(ativos)
-    })
-  })
-
-  document.getElementById('btnSalvarLimpeza')!
-    .addEventListener('click', () => void saveLimpeza(ativos))
-}
-
-function updateLimpezaCounters(ativos: [string, MasterPessoa][]): void {
-  const counts: Record<string, number> = { '1':0, '2':0, '3':0, '4':0, sem:0 }
-
-  for (const [mid, p] of ativos) {
-    const grupo = limpezaChanges.has(mid)
-      ? (limpezaChanges.get(mid) ?? null)
-      : (p.limpeza?.grupo ?? null)
-    const key = grupo != null ? String(grupo) : 'sem'
-    counts[key] = (counts[key] ?? 0) + 1
-  }
-
-  const el = document.getElementById('limpezaCounters')
-  if (!el) return
-  el.innerHTML = [1,2,3,4].map(g => {
-    const n = counts[String(g)] ?? 0
-    return `<span style="background:var(--surface);border:1px solid var(--border);
-      border-radius:8px;padding:5px 12px;font-size:.8rem;font-weight:600">
-      Grupo ${g}: <strong>${n}</strong>
-    </span>`
-  }).join('') + `
-    <span style="background:var(--surface);border:1px solid var(--border);
-      border-radius:8px;padding:5px 12px;font-size:.8rem;color:var(--ink-3)">
-      Sem grupo: ${counts['sem'] ?? 0}
-    </span>`
-}
-
-async function saveLimpeza(ativos: [string, MasterPessoa][]): Promise<void> {
-  if (limpezaChanges.size === 0) { toast('Nenhuma alteração'); return }
-
-  setLoading('btnSalvarLimpeza', true, 'Salvar Limpeza')
-
-  const updates: Record<string, unknown> = {}
-  for (const [mid, grupo] of limpezaChanges) {
-    updates[`${mid}/limpeza/grupo`] = grupo
-  }
-
-  try {
-    await update(pessoasRef, updates)
-    for (const [mid, grupo] of limpezaChanges) {
-      const p = pessoas[mid]
-      if (p) p.limpeza = { grupo }
-    }
-    const n = limpezaChanges.size
-    toast(`${n} alteraç${n === 1 ? 'ão salva' : 'ões salvas'} ✓`)
-    limpezaChanges.clear()
-    updateLimpezaCounters(ativos)
-  } catch {
-    toast('Erro ao salvar limpeza')
-  } finally {
-    setLoading('btnSalvarLimpeza', false, 'Salvar Limpeza')
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // ABA: USUÁRIOS
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -631,7 +519,10 @@ function usuarioCard(uid: string, u: Usuario): string {
 
 function openUsuarioModal(uid: string | null): void {
   const u    = uid ? usuarios[uid] : undefined
-  const apps = u?.apps ?? { mestre:false, tarefas:false, escala:false, programacao:false, secretario:false }
+  const apps = u?.apps ?? {
+    mestre:false, tarefas:false, limpeza:false, escala:false,
+    programacao:false, secretario:false,
+  }
 
   const overlay = document.createElement('div')
   overlay.className = 'modal-overlay'
@@ -657,6 +548,7 @@ function openUsuarioModal(uid: string | null): void {
         <span class="form-label" style="display:block;margin-bottom:6px">Módulos</span>
         ${appCheck('mestre',      'Admin',        apps.mestre)}
         ${appCheck('tarefas',     'Tarefas',      apps.tarefas)}
+        ${appCheck('limpeza',     'Limpeza',      apps.limpeza ?? false)}
         ${appCheck('escala',      'Escala',       apps.escala)}
         ${appCheck('programacao', 'Programação',  apps.programacao)}
         ${appCheck('secretario',  'Secretário',   apps.secretario)}
@@ -721,6 +613,7 @@ async function saveUsuario(uid: string | null, overlay: HTMLElement): Promise<vo
     apps: {
       mestre:      checkApp('mestre'),
       tarefas:     checkApp('tarefas'),
+      limpeza:     checkApp('limpeza'),
       escala:      checkApp('escala'),
       programacao: checkApp('programacao'),
       secretario:  checkApp('secretario'),

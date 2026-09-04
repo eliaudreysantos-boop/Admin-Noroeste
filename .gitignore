@@ -5,4 +5,6 @@ NAO FAZER COMMIT DESSA PASTA/
 .env.local
 .env.*.local
 *.log
+*.zip
+*.rar
 .DS_Store

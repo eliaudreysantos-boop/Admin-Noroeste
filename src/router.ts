@@ -7,14 +7,15 @@ const MODULE_META: Record<
   { label: string; desc: string; icon: string; color: string }
 > = {
   mestre:      { label: 'Admin',        desc: 'Pessoas, config e usuários',   icon: '⚙️',  color: '#003F72' },
-  tarefas:     { label: 'Tarefas',      desc: 'Designações e discursos',      icon: '📋', color: '#7E3AF2' },
+  tarefas:     { label: 'Tarefas',      desc: 'Funções da reunião',           icon: '📋', color: '#7E3AF2' },
+  limpeza:     { label: 'Limpeza',      desc: 'Grupos, textos e PDF',         icon: '🧹', color: '#006EB6' },
   escala:      { label: 'Escala',       desc: 'Escala de campo TPL',          icon: '🌿', color: '#1A6B3C' },
   programacao: { label: 'Programação',  desc: 'Programação de reuniões',      icon: '📅', color: '#003F72' },
   secretario:  { label: 'Secretário',   desc: 'Relatórios e publicadores',    icon: '📂', color: '#B3261E' },
 }
 
 const MODULES_ORDER: ModuleName[] = [
-  'mestre', 'tarefas', 'escala', 'programacao', 'secretario',
+  'mestre', 'tarefas', 'limpeza', 'escala', 'programacao', 'secretario',
 ]
 
 // ─── Lazy loaders ───────────────────────────────────────────────────────────
@@ -26,6 +27,7 @@ async function loadModule(
   const loaders: Record<ModuleName, () => Promise<{ default: (ctx: AppContext) => void }>> = {
     mestre:      () => import('./modules/mestre'),
     tarefas:     () => import('./modules/tarefas'),
+    limpeza:     () => import('./modules/limpeza'),
     escala:      () => import('./modules/escala'),
     programacao: () => import('./modules/programacao'),
     secretario:  () => import('./modules/secretario'),
