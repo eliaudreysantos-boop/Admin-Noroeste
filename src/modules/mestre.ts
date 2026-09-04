@@ -162,6 +162,14 @@ function charCounter(textareaId: string, counterId: string, max = 250): void {
   update()
 }
 
+function keepApprovalIfTextUnchanged(
+  savedText: string | undefined,
+  currentText: string,
+  approvedAt: string | undefined,
+): string {
+  return savedText === currentText ? (approvedAt ?? '') : ''
+}
+
 // ─── Mount ───────────────────────────────────────────────────────────────────
 
 export default function mount(_ctx: AppContext): void {
@@ -1084,21 +1092,34 @@ async function saveConfigLimpeza(): Promise<void> {
       document.querySelectorAll<HTMLInputElement>(`.gAjud_${gid}:checked`)
     ).map(cb => cb.value)
 
+    const textoInstrucoes =
+      (document.getElementById(`gTexto_${gid}`) as HTMLTextAreaElement).value
+
     gruposConfig[gid] = {
       superintendenteMid: v(`gSuper_${gid}`),
       ajudantesMid,
-      textoInstrucoes:    (document.getElementById(`gTexto_${gid}`) as HTMLTextAreaElement).value,
-      aprovadoEm:         existente?.aprovadoEm ?? '',
+      textoInstrucoes,
+      aprovadoEm: keepApprovalIfTextUnchanged(
+        existente?.textoInstrucoes,
+        textoInstrucoes,
+        existente?.aprovadoEm,
+      ),
     }
   }
+
+  const textoPadrao = (document.getElementById('lTextoPadrao') as HTMLTextAreaElement).value
 
   const limpezaObj: ConfigLimpeza = {
     ativa:                 vb('lAtiva'),
     grupos,
     inicioRotacao:         v('lInicio'),
     coordenadorMid:        v('lCoordenador'),
-    textoPadrao:           (document.getElementById('lTextoPadrao') as HTMLTextAreaElement).value,
-    textoPadraoAprovadoEm: config.limpeza?.textoPadraoAprovadoEm ?? '',
+    textoPadrao,
+    textoPadraoAprovadoEm: keepApprovalIfTextUnchanged(
+      config.limpeza?.textoPadrao,
+      textoPadrao,
+      config.limpeza?.textoPadraoAprovadoEm,
+    ),
     gruposConfig,
   }
 
