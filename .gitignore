@@ -1,5 +1,6 @@
 node_modules/
 dist/
+NAO FAZER COMMIT DESSA PASTA/
 .env
 .env.local
 .env.*.local
