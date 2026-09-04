@@ -1221,7 +1221,11 @@ async function saveConfigDesignacoes(): Promise<void> {
   for (const tipo of DESIGNACOES_TIPOS) {
     const textoIcs = (document.getElementById(`dTexto_${tipo}`) as HTMLTextAreaElement).value
     const ativo    = (document.querySelector(`.dAtivo[data-tipo="${tipo}"]`) as HTMLInputElement)?.checked ?? true
-    const aprovadoEm = config.designacoes?.[tipo]?.aprovadoEm ?? ''
+    const aprovadoEm = keepApprovalIfTextUnchanged(
+      config.designacoes?.[tipo]?.textoIcs,
+      textoIcs,
+      config.designacoes?.[tipo]?.aprovadoEm,
+    )
     result[tipo] = { textoIcs, ativo, aprovadoEm }
   }
 
