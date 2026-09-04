@@ -735,8 +735,7 @@ function renderConfigCongregacao(): void {
       text-transform:uppercase;letter-spacing:.05em">Reuniões</div>
 
     ${reuniaoCard('ms',  'Meio de semana',      r?.meiaDeSemana?.diaSemana,  r?.meiaDeSemana?.horario)}
-    ${reuniaoCard('fs1', 'Fim de semana (S1)',   r?.fimDeSemana?.diaSemana,   r?.fimDeSemana?.horario)}
-    ${reuniaoCard('fs2', 'Fim de semana (S2)',   r?.fimDeSemanaS2?.diaSemana, r?.fimDeSemanaS2?.horario)}
+    ${reuniaoCard('fs',  'Fim de semana',       r?.fimDeSemana?.diaSemana,   r?.fimDeSemana?.horario)}
 
     <button id="btnSalvarCong" class="btn btn-primary btn-full" style="margin-top:8px">
       Salvar Congregação
@@ -753,8 +752,7 @@ async function saveConfigCongregacao(): Promise<void> {
   const congregacao = { nome: v('cNome'), cidade: v('cCidade'), circuito: v('cCircuito'), idioma: 'pt-BR' }
   const reunioes = {
     meiaDeSemana:  { diaSemana: vi('msDia'),  horario: v('msHora')  },
-    fimDeSemana:   { diaSemana: vi('fs1Dia'), horario: v('fs1Hora') },
-    fimDeSemanaS2: { diaSemana: vi('fs2Dia'), horario: v('fs2Hora') },
+    fimDeSemana:   { diaSemana: vi('fsDia'),  horario: v('fsHora')  },
   }
 
   setLoading('btnSalvarCong', true)

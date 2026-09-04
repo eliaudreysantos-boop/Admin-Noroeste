@@ -8,6 +8,13 @@ import {
 
 type TarefasTab = 'resumo' | 'escala' | 'participantes' | 'mensagens' | 'config'
 
+const PRINT_FONT_KEY = 'noroeste_tarefas_print_font_pt'
+const PRINT_MIN_PT = 8
+const PRINT_MAX_PT = 22
+const PRINT_DEFAULT_PT = 14
+const A4_LANDSCAPE_WIDTH_PX = ((297 - 16) / 25.4) * 96
+const A4_LANDSCAPE_HEIGHT_PX = ((210 - 16) / 25.4) * 96
+
 interface TarefasPessoa {
   name?: string
   nome?: string
@@ -27,11 +34,7 @@ interface TarefasPeriod {
 }
 
 interface TarefasPlanning {
-  enableSection1?: boolean
-  periodMode?: string
   scaleStartDate?: string
-  s1Time?: string
-  s2Time?: string
 }
 
 let activeTab: TarefasTab = 'resumo'
@@ -90,6 +93,44 @@ function formatDate(value: string | undefined): string {
   const [y, m, d] = value.split('-')
   if (!y || !m || !d) return value
   return `${d}/${m}/${y}`
+}
+
+function printFont(): number {
+  const saved = Number(localStorage.getItem(PRINT_FONT_KEY))
+  if (Number.isFinite(saved)) return Math.min(PRINT_MAX_PT, Math.max(PRINT_MIN_PT, saved))
+  return PRINT_DEFAULT_PT
+}
+
+function roleLabel(key: string): string {
+  const labels: Record<string, string> = {
+    operador1: 'Operador',
+    operador2: 'Operador',
+    mic1: 'Microfone',
+    mic2: 'Microfone',
+    microfone1: 'Microfone',
+    microfone2: 'Microfone',
+    presidente: 'Presidente',
+    leitor: 'Leitor',
+    entrada: 'Entrada',
+    auditorio: 'Auditório',
+  }
+  return labels[key] ?? key
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b\w/g, ch => ch.toUpperCase())
+}
+
+function assignmentName(value: unknown): string {
+  if (typeof value === 'string') return pessoas[value] ? pessoaNome(pessoas[value], value) : value
+  if (!value || typeof value !== 'object') return ''
+
+  const item = value as Record<string, unknown>
+  const direct = item['name'] ?? item['nome'] ?? item['label']
+  if (typeof direct === 'string' && direct.trim()) return direct
+
+  const id = item['personId'] ?? item['pessoaId'] ?? item['peopleId'] ?? item['id']
+  if (typeof id === 'string') return pessoas[id] ? pessoaNome(pessoas[id], id) : id
+
+  return ''
 }
 
 export default function mount(_ctx: AppContext): void {
@@ -185,7 +226,7 @@ function renderResumo(): void {
       ${flowCard('Escala', `${futuras.length} reunião${futuras.length === 1 ? '' : 'ões'} futura${futuras.length === 1 ? '' : 's'}`, 'escala')}
       ${flowCard('Participantes', `${semVinculo} pessoa${semVinculo === 1 ? '' : 's'} sem vínculo com Admin`, 'participantes')}
       ${flowCard('Mensagens', 'Textos para pessoa, reunião e confirmação', 'mensagens')}
-      ${flowCard('Configurações', 'Seções, horários e início da escala', 'config')}
+      ${flowCard('Configurações', 'Início da escala e ajustes gerais', 'config')}
     </div>`
 
   bindFlowCards()
@@ -196,14 +237,41 @@ function renderEscala(): void {
   if (!content) return
 
   const futuras = futureMeetings().slice(0, 12)
+  const font = printFont()
 
   content.innerHTML = `
     ${sectionTitle('Escala de tarefas', 'Confira as próximas reuniões antes de enviar mensagens.')}
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;
+      padding:12px;margin-bottom:12px">
+      <label class="form-label" for="tarefasPrintFont">Letra do PDF</label>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
+        <input id="tarefasPrintFont" class="form-input" type="range"
+          min="${PRINT_MIN_PT}" max="${PRINT_MAX_PT}" step="1" value="${font}" style="padding:0">
+        <span id="tarefasPrintFontValue" style="min-width:42px;text-align:right;font-size:.82rem;font-weight:700;color:var(--ink-2)">
+          ${font} pt
+        </span>
+      </div>
+      <button id="btnTarefasPdf" class="btn btn-primary btn-full" type="button" style="margin-top:10px">
+        Gerar PDF
+      </button>
+    </div>
     <div style="display:flex;flex-direction:column;gap:8px">
       ${futuras.length
         ? futuras.map(meeting => meetingCard(meeting)).join('')
         : emptyState('Nenhuma reunião futura cadastrada.')}
     </div>`
+
+  document.getElementById('tarefasPrintFont')?.addEventListener('input', (event) => {
+    const value = Number((event.target as HTMLInputElement).value)
+    localStorage.setItem(PRINT_FONT_KEY, String(value))
+    const out = document.getElementById('tarefasPrintFontValue')
+    if (out) out.textContent = `${value} pt`
+  })
+
+  document.getElementById('btnTarefasPdf')?.addEventListener('click', () => {
+    const value = Number((document.getElementById('tarefasPrintFont') as HTMLInputElement | null)?.value)
+    gerarPdfTarefas(Number.isFinite(value) ? value : PRINT_DEFAULT_PT)
+  })
 }
 
 function renderParticipantes(): void {
@@ -239,20 +307,12 @@ function renderConfig(): void {
   const content = document.getElementById('tarefasContent')
   if (!content) return
 
-  const section1 = planning.enableSection1 === true ? 'Ativa' : 'Inativa'
-  const mode = planning.periodMode || 'Não definido'
   const start = planning.scaleStartDate ? formatDate(planning.scaleStartDate) : 'Não definido'
-  const s1 = planning.s1Time || 'Não definido'
-  const s2 = planning.s2Time || 'Não definido'
 
   content.innerHTML = `
     ${sectionTitle('Configurações', 'Revise estes dados antes de gerar ou publicar uma nova escala.')}
     <div style="display:flex;flex-direction:column;gap:8px">
-      ${configRow('Seção 1', section1)}
-      ${configRow('Modo do período', mode)}
       ${configRow('Início da escala', start)}
-      ${configRow('Horário S-1', s1)}
-      ${configRow('Horário S-2', s2)}
     </div>`
 }
 
@@ -298,11 +358,7 @@ function bindFlowCards(): void {
 
 function meetingCard(meeting: TarefasMeeting): string {
   const count = assignmentCount(meeting)
-  const type = meeting.type === 's1'
-    ? 'Meio de semana'
-    : meeting.type === 's2'
-      ? 'Fim de semana'
-      : meeting.type || 'Reunião'
+  const type = meeting.type || 'Reunião'
 
   return `
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 12px">
@@ -362,5 +418,76 @@ function emptyState(text: string): string {
   return `
     <div class="module-placeholder" style="padding:34px 18px">
       <p>${escapeHtml(text)}</p>
+    </div>`
+}
+
+function gerarPdfTarefas(preferredFontPt: number): void {
+  const meetings = futureMeetings()
+  if (meetings.length === 0) {
+    toast('Nenhuma reunião para gerar PDF')
+    return
+  }
+
+  const doc = document.createElement('div')
+  doc.className = 'tarefas-print-doc'
+  doc.innerHTML = printDocumentHtml(meetings)
+  document.body.appendChild(doc)
+
+  let chosen = Math.min(PRINT_MAX_PT, Math.max(PRINT_MIN_PT, Math.round(preferredFontPt)))
+  doc.dataset['measuring'] = 'true'
+
+  for (let size = chosen; size >= PRINT_MIN_PT; size -= 1) {
+    doc.style.fontSize = `${size}pt`
+    chosen = size
+    const fitsWidth = doc.scrollWidth <= A4_LANDSCAPE_WIDTH_PX
+    const fitsHeight = doc.scrollHeight <= A4_LANDSCAPE_HEIGHT_PX
+    if (fitsWidth && fitsHeight) break
+  }
+
+  delete doc.dataset['measuring']
+  doc.dataset['printing'] = 'true'
+  doc.style.fontSize = `${chosen}pt`
+  toast(`PDF em ${chosen} pt`)
+
+  const cleanup = () => {
+    window.removeEventListener('afterprint', cleanup)
+    doc.remove()
+  }
+  window.addEventListener('afterprint', cleanup)
+  window.print()
+  setTimeout(cleanup, 2000)
+}
+
+function printDocumentHtml(meetings: TarefasMeeting[]): string {
+  const roles = Array.from(new Set(
+    meetings.flatMap(meeting => Object.keys(meeting.assignments ?? {})),
+  ))
+  const lastMeeting = meetings[meetings.length - 1]
+
+  return `
+    <div class="tarefas-print-page">
+      <header class="tarefas-print-header">
+        <div>
+          <div class="tarefas-print-title">Escala de Tarefas</div>
+          <div class="tarefas-print-subtitle">Congregação Noroeste</div>
+        </div>
+        <div class="tarefas-print-period">${formatDate(meetings[0]?.date)} - ${formatDate(lastMeeting?.date)}</div>
+      </header>
+      <table class="tarefas-print-table">
+        <thead>
+          <tr>
+            <th>Data</th>
+            ${roles.map(role => `<th>${escapeHtml(roleLabel(role))}</th>`).join('')}
+          </tr>
+        </thead>
+        <tbody>
+          ${meetings.map(meeting => `
+            <tr>
+              <td>${formatDate(meeting.date)}</td>
+              ${roles.map(role => `<td>${escapeHtml(assignmentName(meeting.assignments?.[role]))}</td>`).join('')}
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
     </div>`
 }

@@ -77,7 +77,6 @@ export interface ConfigReuniao {
 export interface ConfigReunioes {
   meiaDeSemana:  ConfigReuniao
   fimDeSemana:   ConfigReuniao
-  fimDeSemanaS2: ConfigReuniao
 }
 
 export interface ConfigLimpezaGrupo {

@@ -466,6 +466,95 @@ textarea.form-input {
   margin-top: 1px;
 }
 
+/* ─── Impressão / PDF de Tarefas ─────────────────────────────────────── */
+
+.tarefas-print-doc {
+  display: none;
+  font-family: Arial, Helvetica, sans-serif;
+  color: #000;
+  background: #fff;
+  line-height: 1.12;
+}
+
+.tarefas-print-doc[data-measuring='true'] {
+  display: block;
+  position: absolute;
+  left: -10000px;
+  top: 0;
+  width: 281mm;
+  padding: 0;
+}
+
+.tarefas-print-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 8mm;
+  align-items: baseline;
+  margin-bottom: 3mm;
+  border-bottom: .6mm solid #7E3AF2;
+  padding-bottom: 2mm;
+}
+
+.tarefas-print-title {
+  font-size: 1.25em;
+  font-weight: 800;
+  color: #7E3AF2;
+  white-space: nowrap;
+}
+
+.tarefas-print-subtitle,
+.tarefas-print-period {
+  font-size: .85em;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.tarefas-print-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: auto;
+}
+
+.tarefas-print-table th,
+.tarefas-print-table td {
+  border: .2mm solid #777;
+  padding: .9mm 1.2mm;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: clip;
+}
+
+.tarefas-print-table th {
+  background: #7E3AF2;
+  color: #fff;
+  font-weight: 800;
+}
+
+.tarefas-print-table tbody tr:nth-child(even) {
+  background: #F2F4F8;
+}
+
+.tarefas-print-table td:first-child,
+.tarefas-print-table th:first-child {
+  font-weight: 800;
+}
+
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 8mm;
+  }
+
+  body > :not(.tarefas-print-doc) {
+    display: none !important;
+  }
+
+  .tarefas-print-doc[data-printing='true'] {
+    display: block !important;
+  }
+}
+
 /* ─── Scrollbar suave (webkit) ─────────────────────────────────────────── */
 
 ::-webkit-scrollbar       { width: 5px; height: 5px; }
