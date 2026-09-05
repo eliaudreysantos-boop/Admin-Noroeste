@@ -123,6 +123,13 @@ function render(): void {
   el.querySelectorAll<HTMLButtonElement>('[data-delete-orador]').forEach(button => {
     button.addEventListener('click', () => void deleteOrador(button.dataset['deleteOrador'] ?? ''))
   })
+  el.querySelector<HTMLButtonElement>('[data-add-programacao]')?.addEventListener('click', () => openProgramacaoModal(null))
+  el.querySelectorAll<HTMLButtonElement>('[data-edit-programacao]').forEach(button => {
+    button.addEventListener('click', () => openProgramacaoModal(button.dataset['editProgramacao'] ?? null))
+  })
+  el.querySelectorAll<HTMLButtonElement>('[data-delete-programacao]').forEach(button => {
+    button.addEventListener('click', () => void deleteProgramacao(button.dataset['deleteProgramacao'] ?? ''))
+  })
 }
 
 function tabButton(tab: OradoresTab, label: string): string {
@@ -193,7 +200,51 @@ async function deleteOrador(id: string): Promise<void> {
 
 function programacaoView(): string {
   const rows = Object.entries(discursos.programacao ?? {}).filter(([, p]) => !p.data || p.data >= todayStr()).sort(([, a], [, b]) => String(a.data ?? '').localeCompare(String(b.data ?? '')))
-  return `<div style="margin-top:14px"><h3 style="font-size:.95rem;color:#5C6062;margin-bottom:2px">Programação</h3><p style="font-size:.75rem;color:var(--ink-3);margin-bottom:10px">Compromissos futuros e confirmação dos oradores.</p><div class="module-option-list">${rows.length ? rows.map(([, p]) => `<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 12px;display:flex;justify-content:space-between;gap:12px"><div><strong>${escapeHtml(p.data ? formatDate(p.data) : 'Sem data')}</strong><div style="font-size:.76rem;color:var(--ink-3)">${escapeHtml(p.oradorNome ?? discursos.oradores?.[p.oradorId ?? '']?.nome ?? p.oradorId ?? 'Orador a definir')} · ${escapeHtml(p.temaTitulo ?? (p.temaNumero ? `Tema ${p.temaNumero}` : 'Tema a definir'))}</div></div><span style="font-size:.72rem;font-weight:700;color:${p.status === 'confirmado' ? '#1A6B3C' : '#B3261E'}">${p.status === 'confirmado' ? 'Confirmado' : 'A confirmar'}</span></div>`).join('') : '<p class="empty-state">Nenhum compromisso futuro.</p>'}</div></div>`
+  return `<div style="margin-top:14px"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:2px"><div><h3 style="font-size:.95rem;color:#5C6062">Programação</h3><p style="font-size:.75rem;color:var(--ink-3)">Compromissos futuros e confirmação dos oradores.</p></div><button class="btn btn-primary" type="button" data-add-programacao style="padding:6px 10px;font-size:.78rem;white-space:nowrap">Adicionar</button></div><div class="module-option-list">${rows.length ? rows.map(([id, p]) => `<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 12px;display:flex;justify-content:space-between;gap:10px"><div style="flex:1;min-width:0"><strong>${escapeHtml(p.data ? formatDate(p.data) : 'Sem data')}</strong><div style="font-size:.76rem;color:var(--ink-3)">${escapeHtml(p.oradorNome ?? discursos.oradores?.[p.oradorId ?? '']?.nome ?? p.oradorId ?? 'Orador a definir')} · ${escapeHtml(p.temaTitulo ?? (p.temaNumero ? `Tema ${p.temaNumero}` : 'Tema a definir'))}</div></div><span style="font-size:.72rem;font-weight:700;color:${p.status === 'confirmado' ? '#1A6B3C' : '#B3261E'}">${p.status === 'confirmado' ? 'Confirmado' : 'A confirmar'}</span><button class="btn btn-ghost" type="button" data-edit-programacao="${escapeHtml(id)}" style="padding:4px 8px;font-size:.72rem">Editar</button><button class="btn btn-danger" type="button" data-delete-programacao="${escapeHtml(id)}" style="padding:4px 8px;font-size:.72rem">Excluir</button></div>`).join('') : '<p class="empty-state">Nenhum compromisso futuro.</p>'}</div></div>`
+}
+
+function openProgramacaoModal(id: string | null): void {
+  const current = id ? discursos.programacao?.[id] : undefined
+  const speakers = Object.entries(discursos.oradores ?? {}).sort(([, a], [, b]) => (a.nome ?? a.name ?? '').localeCompare(b.nome ?? b.name ?? '', 'pt-BR'))
+  const options = speakers.map(([speakerId, speaker]) => `<option value="${escapeHtml(speakerId)}" ${speakerId === current?.oradorId ? 'selected' : ''}>${escapeHtml(speaker.nome ?? speaker.name ?? speakerId)}</option>`).join('')
+  const overlay = document.createElement('div')
+  overlay.className = 'modal-overlay'
+  overlay.innerHTML = `<div class="modal"><h2>${id ? 'Editar programação' : 'Nova programação'}</h2><div class="form-group"><label class="form-label" for="progData">Data</label><input id="progData" class="form-input" type="date" value="${escapeHtml(current?.data ?? '')}"></div><div class="form-group"><label class="form-label" for="progOrador">Orador</label><select id="progOrador" class="form-select"><option value="">A definir</option>${options}</select></div><div class="form-group"><label class="form-label" for="progTemaNumero">Número do tema</label><input id="progTemaNumero" class="form-input" type="number" value="${current?.temaNumero ?? ''}"></div><div class="form-group"><label class="form-label" for="progTemaTitulo">Título do tema</label><input id="progTemaTitulo" class="form-input" value="${escapeHtml(current?.temaTitulo ?? '')}"></div><div class="form-group"><label class="form-label" for="progStatus">Status</label><select id="progStatus" class="form-select"><option value="por_confirmar" ${current?.status !== 'confirmado' ? 'selected' : ''}>A confirmar</option><option value="confirmado" ${current?.status === 'confirmado' ? 'selected' : ''}>Confirmado</option></select></div><div style="display:flex;gap:8px;margin-top:8px"><button id="cancelProg" class="btn btn-ghost" type="button" style="flex:1">Cancelar</button><button id="saveProg" class="btn btn-primary" type="button" style="flex:1">Salvar</button></div></div>`
+  document.body.appendChild(overlay)
+  overlay.addEventListener('click', event => { if (event.target === overlay) overlay.remove() })
+  overlay.querySelector('#cancelProg')?.addEventListener('click', () => overlay.remove())
+  overlay.querySelector('#saveProg')?.addEventListener('click', () => void saveProgramacao(id, overlay))
+}
+
+async function saveProgramacao(id: string | null, overlay: HTMLElement): Promise<void> {
+  const oradorId = (overlay.querySelector('#progOrador') as HTMLSelectElement).value
+  const orador = oradorId ? discursos.oradores?.[oradorId] : undefined
+  const record: LegacyProgramacao = {
+    ...(id ? discursos.programacao?.[id] : {}),
+    data: (overlay.querySelector('#progData') as HTMLInputElement).value,
+    oradorId: oradorId || undefined,
+    oradorNome: orador ? (orador.nome ?? orador.name) : undefined,
+    temaNumero: Number((overlay.querySelector('#progTemaNumero') as HTMLInputElement).value) || undefined,
+    temaTitulo: (overlay.querySelector('#progTemaTitulo') as HTMLInputElement).value.trim() || undefined,
+    status: (overlay.querySelector('#progStatus') as HTMLSelectElement).value,
+  }
+  if (!record.data) { toast('Preencha a data'); return }
+  const finalId = id ?? `p_${Date.now().toString(36)}`
+  try {
+    await update(tarefasDiscursosRef, { [`programacao/${finalId}`]: record })
+    discursos.programacao = { ...(discursos.programacao ?? {}), [finalId]: record }
+    overlay.remove(); toast(id ? 'Programação atualizada' : 'Programação adicionada'); render()
+  } catch { toast('Erro ao salvar a programação') }
+}
+
+async function deleteProgramacao(id: string): Promise<void> {
+  if (!id || !discursos.programacao?.[id]) return
+  if (!window.confirm('Excluir esta programação?')) return
+  try {
+    await update(tarefasDiscursosRef, { [`programacao/${id}`]: null })
+    const next = { ...(discursos.programacao ?? {}) }; delete next[id]; discursos.programacao = next
+    toast('Programação excluída'); render()
+  } catch { toast('Erro ao excluir a programação') }
 }
 
 function temasView(): string {
