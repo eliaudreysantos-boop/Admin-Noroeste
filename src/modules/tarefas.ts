@@ -123,6 +123,11 @@ function scaleMeetingEntries(): Array<{ periodId: string; meetingId: string; mee
   )
 }
 
+function meetingRefFor(meeting: TarefasMeeting): { periodId: string; meetingId: string } | null {
+  const found = scaleMeetingEntries().find(entry => entry.meeting === meeting)
+  return found ? { periodId: found.periodId, meetingId: found.meetingId } : null
+}
+
 function chooseCandidate(role: string, meeting: TarefasMeeting, used: Set<string>, history: Record<string, number>): string | null {
   const candidates = Object.entries(pessoas)
     .filter(([, person]) => isActive(person) && roleIsAllowed(person, role) && !isUnavailable(person, meeting.date))
@@ -373,6 +378,8 @@ function renderEscala(): void {
     }
     void generateScale(input.value)
   })
+
+  bindAssignmentEditors()
 }
 
 async function generateScale(startDate: string): Promise<void> {
@@ -518,6 +525,13 @@ function bindFlowCards(): void {
 function meetingCard(meeting: TarefasMeeting): string {
   const count = assignmentCount(meeting)
   const type = meeting.type || 'Reunião'
+  const ref = meetingRefFor(meeting)
+  const editors = ref
+    ? Array.from(new Set([...Object.keys(meeting.assignments ?? {}), ...GENERATED_ROLES]))
+      .filter(role => meetingAllowsRole(meeting, role))
+      .map(role => assignmentEditor(ref.periodId, ref.meetingId, meeting, role))
+      .join('')
+    : ''
 
   return `
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 12px">
@@ -530,7 +544,51 @@ function meetingCard(meeting: TarefasMeeting): string {
           ${count} função${count === 1 ? '' : 'ões'}
         </span>
       </div>
+      <div style="display:flex;flex-direction:column;gap:6px;margin-top:10px">
+        ${editors}
+      </div>
     </div>`
+}
+
+function assignmentEditor(periodId: string, meetingId: string, meeting: TarefasMeeting, role: string): string {
+  const selected = assignmentPersonId(meeting.assignments?.[role]) ?? ''
+  const options = Object.entries(pessoas)
+    .filter(([, person]) => isActive(person))
+    .sort(([, a], [, b]) => pessoaNome(a, '').localeCompare(pessoaNome(b, ''), 'pt-BR'))
+    .map(([id, person]) => `<option value="${escapeHtml(id)}" ${id === selected ? 'selected' : ''}>${escapeHtml(pessoaNome(person, id))}</option>`)
+    .join('')
+  return `<label style="display:flex;align-items:center;gap:8px;font-size:.76rem;color:var(--ink-2)"><span style="min-width:86px;font-weight:700">${escapeHtml(roleLabel(role))}</span><select class="form-select tarefas-assignment-select" data-period="${escapeHtml(periodId)}" data-meeting="${escapeHtml(meetingId)}" data-role="${escapeHtml(role)}" style="padding:6px 28px 6px 8px;font-size:.78rem"><option value="">Deixar vazio</option>${options}</select></label>`
+}
+
+function bindAssignmentEditors(): void {
+  document.querySelectorAll<HTMLSelectElement>('.tarefas-assignment-select').forEach(select => {
+    select.addEventListener('change', () => {
+      void saveAssignment(
+        select.dataset['period'] ?? '',
+        select.dataset['meeting'] ?? '',
+        select.dataset['role'] ?? '',
+        select.value,
+      )
+    })
+  })
+}
+
+async function saveAssignment(periodId: string, meetingId: string, role: string, personId: string): Promise<void> {
+  if (!periodId || !meetingId || !role) return
+  const path = `${periodId}/meetings/${meetingId}/assignments/${role}`
+  try {
+    await update(tarefasScaleRef, { [path]: personId || null })
+    const meeting = periods[periodId]?.meetings?.[meetingId]
+    if (meeting) {
+      meeting.assignments = { ...(meeting.assignments ?? {}) }
+      if (personId) meeting.assignments[role] = personId
+      else delete meeting.assignments[role]
+    }
+    toast('Designação atualizada')
+    renderEscala()
+  } catch {
+    toast('Não foi possível salvar a designação')
+  }
 }
 
 function pessoaRow(id: string, p: TarefasPessoa): string {
