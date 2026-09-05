@@ -24,10 +24,6 @@ function escapeHtml(v: unknown): string {
     .replace(/'/g, '&#039;')
 }
 
-function countRecords(value: unknown): number {
-  return value && typeof value === 'object' ? Object.keys(value as Record<string, unknown>).length : 0
-}
-
 function records(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' ? value as Record<string, unknown> : {}
 }
@@ -118,19 +114,39 @@ function renderPrograma(): void {
   if (!el) return
 
   const semanasNode = programacao['programs'] ?? programacao['semanas'] ?? programacao
-  const semanas = countRecords(semanasNode)
+  const semanaEntries = Object.entries(records(semanasNode))
+    .map(([id, value]) => [id, records(value)] as const)
+    .sort(([, a], [, b]) => String(a.meetingDate ?? a.data ?? a.date ?? '').localeCompare(String(b.meetingDate ?? b.data ?? b.date ?? '')))
+  const semanas = semanaEntries.length
   const pendencias = countPending(semanasNode)
   el.innerHTML = `
-    ${sectionTitle('Programa', 'Importe a apostila, revise a semana e confira as designações antes dos lembretes.')}
+    ${sectionTitle('Programa', 'Revise as semanas importadas e complete as designações antes dos lembretes.')}
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
       ${metricCard('Semanas', String(semanas), '#003F72')}
       ${metricCard('Pendências', String(pendencias), pendencias ? '#B3261E' : '#1A6B3C')}
     </div>
-    <div style="display:flex;flex-direction:column;gap:8px">
-      ${optionCard('Semana', 'Programação e designações da reunião')}
-      ${optionCard('Mês', 'Filtro mensal para conferência')}
-      ${optionCard('Bimestre', 'Importação da apostila oficial')}
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:0 12px">
+      ${semanaEntries.length ? semanaEntries.map(([id, week]) => programWeekRow(id, week)).join('') : '<p style="padding:18px 0;color:var(--ink-3);font-size:.82rem;text-align:center">Nenhuma semana importada ainda. Use Apostilas para iniciar o bimestre.</p>'}
     </div>`
+}
+
+function programWeekRow(id: string, week: Record<string, unknown>): string {
+  const date = String(week.meetingDate ?? week.data ?? week.date ?? id)
+  const parts = Array.isArray(week.parts) ? week.parts as unknown[] : Object.values(records(week.parts))
+  const pending = parts.filter(part => {
+    const item = records(part)
+    return !item.assignedPersonId && !item.pessoaId && !item.assigned
+  }).length
+  const bible = String(week.bibleReading ?? week.leituraBiblica ?? week.leitura ?? '')
+  return `<div style="padding:11px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;gap:12px;align-items:center">
+    <div style="min-width:0"><strong>${escapeHtml(formatDate(date))}</strong><div style="font-size:.75rem;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(bible || `${parts.length} partes cadastradas`)}</div></div>
+    <span style="font-size:.72rem;font-weight:700;color:${pending ? '#B3261E' : '#1A6B3C'};white-space:nowrap">${pending ? `${pending} pendente${pending > 1 ? 's' : ''}` : 'Completa'}</span>
+  </div>`
+}
+
+function formatDate(value: string): string {
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  return match ? `${match[3]}/${match[2]}/${match[1]}` : value
 }
 
 function renderApostilas(): void {
