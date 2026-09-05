@@ -1,9 +1,10 @@
 import type { AppContext, RawPessoas } from '../types'
 import { get, pessoasRef, programacaoRef } from '../firebase'
+import { renderMenuCards, type ItemMenu } from '../ui/menu-cards'
 
-type ProgramacaoTab = 'programa' | 'apostilas' | 'pessoas' | 'arquivos' | 'lembretes'
+type ProgramacaoTab = 'indice' | 'programa' | 'apostilas' | 'pessoas' | 'arquivos' | 'lembretes'
 
-let activeTab: ProgramacaoTab = 'programa'
+let activeTab: ProgramacaoTab = 'indice'
 let programacao: Record<string, unknown> = {}
 let pessoas: RawPessoas = {}
 
@@ -47,7 +48,7 @@ function roleLabel(role: string | null): string {
 }
 
 export default function mount(_ctx: AppContext): void {
-  activeTab = 'programa'
+  activeTab = 'indice'
   const el = document.getElementById('appContent')
   if (!el) return
 
@@ -59,7 +60,6 @@ export default function mount(_ctx: AppContext): void {
       </div>
     </div>`
 
-  renderTabs()
   void loadProgramacao()
 }
 
@@ -102,11 +102,30 @@ function renderTabs(): void {
 }
 
 function renderContent(): void {
+  if (activeTab === 'indice') {
+    renderIndex()
+    return
+  }
+  renderTabs()
   if (activeTab === 'programa') renderPrograma()
   else if (activeTab === 'apostilas') renderApostilas()
   else if (activeTab === 'pessoas') renderPessoas()
   else if (activeTab === 'arquivos') renderArquivos()
   else renderLembretes()
+}
+
+function renderIndex(): void {
+  const content = document.getElementById('programacaoContent')
+  if (!content) return
+  content.innerHTML = `<div style="margin-bottom:14px"><h2 style="font-size:1.05rem;color:var(--blue-deep);margin-bottom:2px">Programação</h2><p style="font-size:.8rem;color:var(--ink-3)">Programação de reuniões.</p></div><div id="programacaoMenu"></div>`
+  const items: ItemMenu[] = [
+    { id: 'programa', titulo: 'Programa', subtitulo: 'Semanas, partes e designações', icone: '▦', corFundo: '#003F72' },
+    { id: 'apostilas', titulo: 'Apostilas', subtitulo: 'Importação dos programas oficiais', icone: '▤', corFundo: '#7E3AF2' },
+    { id: 'pessoas', titulo: 'Pessoas', subtitulo: 'Participantes disponíveis para designações', icone: '♙', corFundo: '#006EB6' },
+    { id: 'arquivos', titulo: 'Arquivos', subtitulo: 'S-89 e programação para impressão', icone: '▣', corFundo: '#1A6B3C' },
+    { id: 'lembretes', titulo: 'Lembretes', subtitulo: 'Mensagens após revisar as designações', icone: '✉', corFundo: '#B3261E' },
+  ]
+  renderMenuCards(content.querySelector<HTMLElement>('#programacaoMenu')!, items, id => { activeTab = id as ProgramacaoTab; renderContent() })
 }
 
 function renderPrograma(): void {
