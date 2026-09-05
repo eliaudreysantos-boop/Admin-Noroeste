@@ -6,8 +6,9 @@ import {
   tarefasPlanejamentoRef,
   tarefasScaleRef,
 } from '../firebase'
+import { renderMenuCards, type ItemMenu } from '../ui/menu-cards'
 
-type TarefasTab = 'resumo' | 'escala' | 'participantes' | 'mensagens' | 'pendencias'
+type TarefasTab = 'indice' | 'resumo' | 'escala' | 'participantes' | 'mensagens' | 'pendencias'
 
 const PRINT_FONT_KEY = 'noroeste_tarefas_print_font_pt'
 const PRINT_MIN_PT = 8
@@ -42,7 +43,7 @@ interface TarefasPlanning {
   generatedAt?: string
 }
 
-let activeTab: TarefasTab = 'resumo'
+let activeTab: TarefasTab = 'indice'
 let pessoas: Record<string, TarefasPessoa> = {}
 let periods: Record<string, TarefasPeriod> = {}
 let planning: TarefasPlanning = {}
@@ -222,7 +223,7 @@ function assignmentName(value: unknown): string {
 }
 
 export default function mount(_ctx: AppContext): void {
-  activeTab = 'resumo'
+  activeTab = 'indice'
   const el = document.getElementById('appContent')
   if (!el) return
 
@@ -234,7 +235,6 @@ export default function mount(_ctx: AppContext): void {
       </div>
     </div>`
 
-  renderTabs()
   void loadTarefas()
 }
 
@@ -284,11 +284,30 @@ async function loadTarefas(): Promise<void> {
 }
 
 function renderContent(): void {
+  if (activeTab === 'indice') {
+    renderIndex()
+    return
+  }
+  renderTabs()
   if (activeTab === 'resumo') renderResumo()
   else if (activeTab === 'escala') renderEscala()
   else if (activeTab === 'participantes') renderParticipantes()
   else if (activeTab === 'mensagens') renderMensagens()
   else renderPendencias()
+}
+
+function renderIndex(): void {
+  const content = document.getElementById('tarefasContent')
+  if (!content) return
+  content.innerHTML = `<div style="margin-bottom:14px"><h2 style="font-size:1.05rem;color:#7E3AF2;margin-bottom:2px">Tarefas</h2><p style="font-size:.8rem;color:var(--ink-3)">Funções da reunião, participantes e mensagens.</p></div><div id="tarefasMenu"></div>`
+  const items: ItemMenu[] = [
+    { id: 'resumo', titulo: 'Resumo', subtitulo: 'Visão geral da escala de tarefas', icone: '▦', corFundo: '#7E3AF2' },
+    { id: 'escala', titulo: 'Escala', subtitulo: 'Defina o início e gere a escala', icone: '▣', corFundo: '#003F72' },
+    { id: 'participantes', titulo: 'Pessoas', subtitulo: 'Participantes e vínculos com Admin', icone: '♙', corFundo: '#006EB6' },
+    { id: 'mensagens', titulo: 'Mensagens', subtitulo: 'Textos para confirmação e envio', icone: '✉', corFundo: '#1A6B3C' },
+    { id: 'pendencias', titulo: 'Pendências', subtitulo: 'Funções vazias e vínculos incompletos', icone: '!', corFundo: '#B3261E' },
+  ]
+  renderMenuCards(content.querySelector<HTMLElement>('#tarefasMenu')!, items, id => { activeTab = id as TarefasTab; renderContent() })
 }
 
 function renderResumo(): void {
