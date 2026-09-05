@@ -1,9 +1,10 @@
-import type { AppContext, RawPessoas } from '../types'
+import type { AppContext, MasterPessoa, RawPessoas } from '../types'
 import { get, pessoasRef, programacaoRef, update } from '../firebase'
 import { renderMenuCards, type ItemMenu } from '../ui/menu-cards'
 import { moduleBackButton } from '../ui/module-header'
 
 type ProgramacaoTab = 'indice' | 'programa' | 'apostilas' | 'pessoas' | 'arquivos' | 'lembretes'
+type Row = Record<string, unknown>
 
 let activeTab: ProgramacaoTab = 'indice'
 let programacao: Record<string, unknown> = {}
@@ -300,24 +301,101 @@ function renderPessoas(): void {
 function renderArquivos(): void {
   const el = document.getElementById('programacaoContent')
   if (!el) return
+  const weeks = programEntries()
   el.innerHTML = `
     ${sectionTitle('Arquivos', 'Gere arquivos depois de revisar o programa da semana.')}
-    <div style="display:flex;flex-direction:column;gap:8px">
-      ${optionCard('S-89', 'Cartões individuais ou quatro por folha')}
-      ${optionCard('S-140 PDF', 'Programação para conferência')}
-      ${optionCard('S-140 DOCX', 'Documento editável')}
+    <div class="form-panel">
+      <label class="form-field"><span>Semana</span><select id="arquivoSemana">${weeks.map(([id, week]) => `<option value="${escapeHtml(id)}">${escapeHtml(formatDate(String(week.meetingDate ?? id)))} - ${escapeHtml(String(week.bibleReading ?? 'Programa'))}</option>`).join('')}</select></label>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+        <button class="primary-btn" type="button" data-generate-file="s89">Gerar S-89</button>
+        <button class="secondary-btn" type="button" data-generate-file="s140">Gerar S-140 PDF</button>
+        <button class="secondary-btn" type="button" data-generate-file="docx">Baixar S-140 DOCX</button>
+      </div>
+      <div class="form-help">PDF abre a impressão do navegador para escolher impressora ou “Salvar como PDF”. DOCX baixa um documento editável compatível com Word.</div>
     </div>`
+  el.querySelectorAll<HTMLButtonElement>('[data-generate-file]').forEach(button => button.addEventListener('click', () => {
+    const id = (document.getElementById('arquivoSemana') as HTMLSelectElement | null)?.value
+    const week = programEntries().find(([weekId]) => weekId === id)?.[1]
+    if (!week) { toast('Importe uma semana antes de gerar o arquivo'); return }
+    generateProgramFile(button.dataset.generateFile ?? 's140', id ?? '', week)
+  }))
 }
 
 function renderLembretes(): void {
   const el = document.getElementById('programacaoContent')
   if (!el) return
+  const people = peopleWithAssignments()
   el.innerHTML = `
     ${sectionTitle('Lembretes', 'Envie somente depois de conferir WhatsApp, data, horário e designação.')}
-    <div style="display:flex;flex-direction:column;gap:8px">
-      ${optionCard('Lembretes S-89', 'Partes do ministério')}
-      ${optionCard('Lembretes gerais', 'Demais partes da reunião')}
+    <div class="form-panel">
+      <label class="form-field"><span>Participante</span><select id="lembretePessoa">${people.map(([id, person]) => `<option value="${escapeHtml(id)}">${escapeHtml(person.name)}</option>`).join('')}</select></label>
+      <label class="form-field" style="margin-top:10px"><span>Semana</span><select id="lembreteSemana">${programEntries().map(([id, week]) => `<option value="${escapeHtml(id)}">${escapeHtml(formatDate(String(week.meetingDate ?? id)))}</option>`).join('')}</select></label>
+      <textarea id="lembretePreview" rows="7" readonly style="margin-top:10px"></textarea>
+      <button class="primary-btn" type="button" id="btnAbrirLembrete" style="margin-top:10px">Abrir WhatsApp</button>
+      <div class="form-help">A mensagem fica aberta para revisão. O app não envia nada automaticamente.</div>
     </div>`
+  const refresh = () => {
+    const personId = (document.getElementById('lembretePessoa') as HTMLSelectElement | null)?.value ?? ''
+    const weekId = (document.getElementById('lembreteSemana') as HTMLSelectElement | null)?.value ?? ''
+    const week = programEntries().find(([id]) => id === weekId)?.[1]
+    const person = pessoas[personId]
+    const text = week && person ? reminderText(person, week, personId) : 'Nenhuma designação encontrada.'
+    const preview = document.getElementById('lembretePreview') as HTMLTextAreaElement | null
+    if (preview) preview.value = text
+  }
+  document.getElementById('lembretePessoa')?.addEventListener('change', refresh)
+  document.getElementById('lembreteSemana')?.addEventListener('change', refresh)
+  document.getElementById('btnAbrirLembrete')?.addEventListener('click', () => {
+    const personId = (document.getElementById('lembretePessoa') as HTMLSelectElement | null)?.value ?? ''
+    const person = pessoas[personId]
+    if (!person) return
+    const text = (document.getElementById('lembretePreview') as HTMLTextAreaElement | null)?.value ?? ''
+    const phone = String(person.whatsapp ?? '').replace(/\D/g, '')
+    if (!phone) { toast('Cadastre o WhatsApp desta pessoa no Admin'); return }
+    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(text)}`, '_blank', 'noopener,noreferrer')
+    toast('WhatsApp aberto. Revise e envie a mensagem.')
+  })
+  refresh()
+}
+
+function programEntries(): Array<[string, Row]> {
+  const source = records(programacao.programs ?? programacao.semanas ?? programacao)
+  return Object.entries(source).map(([id, value]): [string, Row] => [id, records(value)]).sort(([, a], [, b]) => String(a.meetingDate ?? '').localeCompare(String(b.meetingDate ?? '')))
+}
+
+function peopleWithAssignments(): Array<[string, MasterPessoa]> {
+  const ids = new Set<string>()
+  programEntries().forEach(([, week]) => {
+    const parts = Array.isArray(week.parts) ? week.parts : Object.values(records(week.parts))
+    parts.forEach(part => {
+      const item = records(part)
+      const id = String(item.assignedPersonId ?? item.pessoaId ?? '')
+      if (id) ids.add(id)
+    })
+  })
+  return [...ids].map(id => pessoas[id] ? [id, pessoas[id]] as [string, MasterPessoa] : null).filter((entry): entry is [string, MasterPessoa] => Boolean(entry)).sort(([, a], [, b]) => a.name.localeCompare(b.name, 'pt-BR'))
+}
+
+function reminderText(person: { name: string }, week: Row, personId: string): string {
+  const date = formatDate(String(week.meetingDate ?? ''))
+  const parts = (Array.isArray(week.parts) ? week.parts : Object.values(records(week.parts))).map(records).filter(part => String(part.assignedPersonId ?? part.pessoaId ?? '') === personId)
+  return `Olá, ${person.name}!\n\nSua designação para a reunião de ${date} é:\n${parts.map(part => `• ${String(part.title ?? 'Parte')} (${String(part.durationMinutes ?? '?')} min)`).join('\n') || 'Confira a programação no app.'}\n\nPor favor, confirme a leitura e avise se precisar de ajuda.`
+}
+
+function generateProgramFile(kind: string, id: string, week: Row): void {
+  const date = formatDate(String(week.meetingDate ?? id))
+  const parts = (Array.isArray(week.parts) ? week.parts : Object.values(records(week.parts))).map(records)
+  const rows = parts.map(part => `<tr><td>${escapeHtml(String(part.id ?? ''))}</td><td>${escapeHtml(String(part.title ?? ''))}</td><td>${escapeHtml(String(part.durationMinutes ?? ''))} min</td><td>${escapeHtml(String(pessoas[String(part.assignedPersonId ?? part.pessoaId ?? '')]?.name ?? 'Sem designação'))}</td></tr>`).join('')
+  const title = kind === 's89' ? 'S-89 - Designações individuais' : 'S-140 - Programação da reunião'
+  const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${title}</title><style>body{font-family:Arial,sans-serif;margin:28px;color:#222}h1{font-size:20px;color:#003f72}table{width:100%;border-collapse:collapse}th,td{border:1px solid #bbb;padding:7px;text-align:left}th{background:#e8f1f7}@media print{button{display:none}}</style></head><body><h1>${title}</h1><p><strong>Data:</strong> ${date} &nbsp; <strong>Leitura:</strong> ${escapeHtml(String(week.bibleReading ?? ''))}</p><table><thead><tr><th>Nº</th><th>Parte</th><th>Duração</th><th>Designado</th></tr></thead><tbody>${rows}</tbody></table><button onclick="window.print()">Imprimir / Salvar PDF</button></body></html>`
+  if (kind === 'docx') {
+    const blob = new Blob([html], { type: 'application/msword' })
+    const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = `programacao-${id}.doc`; link.click(); URL.revokeObjectURL(link.href); toast('Documento baixado')
+    return
+  }
+  const popup = window.open('', '_blank')
+  if (!popup) { toast('Permita pop-ups para gerar o arquivo'); return }
+  popup.document.write(html); popup.document.close(); popup.focus(); if (kind === 's140') popup.print()
 }
 
 function sectionTitle(title: string, desc: string): string {
@@ -337,16 +415,4 @@ function metricCard(label: string, value: string, color: string): string {
         ${escapeHtml(label)}
       </div>
     </div>`
-}
-
-function optionCard(title: string, desc: string): string {
-  return `
-    <button class="module-menu-btn" type="button" disabled
-      style="opacity:.72;cursor:not-allowed;border-radius:8px;padding:12px 14px">
-      <div style="flex:1;min-width:0">
-        <div class="mod-label">${escapeHtml(title)}</div>
-        <div class="mod-desc">${escapeHtml(desc)}</div>
-      </div>
-      <span style="font-size:.72rem;color:var(--ink-3);font-weight:700">Em preparo</span>
-    </button>`
 }
