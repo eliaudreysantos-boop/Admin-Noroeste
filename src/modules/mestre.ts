@@ -6,7 +6,6 @@ import type {
   RawUsuarios,
   Role,
   Sex,
-  SecretarioPapel,
   TipoDesignacao,
   Usuario,
   ConfigLimpeza,
@@ -101,14 +100,6 @@ function roleLabel(role: Role | null): string {
 
 function sexLabel(sex: Sex | null): string {
   return sex === 'M' ? 'M' : sex === 'F' ? 'F' : '—'
-}
-
-function papelLabel(papel: SecretarioPapel | undefined): string {
-  const map: Record<string, string> = {
-    secretario:'Secretário', publicador:'Publicador',
-    assistencia:'Assistência', coordenador:'Coordenador',
-  }
-  return papel ? (map[papel] ?? papel) : '—'
 }
 
 function appsList(apps: Usuario['apps']): string {
@@ -505,9 +496,6 @@ function usuarioCard(uid: string, u: Usuario): string {
           ${u.nome} ${badge}
         </div>
         <div style="font-size:.75rem;color:var(--ink-3);margin-top:2px">Apps: ${appsList(u.apps)}</div>
-        ${u.secretarioPapel
-          ? `<div style="font-size:.75rem;color:var(--ink-3)">Papel: ${papelLabel(u.secretarioPapel)}</div>`
-          : ''}
         <div style="font-size:.7rem;color:var(--ink-3);margin-top:1px;font-family:monospace">${uid}</div>
       </div>
       <button class="btn btn-ghost" data-edit-usuario="${uid}"
@@ -554,23 +542,6 @@ function openUsuarioModal(uid: string | null): void {
         ${appCheck('programacao', 'Programação',  apps.programacao)}
         ${appCheck('secretario',  'Secretário',   apps.secretario)}
       </div>
-      <div class="form-group">
-        <label class="form-label">Papel (Secretário)</label>
-        <select id="uPapel" class="form-select">
-          <option value="">Nenhum</option>
-          <option value="secretario"  ${u?.secretarioPapel === 'secretario'  ? 'selected' : ''}>Secretário</option>
-          <option value="publicador"  ${u?.secretarioPapel === 'publicador'  ? 'selected' : ''}>Publicador</option>
-          <option value="assistencia" ${u?.secretarioPapel === 'assistencia' ? 'selected' : ''}>Assistência</option>
-          <option value="coordenador" ${u?.secretarioPapel === 'coordenador' ? 'selected' : ''}>Coordenador</option>
-        </select>
-      </div>
-      <div class="form-group" id="masterIdGroup"
-        style="${u?.secretarioPapel === 'publicador' ? '' : 'display:none'}">
-        <label class="form-label">Master ID
-          <span style="color:var(--ink-3);font-weight:400;text-transform:none"> — obrigatório para Publicador</span>
-        </label>
-        <input id="uMasterId" class="form-input" value="${u?.masterId ?? ''}" placeholder="m_xxxxxxxx">
-      </div>
       <div style="display:flex;gap:8px;margin-top:8px">
         <button id="btnCancelUsuario" class="btn btn-ghost" style="flex:1">Cancelar</button>
         <button id="btnSalvarUsuario" class="btn btn-primary" style="flex:1">Salvar</button>
@@ -578,13 +549,6 @@ function openUsuarioModal(uid: string | null): void {
     </div>`
 
   document.body.appendChild(overlay)
-
-  const papelSel    = document.getElementById('uPapel') as HTMLSelectElement
-  const masterIdGrp = document.getElementById('masterIdGroup')!
-
-  papelSel.addEventListener('change', () => {
-    masterIdGrp.style.display = papelSel.value === 'publicador' ? '' : 'none'
-  })
 
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove() })
   document.getElementById('btnCancelUsuario')!.addEventListener('click', () => overlay.remove())
@@ -596,20 +560,15 @@ async function saveUsuario(uid: string | null, overlay: HTMLElement): Promise<vo
   const nome     = (document.getElementById('uNome')     as HTMLInputElement).value.trim()
   const senha    = (document.getElementById('uSenha')    as HTMLInputElement).value
   const ativo    = (document.getElementById('uAtivo')    as HTMLInputElement).checked
-  const papelVal = (document.getElementById('uPapel')    as HTMLSelectElement).value as SecretarioPapel | ''
-  const masterId = (document.getElementById('uMasterId') as HTMLInputElement | null)?.value.trim() ?? ''
 
   if (!nome)  { toast('Preencha o nome');  return }
   if (!senha) { toast('Preencha a senha'); return }
-
-  if (papelVal === 'publicador' && !masterId) {
-    toast('Master ID obrigatório para Publicador'); return
-  }
 
   const checkApp = (id: string) =>
     (document.getElementById(`uApp_${id}`) as HTMLInputElement).checked
 
   const usuario: Usuario = {
+    ...(uid && usuarios[uid] ? usuarios[uid] : {}),
     nome, senha, ativo,
     apps: {
       mestre:      checkApp('mestre'),
@@ -621,9 +580,6 @@ async function saveUsuario(uid: string | null, overlay: HTMLElement): Promise<vo
       secretario:  checkApp('secretario'),
     },
   }
-  if (papelVal) usuario.secretarioPapel = papelVal
-  if (masterId) usuario.masterId = masterId
-
   const finalUid = uid ?? genId('u_')
   setLoading('btnSalvarUsuario', true)
 
