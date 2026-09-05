@@ -12,8 +12,9 @@ import {
   pessoasRef,
   configLimpezaRef,
 } from '../firebase'
+import { renderMenuCards, type ItemMenu } from '../ui/menu-cards'
 
-type LimpezaTab = 'grupos' | 'config' | 'texto' | 'pdf'
+type LimpezaTab = 'indice' | 'grupos' | 'config' | 'texto' | 'pdf'
 
 let pessoas: RawPessoas = {}
 let limpeza: Partial<ConfigLimpeza> = {}
@@ -130,7 +131,7 @@ function renderSectionTitle(title: string, desc: string): string {
 }
 
 export default function mount(_ctx: AppContext): void {
-  activeTab = 'grupos'
+  activeTab = 'indice'
   limpezaChanges = new Map()
 
   const root = document.getElementById('appContent')
@@ -141,7 +142,6 @@ export default function mount(_ctx: AppContext): void {
       <div id="limpezaContent"></div>
     </div>`
 
-  renderTabBar()
   void loadAll()
 }
 
@@ -190,10 +190,28 @@ async function loadAll(): Promise<void> {
 }
 
 function renderContent(): void {
+  if (activeTab === 'indice') {
+    renderIndex()
+    return
+  }
+  renderTabBar()
   if (activeTab === 'grupos') renderGrupos()
   else if (activeTab === 'config') renderConfig()
   else if (activeTab === 'texto') renderTexto()
   else renderPdf()
+}
+
+function renderIndex(): void {
+  const content = document.getElementById('limpezaContent')
+  if (!content) return
+  content.innerHTML = `<div style="margin-bottom:14px"><h2 style="font-size:1.05rem;color:var(--blue-deep);margin-bottom:2px">Limpeza</h2><p style="font-size:.8rem;color:var(--ink-3)">Grupos, textos e PDF.</p></div><div id="limpezaMenu"></div>`
+  const items: ItemMenu[] = [
+    { id: 'grupos', titulo: 'Grupos', subtitulo: 'Distribua as pessoas pelos grupos de limpeza', icone: '♧', corFundo: '#006EB6' },
+    { id: 'config', titulo: 'Configuração', subtitulo: 'Rotação, coordenador e instruções', icone: '⚙', corFundo: '#003F72' },
+    { id: 'texto', titulo: 'Texto', subtitulo: 'Gere a mensagem para publicar em Tarefas', icone: '≡', corFundo: '#1A6B3C' },
+    { id: 'pdf', titulo: 'PDF', subtitulo: 'Consulte a opção de arquivo separado', icone: '▤', corFundo: '#7E3AF2' },
+  ]
+  renderMenuCards(content.querySelector<HTMLElement>('#limpezaMenu')!, items, id => { activeTab = id as LimpezaTab; renderContent() })
 }
 
 function renderGrupos(): void {
