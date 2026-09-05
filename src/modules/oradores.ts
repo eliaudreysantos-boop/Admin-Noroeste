@@ -130,6 +130,13 @@ function render(): void {
   el.querySelectorAll<HTMLButtonElement>('[data-delete-programacao]').forEach(button => {
     button.addEventListener('click', () => void deleteProgramacao(button.dataset['deleteProgramacao'] ?? ''))
   })
+  el.querySelector<HTMLButtonElement>('[data-add-tema]')?.addEventListener('click', () => openTemaModal(null))
+  el.querySelectorAll<HTMLButtonElement>('[data-edit-tema]').forEach(button => {
+    button.addEventListener('click', () => openTemaModal(button.dataset['editTema'] ?? null))
+  })
+  el.querySelectorAll<HTMLButtonElement>('[data-delete-tema]').forEach(button => {
+    button.addEventListener('click', () => void deleteTema(button.dataset['deleteTema'] ?? ''))
+  })
 }
 
 function tabButton(tab: OradoresTab, label: string): string {
@@ -249,7 +256,41 @@ async function deleteProgramacao(id: string): Promise<void> {
 
 function temasView(): string {
   const rows = Object.entries(discursos.temas ?? {}).sort(([, a], [, b]) => (a.numero ?? 0) - (b.numero ?? 0))
-  return `<div style="margin-top:14px"><h3 style="font-size:.95rem;color:#5C6062;margin-bottom:2px">Temas</h3><p style="font-size:.75rem;color:var(--ink-3);margin-bottom:10px">Catálogo e disponibilidade dos discursos públicos.</p><div class="module-option-list">${rows.length ? rows.map(([id, t]) => `<div class="module-menu-btn" style="cursor:default;border-radius:8px;padding:10px 12px"><div style="flex:1"><div class="mod-label">${t.numero ? `${String(t.numero).padStart(3, '0')} — ` : ''}${escapeHtml(t.titulo ?? id)}</div></div><span style="font-size:.72rem;color:${t.ativo === false ? '#B3261E' : '#1A6B3C'}">${t.ativo === false ? 'Inativo' : 'Ativo'}</span></div>`).join('') : '<p class="empty-state">Nenhum tema cadastrado.</p>'}</div></div>`
+  return `<div style="margin-top:14px"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:2px"><div><h3 style="font-size:.95rem;color:#5C6062">Temas</h3><p style="font-size:.75rem;color:var(--ink-3)">Catálogo e disponibilidade dos discursos públicos.</p></div><button class="btn btn-primary" type="button" data-add-tema style="padding:6px 10px;font-size:.78rem">Adicionar</button></div><div class="module-option-list">${rows.length ? rows.map(([id, t]) => `<div class="module-menu-btn" style="cursor:default;border-radius:8px;padding:10px 12px"><div style="flex:1"><div class="mod-label">${t.numero ? `${String(t.numero).padStart(3, '0')} — ` : ''}${escapeHtml(t.titulo ?? id)}</div></div><span style="font-size:.72rem;color:${t.ativo === false ? '#B3261E' : '#1A6B3C'}">${t.ativo === false ? 'Inativo' : 'Ativo'}</span><button class="btn btn-ghost" type="button" data-edit-tema="${escapeHtml(id)}" style="padding:4px 8px;font-size:.72rem">Editar</button><button class="btn btn-danger" type="button" data-delete-tema="${escapeHtml(id)}" style="padding:4px 8px;font-size:.72rem">Excluir</button></div>`).join('') : '<p class="empty-state">Nenhum tema cadastrado.</p>'}</div></div>`
+}
+
+function openTemaModal(id: string | null): void {
+  const current = id ? discursos.temas?.[id] : undefined
+  const overlay = document.createElement('div')
+  overlay.className = 'modal-overlay'
+  overlay.innerHTML = `<div class="modal"><h2>${id ? 'Editar tema' : 'Novo tema'}</h2><div class="form-group"><label class="form-label" for="temaNumero">Número</label><input id="temaNumero" class="form-input" type="number" min="1" value="${current?.numero ?? ''}"></div><div class="form-group"><label class="form-label" for="temaTitulo">Título</label><input id="temaTitulo" class="form-input" value="${escapeHtml(current?.titulo ?? '')}"></div><div class="form-group"><label style="display:flex;align-items:center;gap:8px"><input id="temaAtivo" type="checkbox" ${current?.ativo !== false ? 'checked' : ''}> <span class="form-label" style="margin:0">Ativo</span></label></div><div style="display:flex;gap:8px;margin-top:8px"><button id="cancelTema" class="btn btn-ghost" type="button" style="flex:1">Cancelar</button><button id="saveTema" class="btn btn-primary" type="button" style="flex:1">Salvar</button></div></div>`
+  document.body.appendChild(overlay)
+  overlay.addEventListener('click', event => { if (event.target === overlay) overlay.remove() })
+  overlay.querySelector('#cancelTema')?.addEventListener('click', () => overlay.remove())
+  overlay.querySelector('#saveTema')?.addEventListener('click', () => void saveTema(id, overlay))
+}
+
+async function saveTema(id: string | null, overlay: HTMLElement): Promise<void> {
+  const numero = Number((overlay.querySelector('#temaNumero') as HTMLInputElement).value)
+  const titulo = (overlay.querySelector('#temaTitulo') as HTMLInputElement).value.trim()
+  if (!numero || !titulo) { toast('Preencha número e título'); return }
+  const finalId = id ?? `tema_${String(numero).padStart(3, '0')}`
+  const record: LegacyTema = { ...(id ? discursos.temas?.[id] : {}), numero, titulo, ativo: (overlay.querySelector('#temaAtivo') as HTMLInputElement).checked }
+  try {
+    await update(tarefasDiscursosRef, { [`temas/${finalId}`]: record })
+    discursos.temas = { ...(discursos.temas ?? {}), [finalId]: record }
+    overlay.remove(); toast(id ? 'Tema atualizado' : 'Tema adicionado'); render()
+  } catch { toast('Erro ao salvar o tema') }
+}
+
+async function deleteTema(id: string): Promise<void> {
+  if (!id || !discursos.temas?.[id]) return
+  if (!window.confirm('Excluir este tema?')) return
+  try {
+    await update(tarefasDiscursosRef, { [`temas/${id}`]: null })
+    const next = { ...(discursos.temas ?? {}) }; delete next[id]; discursos.temas = next
+    toast('Tema excluído'); render()
+  } catch { toast('Erro ao excluir o tema') }
 }
 
 function pendenciasView(): string {
