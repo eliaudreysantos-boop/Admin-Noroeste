@@ -18,7 +18,7 @@ const inputSenha    = document.getElementById('inputSenha')    as HTMLInputEleme
 const btnEntrar     = document.getElementById('btnEntrar')     as HTMLButtonElement
 const btnSair       = document.getElementById('btnSair')       as HTMLButtonElement
 const btnBack       = document.getElementById('btnBack')       as HTMLButtonElement
-const headerUser    = document.getElementById('headerUser')!
+const bottomUser    = document.getElementById('bottomUser')!
 const loginError    = document.getElementById('loginError')!
 const statusBar     = document.getElementById('statusBar')!
 const toast         = document.getElementById('toast')!
@@ -45,7 +45,7 @@ function setStatus(text: string): void {
 function showApp(usuario: Usuario): void {
   loginOverlay.classList.add('hidden')
   appShell.classList.remove('hidden')
-  headerUser.textContent = usuario.nome
+  bottomUser.textContent = usuario.nome
 }
 
 // ─── Select de usuário ───────────────────────────────────────────────────────
