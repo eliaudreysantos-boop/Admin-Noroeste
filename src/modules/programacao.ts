@@ -5,7 +5,7 @@ import { moduleBackButton } from '../ui/module-header'
 
 type ProgramacaoTab = 'indice' | 'programa' | 'apostilas' | 'pessoas' | 'arquivos' | 'lembretes'
 type Row = Record<string, unknown>
-const API_IMPORT_URL = import.meta.env.DEV
+const API_IMPORT_URL = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
   ? '/api/import-jw-program'
   : 'https://southamerica-east1-reunioes-6c437.cloudfunctions.net/importJwProgram'
 
