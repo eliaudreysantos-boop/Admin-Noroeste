@@ -136,15 +136,31 @@ function publishers(pubs: Array<[string, Usuario]>): string {
 }
 
 function reportsView(data: Record<string, unknown>): string {
-  return section('Relatórios mensais', `${count(data)} registro${count(data) === 1 ? '' : 's'} no histórico`, `${actionCard('Relatório JW.org', 'Publicadores ativos, estudos, pioneiros auxiliares, horas e assistência.', undefined)}${actionCard('Fechamento do mês', 'Confira pendências antes de enviar o relatório.', undefined)}${actionCard('Histórico', 'Consulte os meses já registrados.', undefined)}`)
+  const rows = Object.entries(data).sort(([a], [b]) => b.localeCompare(a)).slice(0, 12)
+    .map(([key, value]) => `<div style="display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)"><div><strong>${escapeHtml(key)}</strong><div style="font-size:.75rem;color:var(--ink-3)">${escapeHtml(summaryValue(value))}</div></div><span style="font-size:.72rem;font-weight:700;color:#1A6B3C">Registrado</span></div>`).join('')
+  return section('Relatórios mensais', `${count(data)} registro${count(data) === 1 ? '' : 's'} no histórico`, rows || '<p class="empty-state">Nenhum relatório registrado no banco de dados.</p>')
 }
 
 function assistanceView(data: unknown): string {
-  return section('Assistência', `${count(data)} registro${count(data) === 1 ? '' : 's'} disponível${count(data) === 1 ? '' : 'is'}`, `${actionCard('Meio de semana', 'Registro da reunião do meio de semana.', undefined)}${actionCard('Fim de semana', 'Registro da reunião do fim de semana.', undefined)}${actionCard('Por grupo', 'Acompanhe as médias por grupo.', undefined)}`)
+  const rows = Object.entries(records(data)).sort(([a], [b]) => b.localeCompare(a)).slice(0, 12)
+    .map(([key, value]) => `<div style="display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)"><strong>${escapeHtml(key)}</strong><span style="font-size:.8rem;color:var(--ink-3)">${escapeHtml(summaryValue(value))}</span></div>`).join('')
+  return section('Assistência', `${count(data)} registro${count(data) === 1 ? '' : 's'} disponível${count(data) === 1 ? '' : 'is'}`, rows || '<p class="empty-state">Nenhum registro de assistência encontrado.</p>')
 }
 
 function filesView(data: unknown): string {
-  return section('Arquivo da congregação', `${count(data)} item${count(data) === 1 ? '' : 's'} no arquivo`, `${actionCard('S-21', 'Registro mensal da congregação.', undefined)}${actionCard('S-1, S-88 e S-3', 'Modelos e relatórios oficiais.', undefined)}${actionCard('Histórico', 'Snapshots do arquivo da congregação.', undefined)}`)
+  const rows = Object.entries(records(data)).sort(([a], [b]) => b.localeCompare(a)).slice(0, 12)
+    .map(([key, value]) => `<div style="display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)"><strong>${escapeHtml(key)}</strong><span style="font-size:.8rem;color:var(--ink-3)">${escapeHtml(summaryValue(value))}</span></div>`).join('')
+  return section('Arquivo da congregação', `${count(data)} item${count(data) === 1 ? '' : 's'} no arquivo`, rows || '<p class="empty-state">Nenhum arquivo registrado no banco de dados.</p>')
+}
+
+function summaryValue(value: unknown): string {
+  if (value === null || value === undefined) return ''
+  if (typeof value !== 'object') return String(value)
+  const row = records(value)
+  const interesting = ['status', 'total', 'quantidade', 'mes', 'data', 'nome']
+    .map(key => row[key] === undefined ? '' : `${key}: ${row[key]}`)
+    .filter(Boolean)
+  return interesting.join(' · ') || `${Object.keys(row).length} campos`
 }
 
 function section(title: string, subtitle: string, body: string): string {
