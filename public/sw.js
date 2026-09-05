@@ -1,4 +1,4 @@
-const CACHE = 'noroeste-admin-v1'
+const CACHE = 'noroeste-admin-v2'
 const ASSETS = ['/', '/index.html'] // vite adiciona o resto no build
 
 self.addEventListener('install', e => {

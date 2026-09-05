@@ -199,5 +199,12 @@ void init()
 // ─── Service Worker (PWA) ─────────────────────────────────────────────────────
 
 if ('serviceWorker' in navigator) {
-  void navigator.serviceWorker.register('/sw.js')
+  const isLocalDevelopment = location.hostname === '127.0.0.1' || location.hostname === 'localhost'
+  if (!isLocalDevelopment) {
+    void navigator.serviceWorker.register('/sw.js')
+  } else {
+    // Evita que o shell PWA publicado interfira no desenvolvimento local.
+    void navigator.serviceWorker.getRegistrations()
+      .then(registrations => Promise.all(registrations.map(registration => registration.unregister())))
+  }
 }
