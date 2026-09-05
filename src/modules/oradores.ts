@@ -1,7 +1,7 @@
 import type { AppContext } from '../types'
-import { get, tarefasDiscursosRef } from '../firebase'
+import { get, update, tarefasDiscursosRef } from '../firebase'
 
-interface LegacyOrador { nome?: string; name?: string; telefone?: string; ativo?: boolean; tipo?: string; temaIds?: string[] }
+interface LegacyOrador { nome?: string; name?: string; telefone?: string; ativo?: boolean; tipo?: string; temaIds?: string[]; pessoaId?: string }
 interface LegacyProgramacao { status?: string; data?: string; oradorId?: string; oradorNome?: string; temaNumero?: number; temaTitulo?: string }
 interface LegacyTema { titulo?: string; ativo?: boolean; numero?: number }
 interface LegacyDiscursos {
@@ -116,6 +116,13 @@ function render(): void {
   el.querySelectorAll<HTMLButtonElement>('[data-oradores-tab]').forEach(button => {
     button.addEventListener('click', () => { activeTab = button.dataset['oradoresTab'] as OradoresTab; render() })
   })
+  el.querySelector<HTMLButtonElement>('[data-add-orador]')?.addEventListener('click', () => openOradorModal(null))
+  el.querySelectorAll<HTMLButtonElement>('[data-edit-orador]').forEach(button => {
+    button.addEventListener('click', () => openOradorModal(button.dataset['editOrador'] ?? null))
+  })
+  el.querySelectorAll<HTMLButtonElement>('[data-delete-orador]').forEach(button => {
+    button.addEventListener('click', () => void deleteOrador(button.dataset['deleteOrador'] ?? ''))
+  })
 }
 
 function tabButton(tab: OradoresTab, label: string): string {
@@ -131,7 +138,57 @@ function renderTabContent(tab: OradoresTab): string {
 
 function cadastroView(): string {
   const rows = Object.entries(discursos.oradores ?? {}).sort(([, a], [, b]) => (a.nome ?? a.name ?? '').localeCompare(b.nome ?? b.name ?? '', 'pt-BR'))
-  return `<div style="margin-top:14px"><h3 style="font-size:.95rem;color:#5C6062;margin-bottom:2px">Cadastro</h3><p style="font-size:.75rem;color:var(--ink-3);margin-bottom:10px">Oradores locais e visitantes já registrados.</p><div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:0 12px">${rows.length ? rows.map(([id, o]) => `<div style="display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)"><div><strong>${escapeHtml(o.nome ?? o.name ?? id)}</strong><div style="font-size:.75rem;color:var(--ink-3)">${escapeHtml(o.tipo ?? 'tipo não informado')}${o.telefone ? ` · ${escapeHtml(o.telefone)}` : ' · sem telefone'}</div></div><span style="font-size:.72rem;font-weight:700;color:${o.ativo === false ? '#B3261E' : '#1A6B3C'}">${o.ativo === false ? 'Inativo' : 'Ativo'}</span></div>`).join('') : '<p style="padding:16px 0;color:var(--ink-3);text-align:center;font-size:.82rem">Nenhum orador cadastrado.</p>'}</div></div>`
+  return `<div style="margin-top:14px"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:2px"><div><h3 style="font-size:.95rem;color:#5C6062">Cadastro</h3><p style="font-size:.75rem;color:var(--ink-3)">Oradores locais e visitantes já registrados.</p></div><button class="btn btn-primary" type="button" data-add-orador style="padding:6px 10px;font-size:.78rem;white-space:nowrap">Adicionar</button></div><div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:0 12px">${rows.length ? rows.map(([id, o]) => `<div style="display:flex;justify-content:space-between;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)"><div style="flex:1;min-width:0"><strong>${escapeHtml(o.nome ?? o.name ?? id)}</strong><div style="font-size:.75rem;color:var(--ink-3)">${escapeHtml(o.tipo ?? 'tipo não informado')}${o.telefone ? ` · ${escapeHtml(o.telefone)}` : ' · sem telefone'}</div></div><span style="font-size:.72rem;font-weight:700;color:${o.ativo === false ? '#B3261E' : '#1A6B3C'}">${o.ativo === false ? 'Inativo' : 'Ativo'}</span><button class="btn btn-ghost" type="button" data-edit-orador="${escapeHtml(id)}" style="padding:4px 8px;font-size:.72rem">Editar</button><button class="btn btn-danger" type="button" data-delete-orador="${escapeHtml(id)}" style="padding:4px 8px;font-size:.72rem">Excluir</button></div>`).join('') : '<p style="padding:16px 0;color:var(--ink-3);text-align:center;font-size:.82rem">Nenhum orador cadastrado.</p>'}</div></div>`
+}
+
+function newOradorId(): string {
+  const bytes = new Uint8Array(4)
+  crypto.getRandomValues(bytes)
+  return `o_${Array.from(bytes).map(byte => byte.toString(16).padStart(2, '0')).join('')}`
+}
+
+function openOradorModal(id: string | null): void {
+  const current = id ? discursos.oradores?.[id] : undefined
+  const overlay = document.createElement('div')
+  overlay.className = 'modal-overlay'
+  overlay.innerHTML = `<div class="modal"><h2>${id ? 'Editar orador' : 'Novo orador'}</h2><div class="form-group"><label class="form-label" for="oradorNome">Nome</label><input id="oradorNome" class="form-input" value="${escapeHtml(current?.nome ?? current?.name ?? '')}"></div><div class="form-group"><label class="form-label" for="oradorTipo">Tipo</label><select id="oradorTipo" class="form-select"><option value="local" ${current?.tipo === 'local' ? 'selected' : ''}>Local</option><option value="visitante" ${current?.tipo === 'visitante' ? 'selected' : ''}>Visitante</option></select></div><div class="form-group"><label class="form-label" for="oradorTelefone">Telefone</label><input id="oradorTelefone" class="form-input" type="tel" value="${escapeHtml(current?.telefone ?? '')}"></div><div class="form-group"><label style="display:flex;align-items:center;gap:8px"><input id="oradorAtivo" type="checkbox" ${current?.ativo !== false ? 'checked' : ''}> <span class="form-label" style="margin:0">Ativo</span></label></div><div style="display:flex;gap:8px;margin-top:8px"><button id="cancelOrador" class="btn btn-ghost" type="button" style="flex:1">Cancelar</button><button id="saveOrador" class="btn btn-primary" type="button" style="flex:1">Salvar</button></div></div>`
+  document.body.appendChild(overlay)
+  overlay.addEventListener('click', event => { if (event.target === overlay) overlay.remove() })
+  overlay.querySelector('#cancelOrador')?.addEventListener('click', () => overlay.remove())
+  overlay.querySelector('#saveOrador')?.addEventListener('click', () => void saveOrador(id, overlay))
+}
+
+async function saveOrador(id: string | null, overlay: HTMLElement): Promise<void> {
+  const nome = (overlay.querySelector('#oradorNome') as HTMLInputElement).value.trim()
+  if (!nome) { toast('Preencha o nome'); return }
+  const record: LegacyOrador = {
+    ...(id ? discursos.oradores?.[id] : {}),
+    nome,
+    tipo: (overlay.querySelector('#oradorTipo') as HTMLSelectElement).value,
+    telefone: (overlay.querySelector('#oradorTelefone') as HTMLInputElement).value.trim(),
+    ativo: (overlay.querySelector('#oradorAtivo') as HTMLInputElement).checked,
+  }
+  const finalId = id ?? newOradorId()
+  try {
+    await update(tarefasDiscursosRef, { [`oradores/${finalId}`]: record })
+    discursos.oradores = { ...(discursos.oradores ?? {}), [finalId]: record }
+    overlay.remove()
+    toast(id ? 'Orador atualizado' : 'Orador adicionado')
+    render()
+  } catch { toast('Erro ao salvar o orador') }
+}
+
+async function deleteOrador(id: string): Promise<void> {
+  if (!id || !discursos.oradores?.[id]) return
+  if (!window.confirm(`Excluir o orador "${discursos.oradores[id].nome ?? discursos.oradores[id].name ?? id}"?`)) return
+  try {
+    await update(tarefasDiscursosRef, { [`oradores/${id}`]: null })
+    const next = { ...(discursos.oradores ?? {}) }
+    delete next[id]
+    discursos.oradores = next
+    toast('Orador excluído')
+    render()
+  } catch { toast('Erro ao excluir o orador') }
 }
 
 function programacaoView(): string {
