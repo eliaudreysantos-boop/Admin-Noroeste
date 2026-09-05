@@ -1,10 +1,11 @@
-import type { AppContext } from '../types'
-import { get, programacaoRef } from '../firebase'
+import type { AppContext, RawPessoas } from '../types'
+import { get, pessoasRef, programacaoRef } from '../firebase'
 
 type ProgramacaoTab = 'programa' | 'apostilas' | 'pessoas' | 'arquivos' | 'lembretes'
 
 let activeTab: ProgramacaoTab = 'programa'
 let programacao: Record<string, unknown> = {}
+let pessoas: RawPessoas = {}
 
 function toast(msg: string, ms = 2600): void {
   const el = document.getElementById('toast')
@@ -27,6 +28,28 @@ function countRecords(value: unknown): number {
   return value && typeof value === 'object' ? Object.keys(value as Record<string, unknown>).length : 0
 }
 
+function records(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' ? value as Record<string, unknown> : {}
+}
+
+function countPending(value: unknown): number {
+  return Object.values(records(value)).filter(item => {
+    const row = records(item)
+    return row.status === 'pendente' || row.status === 'por_definir' || row.status === 'por_confirmar'
+  }).length
+}
+
+function roleLabel(role: string | null): string {
+  const labels: Record<string, string> = {
+    anciao: 'Ancião',
+    'servo-ministerial': 'Servo ministerial',
+    pioneiro: 'Pioneiro',
+    batizado: 'Batizado',
+    publicador: 'Publicador',
+  }
+  return role ? (labels[role] ?? role) : 'Sem condição'
+}
+
 export default function mount(_ctx: AppContext): void {
   activeTab = 'programa'
   const el = document.getElementById('appContent')
@@ -46,8 +69,9 @@ export default function mount(_ctx: AppContext): void {
 
 async function loadProgramacao(): Promise<void> {
   try {
-    const snap = await get(programacaoRef)
-    programacao = snap.exists() ? (snap.val() as Record<string, unknown>) : {}
+    const [programacaoSnap, pessoasSnap] = await Promise.all([get(programacaoRef), get(pessoasRef)])
+    programacao = programacaoSnap.exists() ? (programacaoSnap.val() as Record<string, unknown>) : {}
+    pessoas = pessoasSnap.exists() ? pessoasSnap.val() as RawPessoas : {}
   } catch {
     toast('Erro ao carregar Programação')
   }
@@ -93,12 +117,14 @@ function renderPrograma(): void {
   const el = document.getElementById('programacaoContent')
   if (!el) return
 
-  const semanas = countRecords(programacao['programs'] ?? programacao['semanas'] ?? programacao)
+  const semanasNode = programacao['programs'] ?? programacao['semanas'] ?? programacao
+  const semanas = countRecords(semanasNode)
+  const pendencias = countPending(semanasNode)
   el.innerHTML = `
     ${sectionTitle('Programa', 'Importe a apostila, revise a semana e confira as designações antes dos lembretes.')}
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
       ${metricCard('Semanas', String(semanas), '#003F72')}
-      ${metricCard('Pendências', '0', '#1A6B3C')}
+      ${metricCard('Pendências', String(pendencias), pendencias ? '#B3261E' : '#1A6B3C')}
     </div>
     <div style="display:flex;flex-direction:column;gap:8px">
       ${optionCard('Semana', 'Programação e designações da reunião')}
@@ -121,11 +147,19 @@ function renderApostilas(): void {
 function renderPessoas(): void {
   const el = document.getElementById('programacaoContent')
   if (!el) return
+  const list = Object.values(pessoas)
+    .filter(person => person.active)
+    .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
+    .map(person => `<div style="display:flex;justify-content:space-between;gap:12px;align-items:center;padding:10px 0;border-bottom:1px solid var(--border)"><div><strong>${escapeHtml(person.name)}</strong><div style="font-size:.75rem;color:var(--ink-3)">${escapeHtml(roleLabel(person.role))}</div></div><span style="font-size:.72rem;color:var(--ink-3)">${person.sex === 'F' ? 'Feminino' : person.sex === 'M' ? 'Masculino' : 'Sexo não informado'}</span></div>`)
+    .join('')
   el.innerHTML = `
-    ${sectionTitle('Pessoas', 'Mantenha permissões de designação e WhatsApp antes de criar lembretes.')}
-    <div style="display:flex;flex-direction:column;gap:8px">
-      ${optionCard('Cadastro', 'Pessoas e permissões da reunião')}
-      ${optionCard('Vínculo com Admin', 'Evita cadastro duplicado entre módulos')}
+    ${sectionTitle('Pessoas', 'Use o cadastro Admin como fonte única para as designações.')}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
+      ${metricCard('Ativas', String(Object.values(pessoas).filter(person => person.active).length), '#1A6B3C')}
+      ${metricCard('Com WhatsApp', String(Object.values(pessoas).filter(person => person.active && person.whatsapp).length), '#003F72')}
+    </div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:0 12px">
+      ${list || '<p style="padding:16px 0;color:var(--ink-3);font-size:.82rem;text-align:center">Nenhuma pessoa ativa cadastrada.</p>'}
     </div>`
 }
 
