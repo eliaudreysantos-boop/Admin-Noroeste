@@ -110,6 +110,34 @@ body {
   overflow-y: auto;
 }
 
+.module-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.module-title h2 {
+  font-size: 1.05rem;
+  margin: 0;
+}
+
+.module-back-btn {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink-2);
+  padding: 6px 10px;
+  font: inherit;
+  font-size: .78rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.module-back-btn:hover { color: var(--blue-deep); border-color: var(--blue-mid); }
+
 /* Bottom bar */
 #bottomBar {
   position: sticky;
@@ -505,32 +533,6 @@ textarea.form-input {
   display: flex;
   flex-direction: column;
   gap: 8px;
-}
-
-/* As abas internas seguem o mesmo padrão de menu de módulos, sem uma topbar. */
-#mestreTabs,
-#tarefasTabs,
-#limpezaTabs,
-#escalaTabs,
-#programacaoTabs {
-  display: flex !important;
-  flex-direction: column;
-  gap: 8px !important;
-  margin-bottom: 16px !important;
-}
-
-#mestreTabs .btn,
-#tarefasTabs .btn,
-#limpezaTabs .btn,
-#escalaTabs .btn,
-#programacaoTabs .btn {
-  width: 100%;
-  min-height: 42px;
-  flex: none !important;
-  border-radius: 8px;
-  text-align: left;
-  justify-content: flex-start;
-  padding: 10px 14px !important;
 }
 
 .empty-state {

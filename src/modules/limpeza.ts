@@ -13,6 +13,7 @@ import {
   configLimpezaRef,
 } from '../firebase'
 import { renderMenuCards, type ItemMenu } from '../ui/menu-cards'
+import { moduleBackButton } from '../ui/module-header'
 
 type LimpezaTab = 'indice' | 'grupos' | 'config' | 'texto' | 'pdf'
 
@@ -125,6 +126,7 @@ function peopleInGroup(group: number): [string, MasterPessoa][] {
 function renderSectionTitle(title: string, desc: string): string {
   return `
     <div style="margin-bottom:14px">
+      ${moduleBackButton()}
       <h2 style="font-size:1.05rem;color:var(--blue-deep);margin-bottom:2px">${title}</h2>
       <p style="font-size:.8rem;color:var(--ink-3)">${desc}</p>
     </div>`

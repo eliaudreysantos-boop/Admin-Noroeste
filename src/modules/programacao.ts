@@ -1,6 +1,7 @@
 import type { AppContext, RawPessoas } from '../types'
 import { get, pessoasRef, programacaoRef } from '../firebase'
 import { renderMenuCards, type ItemMenu } from '../ui/menu-cards'
+import { moduleBackButton } from '../ui/module-header'
 
 type ProgramacaoTab = 'indice' | 'programa' | 'apostilas' | 'pessoas' | 'arquivos' | 'lembretes'
 
@@ -195,6 +196,7 @@ function renderLembretes(): void {
 function sectionTitle(title: string, desc: string): string {
   return `
     <div style="margin-bottom:14px">
+      ${moduleBackButton()}
       <h2 style="font-size:1.05rem;color:var(--blue-deep);margin-bottom:2px">${escapeHtml(title)}</h2>
       <p style="font-size:.8rem;color:var(--ink-3)">${escapeHtml(desc)}</p>
     </div>`

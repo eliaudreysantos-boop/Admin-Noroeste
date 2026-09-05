@@ -6,7 +6,7 @@ import {
   loadSession,
   clearSession,
 } from './auth'
-import { initRouter, navigateBack } from './router'
+import { initRouter, navigateBack, navigateModuleIndex } from './router'
 import type { RawUsuarios, Usuario } from './types'
 
 // ─── Elementos ──────────────────────────────────────────────────────────────
@@ -22,6 +22,9 @@ const bottomUser    = document.getElementById('bottomUser')!
 const loginError    = document.getElementById('loginError')!
 const statusBar     = document.getElementById('statusBar')!
 const toast         = document.getElementById('toast')!
+
+let usuariosDisponiveis: RawUsuarios = {}
+let carregandoUsuarios = true
 
 // ─── Toast ──────────────────────────────────────────────────────────────────
 
@@ -58,11 +61,8 @@ function populateUsuarioSelect(usuarios: RawUsuarios): void {
     .sort(([, a], [, b]) => a.nome.localeCompare(b.nome, 'pt-BR'))
 
   if (ativos.length === 0) {
-    const msg = document.createElement('p')
-    msg.id = 'selectUsuarioEmpty'
-    msg.textContent = 'Nenhum usuário ativo encontrado.'
-    selectUsuario.replaceWith(msg)
-    btnEntrar.disabled = true
+    selectUsuario.innerHTML = '<option value="">Nenhum usuário disponível</option>'
+    selectUsuario.disabled = true
     return
   }
 
@@ -93,7 +93,7 @@ async function tryRestoreSession(
 
 // ─── Login ──────────────────────────────────────────────────────────────────
 
-function handleLogin(usuarios: RawUsuarios): void {
+function handleLogin(): void {
   const uid   = selectUsuario.value
   const senha = inputSenha.value
 
@@ -102,7 +102,12 @@ function handleLogin(usuarios: RawUsuarios): void {
     return
   }
 
-  const usuario = usuarios[uid]
+  const usuario = usuariosDisponiveis[uid]
+
+  if (carregandoUsuarios && !usuario?.senha) {
+    loginError.textContent = 'Carregando os dados do usuário. Tente novamente em instantes.'
+    return
+  }
 
   if (!usuario || usuario.senha !== senha || !usuario.ativo) {
     loginError.textContent = 'Usuário ou senha inválidos.'
@@ -131,16 +136,33 @@ function handleBack(): void {
   navigateBack()
 }
 
+document.addEventListener('click', event => {
+  const target = event.target as HTMLElement
+  if (target.closest('[data-module-index]')) navigateModuleIndex()
+})
+
 // ─── Bootstrap ──────────────────────────────────────────────────────────────
 
 async function init(): Promise<void> {
   setStatus('Carregando dados…')
 
-  let usuarios: RawUsuarios = loadCachedUserChoices()
-  if (Object.keys(usuarios).length > 0) populateUsuarioSelect(usuarios)
+  usuariosDisponiveis = loadCachedUserChoices()
+  if (Object.keys(usuariosDisponiveis).length > 0) populateUsuarioSelect(usuariosDisponiveis)
+
+  // Os campos ficam utilizáveis antes da resposta do Firebase chegar.
+  btnEntrar.addEventListener('click', () => handleLogin())
+  inputSenha.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') handleLogin()
+  })
+  selectUsuario.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') inputSenha.focus()
+  })
+  selectUsuario.addEventListener('change', () => {
+    loginError.textContent = ''
+  })
 
   try {
-    usuarios = await Promise.race([
+    usuariosDisponiveis = await Promise.race([
       loadUsuarios(),
       new Promise<RawUsuarios>((_, reject) => {
         setTimeout(() => reject(new Error('Tempo excedido ao carregar usuários')), 8000)
@@ -150,36 +172,23 @@ async function init(): Promise<void> {
   } catch (err) {
     setStatus('Erro de conexão com Firebase')
     console.error(err)
-    if (Object.keys(usuarios).length === 0) {
+    if (Object.keys(usuariosDisponiveis).length === 0) {
       loginError.textContent = 'Não foi possível carregar os usuários. Verifique a conexão e tente novamente.'
     } else {
       loginError.textContent = 'Conexão lenta. A lista anterior está disponível; confirme o login quando a conexão voltar.'
     }
+  } finally {
+    carregandoUsuarios = false
   }
 
   // Tenta restaurar sessão
-  const restored = await tryRestoreSession(usuarios)
+  const restored = await tryRestoreSession(usuariosDisponiveis)
   if (restored) return
 
   // Exibe login
   loginOverlay.classList.remove('hidden')
-  if (Object.keys(usuarios).length === 0) populateUsuarioSelect(usuarios)
+  if (Object.keys(usuariosDisponiveis).length === 0) populateUsuarioSelect(usuariosDisponiveis)
   selectUsuario.focus()
-
-  // Eventos de login
-  btnEntrar.addEventListener('click', () => handleLogin(usuarios))
-
-  inputSenha.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') handleLogin(usuarios)
-  })
-
-  selectUsuario.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') inputSenha.focus()
-  })
-
-  selectUsuario.addEventListener('change', () => {
-    loginError.textContent = ''
-  })
 }
 
 // ─── Eventos globais ─────────────────────────────────────────────────────────

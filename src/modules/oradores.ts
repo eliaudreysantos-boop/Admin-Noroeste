@@ -1,5 +1,7 @@
 import type { AppContext } from '../types'
 import { get, update, tarefasDiscursosRef } from '../firebase'
+import { renderMenuCards, type ItemMenu } from '../ui/menu-cards'
+import { moduleBackButton, moduleTitle } from '../ui/module-header'
 
 interface LegacyOrador { nome?: string; name?: string; telefone?: string; ativo?: boolean; tipo?: string; temaIds?: string[]; pessoaId?: string }
 interface LegacyProgramacao { status?: string; data?: string; oradorId?: string; oradorNome?: string; temaNumero?: number; temaTitulo?: string }
@@ -85,9 +87,7 @@ function render(): void {
   )
 
   el.innerHTML = `
-    <div style="margin-bottom:14px">
-      <h2 style="font-size:1.05rem;color:#5C6062;margin-bottom:2px">Oradores</h2>
-    </div>
+    ${moduleTitle('Oradores', '#5C6062')}
 
     ${activeTab === 'indice' || activeTab === 'resumo' ? `<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
       ${metricCard('Oradores', `${oradoresAtivos}/${totalOradores}`, '#5C6062')}
@@ -96,12 +96,20 @@ function render(): void {
       ${metricCard('Temas ativos', String(temasAtivos), '#1A6B3C')}
       ${metricCard('Congregações', String(congregacoesAtivas), '#006EB6')}
       ${metricCard('A confirmar', String(aConfirmar), '#B3261E')}
-    </div><div class="module-option-list">
-      ${actionCard('Cadastro', 'Oradores da congregação', 'cadastro')}
-      ${actionCard('Programação', `${programacoesFuturas} compromisso${programacoesFuturas === 1 ? '' : 's'} futuro${programacoesFuturas === 1 ? '' : 's'}`, 'programacao')}
-      ${actionCard('Temas', 'Catálogo dos discursos públicos', 'temas')}
-      ${actionCard('Pendências', `${aConfirmar} compromisso${aConfirmar === 1 ? '' : 's'} a confirmar`, 'pendencias')}
-    </div>` : renderTabContent(activeTab)}`
+    </div><div id="oradoresMenu"></div>` : `${moduleBackButton()}${renderTabContent(activeTab)}`}`
+
+  if (activeTab === 'indice' || activeTab === 'resumo') {
+    const menu = el.querySelector<HTMLElement>('#oradoresMenu')
+    if (menu) {
+      const items: ItemMenu[] = [
+        { id: 'cadastro', titulo: 'Cadastro', subtitulo: 'Oradores da congregação', icone: '♙', corFundo: '#003F72' },
+        { id: 'programacao', titulo: 'Programação', subtitulo: `${programacoesFuturas} compromisso${programacoesFuturas === 1 ? '' : 's'} futuro${programacoesFuturas === 1 ? '' : 's'}`, icone: '▣', corFundo: '#7E3AF2' },
+        { id: 'temas', titulo: 'Temas', subtitulo: 'Catálogo dos discursos públicos', icone: '▤', corFundo: '#1A6B3C' },
+        { id: 'pendencias', titulo: 'Pendências', subtitulo: `${aConfirmar} compromisso${aConfirmar === 1 ? '' : 's'} a confirmar`, icone: '!', corFundo: '#B3261E' },
+      ]
+      renderMenuCards(menu, items, id => { activeTab = id as OradoresTab; render() })
+    }
+  }
 
   el.querySelectorAll<HTMLButtonElement>('[data-oradores-tab]').forEach(button => {
     button.addEventListener('click', () => { activeTab = button.dataset['oradoresTab'] as OradoresTab; render() })
@@ -298,9 +306,6 @@ function formatDate(value: string | undefined): string {
   return y && m && d ? `${d}/${m}/${y}` : value
 }
 
-function actionCard(title: string, desc: string, tab: OradoresTab): string {
-  return `<button class="module-menu-btn" type="button" data-oradores-tab="${tab}" style="border-radius:8px;padding:12px 14px"><div style="flex:1;min-width:0"><div class="mod-label">${escapeHtml(title)}</div><div class="mod-desc">${escapeHtml(desc)}</div></div><span style="font-size:1.1rem;color:var(--ink-3)">›</span></button>`
-}
 
 function metricCard(label: string, value: string, color: string): string {
   return `

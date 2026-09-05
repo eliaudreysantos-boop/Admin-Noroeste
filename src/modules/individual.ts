@@ -1,5 +1,6 @@
 import type { AppContext } from '../types'
 import { get, tarefasScaleRef, tarefasDiscursosRef, pessoasRef, configLimpezaRef } from '../firebase'
+import { moduleTitle } from '../ui/module-header'
 
 type Row = Record<string, unknown>
 let ctx: AppContext | null = null
@@ -57,7 +58,7 @@ function render(): void {
   const cleaning = group > 0 && limpeza.ativa === true
     ? `<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:12px"><strong>Limpeza</strong><div style="font-size:.78rem;color:var(--ink-3);margin-top:4px">Você está no grupo ${group}. Consulte a escala de limpeza para a próxima reunião.</div></div>`
     : ''
-  root.innerHTML = `<div style="margin-bottom:14px"><h2 style="font-size:1.05rem;color:var(--blue-deep);margin-bottom:2px">Minha agenda</h2><p style="font-size:.8rem;color:var(--ink-3)">Designações associadas a ${esc(ctx.usuario.nome)}.</p></div>
+  root.innerHTML = `${moduleTitle('Minha agenda')}
     ${cleaning}
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:0 12px;margin-bottom:12px">${assignments.join('') || '<p style="padding:18px 0;color:var(--ink-3);text-align:center">Nenhuma designação encontrada.</p>'}</div>
     ${speakerRows ? `<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:0 12px"><div style="font-weight:700;padding:12px 0 4px">Oradores</div>${speakerRows}</div>` : ''}`

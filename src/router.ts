@@ -67,6 +67,10 @@ export function navigateBack(): void {
   renderMenu(_accessList)
 }
 
+export function navigateModuleIndex(): void {
+  if (_currentModule) void navigateTo(_currentModule)
+}
+
 // ─── Init ───────────────────────────────────────────────────────────────────
 
 export function initRouter(uid: string, usuario: import('./types').Usuario): void {

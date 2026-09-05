@@ -7,6 +7,7 @@ import {
   tarefasScaleRef,
 } from '../firebase'
 import { renderMenuCards, type ItemMenu } from '../ui/menu-cards'
+import { moduleBackButton } from '../ui/module-header'
 
 type TarefasTab = 'indice' | 'resumo' | 'escala' | 'participantes' | 'mensagens' | 'pendencias'
 
@@ -474,6 +475,7 @@ function renderMensagens(): void {
 function sectionTitle(title: string, desc: string): string {
   return `
     <div style="margin-bottom:14px">
+      ${moduleBackButton()}
       <h2 style="font-size:1.05rem;color:#7E3AF2;margin-bottom:2px">${escapeHtml(title)}</h2>
       <p style="font-size:.8rem;color:var(--ink-3)">${escapeHtml(desc)}</p>
     </div>`
