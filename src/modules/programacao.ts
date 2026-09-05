@@ -5,6 +5,9 @@ import { moduleBackButton } from '../ui/module-header'
 
 type ProgramacaoTab = 'indice' | 'programa' | 'apostilas' | 'pessoas' | 'arquivos' | 'lembretes'
 type Row = Record<string, unknown>
+const API_IMPORT_URL = import.meta.env.DEV
+  ? '/api/import-jw-program'
+  : 'https://southamerica-east1-reunioes-6c437.cloudfunctions.net/importJwProgram'
 
 let activeTab: ProgramacaoTab = 'indice'
 let programacao: Record<string, unknown> = {}
@@ -216,7 +219,7 @@ function renderApostilas(): void {
 async function importOfficialProgram(url: string): Promise<void> {
   try {
     if (!/^https:\/\/www\.jw\.org\/pt\//i.test(url)) throw new Error('Use uma URL oficial em https://www.jw.org/pt/.')
-    const response = await fetch('/api/import-jw-program', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url }) })
+    const response = await fetch(API_IMPORT_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url }) })
     const payload = await response.json() as { html?: string; error?: string }
     if (!response.ok || !payload.html) throw new Error(payload.error ?? 'A importação não retornou o conteúdo oficial.')
     const program = parseOfficialText(payload.html, url)
