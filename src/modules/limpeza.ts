@@ -600,29 +600,37 @@ function renderPdf(): void {
       'PDF separado',
       'Use esta opção quando a limpeza não for publicada dentro de Tarefas.',
     )}
-    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:12px">
-      <div style="font-size:.9rem;font-weight:700;color:var(--ink);margin-bottom:6px">
-        PDF atual como referência
-      </div>
-      <p style="font-size:.82rem;color:var(--ink-3);margin-bottom:10px">
-        O PDF atual fica na pasta <strong>NAO FAZER COMMIT DESSA PASTA</strong>.
-        Ele não será incluído no app nem no Git agora.
-      </p>
-      <p style="font-size:.82rem;color:var(--ink-3)">
-        Quando for necessário publicar o PDF dentro do app, copiamos uma versão
-        para <strong>public/templates/limpeza.pdf</strong> e aí a interface ganha
-        o botão de abrir/baixar.
-      </p>
-    </div>
-    <div style="background:var(--surface-2);border:1px solid var(--border);border-radius:8px;padding:12px">
-      <div style="font-size:.82rem;font-weight:700;color:var(--ink-2);margin-bottom:4px">
-        Duas formas de publicar
-      </div>
-      <p style="font-size:.8rem;color:var(--ink-3);margin-bottom:6px">
-        1. Texto dentro de Tarefas: copie o texto da aba Texto e envie junto com as designações.
-      </p>
-      <p style="font-size:.8rem;color:var(--ink-3)">
-        2. PDF separado: use o PDF atual da limpeza quando a congregação precisar de um arquivo próprio.
-      </p>
+    <div class="form-panel">
+      <label class="form-field"><span>Data da reunião</span><input id="pdfLimpezaData" type="date" value="${todayStr()}"></label>
+      <label class="form-field"><span>Tamanho da fonte: <strong id="pdfLimpezaFonteValor">16px</strong></span><input id="pdfLimpezaFonte" type="range" min="10" max="28" value="16"></label>
+      <div id="pdfLimpezaPreview" style="white-space:pre-wrap;background:#fff;border:1px solid var(--border);padding:14px;margin:12px 0;line-height:1.45"></div>
+      <button id="btnGerarPdfLimpeza" class="btn btn-primary btn-full" type="button">Gerar PDF separado</button>
+      <div class="form-help">Será aberta a impressão do navegador. Escolha “Salvar como PDF” para criar o arquivo.</div>
     </div>`
+  const refresh = () => {
+    const date = (document.getElementById('pdfLimpezaData') as HTMLInputElement).value
+    const size = (document.getElementById('pdfLimpezaFonte') as HTMLInputElement).value
+    const preview = document.getElementById('pdfLimpezaPreview')
+    const label = document.getElementById('pdfLimpezaFonteValor')
+    if (preview) { preview.textContent = buildCleaningText(date, 'pdf'); preview.style.fontSize = `${size}px` }
+    if (label) label.textContent = `${size}px`
+  }
+  document.getElementById('pdfLimpezaData')?.addEventListener('change', refresh)
+  document.getElementById('pdfLimpezaFonte')?.addEventListener('input', refresh)
+  document.getElementById('btnGerarPdfLimpeza')?.addEventListener('click', () => {
+    const date = (document.getElementById('pdfLimpezaData') as HTMLInputElement).value
+    const size = Number((document.getElementById('pdfLimpezaFonte') as HTMLInputElement).value)
+    openCleaningPrint(date, size)
+  })
+  refresh()
+}
+
+function openCleaningPrint(date: string, fontSize: number): void {
+  const popup = window.open('', '_blank')
+  if (!popup) { toast('Permita pop-ups para gerar o PDF'); return }
+  const text = escapeHtml(buildCleaningText(date, 'pdf')).replace(/\n/g, '<br>')
+  popup.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Limpeza - ${formatDate(date)}</title><style>@page{margin:18mm}body{font-family:Arial,sans-serif;color:#222;font-size:${fontSize}px;line-height:1.45}h1{font-size:${Math.max(18, fontSize + 4)}px;color:#003f72;border-bottom:2px solid #7e3af2;padding-bottom:8px}button{margin-top:20px;padding:8px 14px}@media print{button{display:none}}</style></head><body><h1>Limpeza</h1><div>${text}</div><button onclick="window.print()">Imprimir / Salvar PDF</button></body></html>`)
+  popup.document.close()
+  popup.focus()
+  toast('Pré-visualização do PDF aberta')
 }
