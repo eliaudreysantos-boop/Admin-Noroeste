@@ -4,6 +4,7 @@ import {
   get, update,
   escalaRef, pessoasRef,
 } from '../firebase'
+import { renderMenuCards, type ItemMenu } from '../ui/menu-cards'
 
 // ─── Tipos locais (schema de escala/ não vive em types.ts — módulo lê o nó
 // existente, migrado do app Escala TPL standalone).
@@ -90,7 +91,7 @@ let selectedLocalId = ''
 let currentTabela: EscalaTabela | null = null
 let loadingTabela = false
 
-let activeTab: 'participantes' | 'disponibilidade' | 'escalaAtual' | 'pendencias' | 'config' = 'participantes'
+let activeTab: 'indice' | 'participantes' | 'disponibilidade' | 'escalaAtual' | 'pendencias' | 'config' = 'indice'
 let selectedParticipantId = ''
 let participantFilter = { nome: '', ativo: 'true', sex: '', pioneer: '' }
 
@@ -135,7 +136,7 @@ function nomeParticipante(eid: string): string {
 // ─── Mount ──────────────────────────────────────────────────────────────────────
 
 export default function mount(_ctx: AppContext): void {
-  activeTab = 'participantes'
+  activeTab = 'indice'
   participantFilter = { nome: '', ativo: 'true', sex: '', pioneer: '' }
   selectedLocalId = ''
   currentTabela = null
@@ -148,7 +149,6 @@ export default function mount(_ctx: AppContext): void {
       <div id="escalaContent"></div>
     </div>`
 
-  renderTabBar()
   void loadAll()
 }
 
@@ -220,11 +220,30 @@ async function loadTabela(): Promise<void> {
 }
 
 function renderContent(): void {
+  if (activeTab === 'indice') {
+    renderIndex()
+    return
+  }
+  renderTabBar()
   if      (activeTab === 'participantes') renderParticipantes()
   else if (activeTab === 'disponibilidade') renderDisponibilidade()
   else if (activeTab === 'escalaAtual')   renderEscalaAtual()
   else if (activeTab === 'pendencias')    renderPendencias()
   else                                     renderConfig()
+}
+
+function renderIndex(): void {
+  const content = document.getElementById('escalaContent')
+  if (!content) return
+  content.innerHTML = `<div style="margin-bottom:14px"><h2 style="font-size:1.05rem;color:#1A6B3C;margin-bottom:2px">Escala</h2><p style="font-size:.8rem;color:var(--ink-3)">Escala de campo TPL.</p></div><div id="escalaMenu"></div>`
+  const items: ItemMenu[] = [
+    { id: 'participantes', titulo: 'Participantes', subtitulo: 'Cadastro e vínculo com Admin', icone: '♙', corFundo: '#1A6B3C' },
+    { id: 'disponibilidade', titulo: 'Disponibilidade', subtitulo: 'Informe dias e horários disponíveis', icone: '◫', corFundo: '#006EB6' },
+    { id: 'escalaAtual', titulo: 'Escala atual', subtitulo: 'Consulte a escala do mês por local', icone: '▣', corFundo: '#003F72' },
+    { id: 'pendencias', titulo: 'Pendências', subtitulo: 'Cadastros e escalas que precisam de atenção', icone: '!', corFundo: '#B3261E' },
+    { id: 'config', titulo: 'Configuração', subtitulo: 'Link do grupo de WhatsApp', icone: '⚙', corFundo: '#5C6062' },
+  ]
+  renderMenuCards(content.querySelector<HTMLElement>('#escalaMenu')!, items, id => { activeTab = id as typeof activeTab; renderContent() })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
