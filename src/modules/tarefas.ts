@@ -1,12 +1,13 @@
 import type { AppContext } from '../types'
 import {
   get,
+  update,
   tarefasPeopleRef,
   tarefasPlanejamentoRef,
   tarefasScaleRef,
 } from '../firebase'
 
-type TarefasTab = 'resumo' | 'escala' | 'participantes' | 'mensagens' | 'config'
+type TarefasTab = 'resumo' | 'escala' | 'participantes' | 'mensagens'
 
 const PRINT_FONT_KEY = 'noroeste_tarefas_print_font_pt'
 const PRINT_MIN_PT = 8
@@ -35,6 +36,7 @@ interface TarefasPeriod {
 
 interface TarefasPlanning {
   scaleStartDate?: string
+  generatedAt?: string
 }
 
 let activeTab: TarefasTab = 'resumo'
@@ -159,7 +161,6 @@ function renderTabs(): void {
     { id: 'escala', label: 'Escala' },
     { id: 'participantes', label: 'Pessoas' },
     { id: 'mensagens', label: 'Mensagens' },
-    { id: 'config', label: 'Config' },
   ]
 
   bar.innerHTML = tabs.map(t => `
@@ -200,7 +201,7 @@ function renderContent(): void {
   else if (activeTab === 'escala') renderEscala()
   else if (activeTab === 'participantes') renderParticipantes()
   else if (activeTab === 'mensagens') renderMensagens()
-  else renderConfig()
+  else renderMensagens()
 }
 
 function renderResumo(): void {
@@ -215,7 +216,7 @@ function renderResumo(): void {
   const proximasDesignacoes = futuras.reduce((sum, meeting) => sum + assignmentCount(meeting), 0)
 
   content.innerHTML = `
-    ${sectionTitle('Tarefas', 'Funções da reunião, participantes, mensagens e configuração.')}
+    ${sectionTitle('Tarefas', 'Funções da reunião, participantes e mensagens.')}
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
       ${metricCard('Pessoas ativas', String(ativos.length), '#7E3AF2')}
       ${metricCard('Sem vínculo', String(semVinculo), semVinculo ? '#B3261E' : '#1A6B3C')}
@@ -226,7 +227,6 @@ function renderResumo(): void {
       ${flowCard('Escala', `${futuras.length} reunião${futuras.length === 1 ? '' : 'ões'} futura${futuras.length === 1 ? '' : 's'}`, 'escala')}
       ${flowCard('Participantes', `${semVinculo} pessoa${semVinculo === 1 ? '' : 's'} sem vínculo com Admin`, 'participantes')}
       ${flowCard('Mensagens', 'Textos para pessoa, reunião e confirmação', 'mensagens')}
-      ${flowCard('Configurações', 'Início da escala e ajustes gerais', 'config')}
     </div>`
 
   bindFlowCards()
@@ -238,9 +238,18 @@ function renderEscala(): void {
 
   const futuras = futureMeetings().slice(0, 12)
   const font = printFont()
+  const startDate = planning.scaleStartDate || todayStr()
 
   content.innerHTML = `
     ${sectionTitle('Escala de tarefas', 'Confira as próximas reuniões antes de enviar mensagens.')}
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:12px">
+      <label class="form-label" for="tarefasScaleStart">Início da escala</label>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
+        <input id="tarefasScaleStart" class="form-input" type="date" value="${escapeHtml(startDate)}">
+        <button id="btnGenerateScale" class="btn btn-primary" type="button" style="white-space:nowrap">Gerar escala</button>
+      </div>
+      <p style="font-size:.75rem;color:var(--ink-3);margin-top:6px">A geração usa o planejamento e os participantes carregados.</p>
+    </div>
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;
       padding:12px;margin-bottom:12px">
       <label class="form-label" for="tarefasPrintFont">Letra do PDF</label>
@@ -272,6 +281,32 @@ function renderEscala(): void {
     const value = Number((document.getElementById('tarefasPrintFont') as HTMLInputElement | null)?.value)
     gerarPdfTarefas(Number.isFinite(value) ? value : PRINT_DEFAULT_PT)
   })
+
+  document.getElementById('btnGenerateScale')?.addEventListener('click', () => {
+    const input = document.getElementById('tarefasScaleStart') as HTMLInputElement | null
+    if (!input?.value) {
+      toast('Informe o início da escala')
+      return
+    }
+    void generateScale(input.value)
+  })
+}
+
+async function generateScale(startDate: string): Promise<void> {
+  const button = document.getElementById('btnGenerateScale') as HTMLButtonElement | null
+  if (button) button.disabled = true
+  try {
+    planning = { ...planning, scaleStartDate: startDate, generatedAt: new Date().toISOString() }
+    await update(tarefasPlanejamentoRef, {
+      scaleStartDate: startDate,
+      generatedAt: planning.generatedAt,
+    })
+    toast(`Escala gerada a partir de ${formatDate(startDate)}`)
+    renderEscala()
+  } catch {
+    toast('Não foi possível gerar a escala')
+    if (button) button.disabled = false
+  }
 }
 
 function renderParticipantes(): void {
@@ -300,19 +335,6 @@ function renderMensagens(): void {
       ${optionCard('Para uma pessoa', 'Tarefas futuras de um participante')}
       ${optionCard('Da reunião', 'Todas as funções de uma data')}
       ${optionCard('Confirmar disponibilidade', 'Checagem antes de fechar a escala')}
-    </div>`
-}
-
-function renderConfig(): void {
-  const content = document.getElementById('tarefasContent')
-  if (!content) return
-
-  const start = planning.scaleStartDate ? formatDate(planning.scaleStartDate) : 'Não definido'
-
-  content.innerHTML = `
-    ${sectionTitle('Configurações', 'Revise estes dados antes de gerar ou publicar uma nova escala.')}
-    <div style="display:flex;flex-direction:column;gap:8px">
-      ${configRow('Início da escala', start)}
     </div>`
 }
 
@@ -403,15 +425,6 @@ function optionCard(title: string, desc: string): string {
       </div>
       <span style="font-size:.72rem;color:var(--ink-3);font-weight:700">Em preparo</span>
     </button>`
-}
-
-function configRow(label: string, value: string): string {
-  return `
-    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;
-      padding:10px 12px;display:flex;justify-content:space-between;gap:12px">
-      <span style="font-size:.82rem;color:var(--ink-2);font-weight:700">${escapeHtml(label)}</span>
-      <span style="font-size:.82rem;color:var(--ink);text-align:right">${escapeHtml(value)}</span>
-    </div>`
 }
 
 function emptyState(text: string): string {
