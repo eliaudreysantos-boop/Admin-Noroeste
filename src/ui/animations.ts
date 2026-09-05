@@ -11,7 +11,10 @@ export function animateKpis(root: ParentNode): void {
     element.dataset.kpiAnimated = 'true'
     const initial = target.map(() => 0)
     const started = performance.now()
-    const duration = 1000
+    const cssDuration = getComputedStyle(document.documentElement).getPropertyValue('--anim-duration').trim()
+    const duration = cssDuration.endsWith('ms')
+      ? Number.parseFloat(cssDuration)
+      : Number.parseFloat(cssDuration) * 1000
     const frame = (now: number) => {
       const progress = Math.min((now - started) / duration, 1)
       const eased = 1 - Math.pow(1 - progress, 3)

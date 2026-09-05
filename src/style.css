@@ -44,7 +44,7 @@
   --radius-lg: 14px;
   --shadow:    0 2px 8px rgba(0,0,0,.10);
   --shadow-lg: 0 8px 24px rgba(0,0,0,.14);
-  --anim-duration: 1s;
+  --anim-duration: 500ms;
 
   /* Tipografia */
   --font: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
