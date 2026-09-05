@@ -4,17 +4,18 @@ import { renderMenuCards, type ItemMenu } from '../ui/menu-cards'
 import { moduleBackButton, moduleTitle } from '../ui/module-header'
 
 interface LegacyOrador { nome?: string; name?: string; telefone?: string; ativo?: boolean; tipo?: string; temaIds?: string[]; pessoaId?: string }
-interface LegacyProgramacao { status?: string; data?: string; oradorId?: string; oradorNome?: string; temaNumero?: number; temaTitulo?: string }
+interface LegacyProgramacao { status?: string; data?: string; oradorId?: string; oradorNome?: string; temaNumero?: number; temaTitulo?: string; tipo?: string; congregacaoId?: string }
 interface LegacyTema { titulo?: string; ativo?: boolean; numero?: number }
+interface LegacyCongregacao { nome?: string; cidade?: string; tipo?: string; contato?: string; telefone?: string; ativa?: boolean }
 interface LegacyDiscursos {
   oradores?: Record<string, LegacyOrador>
   programacao?: Record<string, LegacyProgramacao>
   temas?: Record<string, LegacyTema>
-  congregacoes?: Record<string, { ativa?: boolean; tipo?: string }>
+  congregacoes?: Record<string, LegacyCongregacao>
 }
 
 let discursos: LegacyDiscursos = {}
-type OradoresTab = 'indice' | 'resumo' | 'cadastro' | 'programacao' | 'temas' | 'pendencias'
+type OradoresTab = 'indice' | 'resumo' | 'cadastro' | 'programacao' | 'temas' | 'congregacoes' | 'pendencias'
 let activeTab: OradoresTab = 'indice'
 
 function toast(msg: string, ms = 2600): void {
@@ -105,6 +106,7 @@ function render(): void {
         { id: 'cadastro', titulo: 'Cadastro', subtitulo: 'Oradores da congregação', icone: '♙', corFundo: '#003F72' },
         { id: 'programacao', titulo: 'Programação', subtitulo: `${programacoesFuturas} compromisso${programacoesFuturas === 1 ? '' : 's'} futuro${programacoesFuturas === 1 ? '' : 's'}`, icone: '▣', corFundo: '#7E3AF2' },
         { id: 'temas', titulo: 'Temas', subtitulo: 'Catálogo dos discursos públicos', icone: '▤', corFundo: '#1A6B3C' },
+        { id: 'congregacoes', titulo: 'Congregações', subtitulo: 'Locais, visitantes e intercâmbios', icone: '⌂', corFundo: '#006EB6' },
         { id: 'pendencias', titulo: 'Pendências', subtitulo: `${aConfirmar} compromisso${aConfirmar === 1 ? '' : 's'} a confirmar`, icone: '!', corFundo: '#B3261E' },
       ]
       renderMenuCards(menu, items, id => { activeTab = id as OradoresTab; render() })
@@ -135,13 +137,52 @@ function render(): void {
   el.querySelectorAll<HTMLButtonElement>('[data-delete-tema]').forEach(button => {
     button.addEventListener('click', () => void deleteTema(button.dataset['deleteTema'] ?? ''))
   })
+  el.querySelector<HTMLButtonElement>('[data-add-congregacao]')?.addEventListener('click', () => openCongregacaoModal(null))
+  el.querySelectorAll<HTMLButtonElement>('[data-edit-congregacao]').forEach(button => {
+    button.addEventListener('click', () => openCongregacaoModal(button.dataset['editCongregacao'] ?? null))
+  })
+  el.querySelectorAll<HTMLButtonElement>('[data-delete-congregacao]').forEach(button => {
+    button.addEventListener('click', () => void deleteCongregacao(button.dataset['deleteCongregacao'] ?? ''))
+  })
 }
 
 function renderTabContent(tab: OradoresTab): string {
   if (tab === 'cadastro') return cadastroView()
   if (tab === 'programacao') return programacaoView()
   if (tab === 'temas') return temasView()
+  if (tab === 'congregacoes') return congregacoesView()
   return pendenciasView()
+}
+
+function congregacoesView(): string {
+  const rows = Object.entries(discursos.congregacoes ?? {}).sort(([, a], [, b]) => (a.nome ?? '').localeCompare(b.nome ?? '', 'pt-BR'))
+  return `<div style="margin-top:14px"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px"><h3 style="font-size:.95rem;color:#5C6062">Congregações</h3><button class="btn btn-primary" type="button" data-add-congregacao style="padding:6px 10px;font-size:.78rem">Adicionar</button></div><div class="module-option-list">${rows.length ? rows.map(([id, c]) => `<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 12px;display:flex;justify-content:space-between;gap:10px;align-items:center"><div style="flex:1;min-width:0"><strong>${escapeHtml(c.nome ?? id)}</strong><div style="font-size:.75rem;color:var(--ink-3)">${escapeHtml(c.cidade ?? 'Cidade não informada')} · ${c.tipo === 'local' ? 'Local' : 'Visitante'}${c.telefone ? ` · ${escapeHtml(c.telefone)}` : ''}</div></div><span style="font-size:.72rem;color:${c.ativa === false ? '#B3261E' : '#1A6B3C'}">${c.ativa === false ? 'Inativa' : 'Ativa'}</span><button class="btn btn-ghost" type="button" data-edit-congregacao="${escapeHtml(id)}" style="padding:4px 8px;font-size:.72rem">Editar</button><button class="btn btn-danger" type="button" data-delete-congregacao="${escapeHtml(id)}" style="padding:4px 8px;font-size:.72rem">Excluir</button></div>`).join('') : '<p class="empty-state">Nenhuma congregação cadastrada.</p>'}</div></div>`
+}
+
+function openCongregacaoModal(id: string | null): void {
+  const current = id ? discursos.congregacoes?.[id] : undefined
+  const overlay = document.createElement('div')
+  overlay.className = 'modal-overlay'
+  overlay.innerHTML = `<div class="modal"><h2>${id ? 'Editar congregação' : 'Nova congregação'}</h2><div class="form-group"><label class="form-label" for="congNome">Nome</label><input id="congNome" class="form-input" value="${escapeHtml(current?.nome ?? '')}"></div><div class="form-group"><label class="form-label" for="congCidade">Cidade</label><input id="congCidade" class="form-input" value="${escapeHtml(current?.cidade ?? '')}"></div><div class="form-group"><label class="form-label" for="congTipo">Tipo</label><select id="congTipo" class="form-select"><option value="visitante" ${current?.tipo !== 'local' ? 'selected' : ''}>Visitante</option><option value="local" ${current?.tipo === 'local' ? 'selected' : ''}>Local</option></select></div><div class="form-group"><label class="form-label" for="congTelefone">Telefone</label><input id="congTelefone" class="form-input" type="tel" value="${escapeHtml(current?.telefone ?? '')}"></div><div class="form-group"><label style="display:flex;align-items:center;gap:8px"><input id="congAtiva" type="checkbox" ${current?.ativa !== false ? 'checked' : ''}> <span class="form-label" style="margin:0">Ativa</span></label></div><div style="display:flex;gap:8px;margin-top:8px"><button id="cancelCong" class="btn btn-ghost" type="button" style="flex:1">Cancelar</button><button id="saveCong" class="btn btn-primary" type="button" style="flex:1">Salvar</button></div></div>`
+  document.body.appendChild(overlay)
+  overlay.addEventListener('click', event => { if (event.target === overlay) overlay.remove() })
+  overlay.querySelector('#cancelCong')?.addEventListener('click', () => overlay.remove())
+  overlay.querySelector('#saveCong')?.addEventListener('click', () => void saveCongregacao(id, overlay))
+}
+
+async function saveCongregacao(id: string | null, overlay: HTMLElement): Promise<void> {
+  const nome = (overlay.querySelector('#congNome') as HTMLInputElement).value.trim()
+  if (!nome) { toast('Preencha o nome da congregação'); return }
+  const record: LegacyCongregacao = { ...(id ? discursos.congregacoes?.[id] : {}), nome, cidade: (overlay.querySelector('#congCidade') as HTMLInputElement).value.trim(), tipo: (overlay.querySelector('#congTipo') as HTMLSelectElement).value, telefone: (overlay.querySelector('#congTelefone') as HTMLInputElement).value.trim(), ativa: (overlay.querySelector('#congAtiva') as HTMLInputElement).checked }
+  const finalId = id ?? `c_${Date.now().toString(36)}`
+  try { await update(tarefasDiscursosRef, { [`congregacoes/${finalId}`]: record }); discursos.congregacoes = { ...(discursos.congregacoes ?? {}), [finalId]: record }; overlay.remove(); toast(id ? 'Congregação atualizada' : 'Congregação adicionada'); render() } catch { toast('Erro ao salvar congregação') }
+}
+
+async function deleteCongregacao(id: string): Promise<void> {
+  if (!id || !discursos.congregacoes?.[id]) return
+  if (Object.values(discursos.programacao ?? {}).some(p => p.congregacaoId === id)) { toast('Esta congregação está vinculada a uma programação'); return }
+  if (!window.confirm(`Excluir a congregação "${discursos.congregacoes[id].nome ?? id}"?`)) return
+  try { await update(tarefasDiscursosRef, { [`congregacoes/${id}`]: null }); const next = { ...(discursos.congregacoes ?? {}) }; delete next[id]; discursos.congregacoes = next; toast('Congregação excluída'); render() } catch { toast('Erro ao excluir congregação') }
 }
 
 function cadastroView(): string {
@@ -208,9 +249,11 @@ function openProgramacaoModal(id: string | null): void {
   const current = id ? discursos.programacao?.[id] : undefined
   const speakers = Object.entries(discursos.oradores ?? {}).sort(([, a], [, b]) => (a.nome ?? a.name ?? '').localeCompare(b.nome ?? b.name ?? '', 'pt-BR'))
   const options = speakers.map(([speakerId, speaker]) => `<option value="${escapeHtml(speakerId)}" ${speakerId === current?.oradorId ? 'selected' : ''}>${escapeHtml(speaker.nome ?? speaker.name ?? speakerId)}</option>`).join('')
+  const congregacoes = Object.entries(discursos.congregacoes ?? {}).filter(([, c]) => c.ativa !== false).sort(([, a], [, b]) => (a.nome ?? '').localeCompare(b.nome ?? '', 'pt-BR'))
+  const congregationOptions = congregacoes.map(([congId, congregation]) => `<option value="${escapeHtml(congId)}" ${congId === current?.congregacaoId ? 'selected' : ''}>${escapeHtml(congregation.nome ?? congId)}</option>`).join('')
   const overlay = document.createElement('div')
   overlay.className = 'modal-overlay'
-  overlay.innerHTML = `<div class="modal"><h2>${id ? 'Editar programação' : 'Nova programação'}</h2><div class="form-group"><label class="form-label" for="progData">Data</label><input id="progData" class="form-input" type="date" value="${escapeHtml(current?.data ?? '')}"></div><div class="form-group"><label class="form-label" for="progOrador">Orador</label><select id="progOrador" class="form-select"><option value="">A definir</option>${options}</select></div><div class="form-group"><label class="form-label" for="progTemaNumero">Número do tema</label><input id="progTemaNumero" class="form-input" type="number" value="${current?.temaNumero ?? ''}"></div><div class="form-group"><label class="form-label" for="progTemaTitulo">Título do tema</label><input id="progTemaTitulo" class="form-input" value="${escapeHtml(current?.temaTitulo ?? '')}"></div><div class="form-group"><label class="form-label" for="progStatus">Status</label><select id="progStatus" class="form-select"><option value="por_confirmar" ${current?.status !== 'confirmado' ? 'selected' : ''}>A confirmar</option><option value="confirmado" ${current?.status === 'confirmado' ? 'selected' : ''}>Confirmado</option></select></div><div style="display:flex;gap:8px;margin-top:8px"><button id="cancelProg" class="btn btn-ghost" type="button" style="flex:1">Cancelar</button><button id="saveProg" class="btn btn-primary" type="button" style="flex:1">Salvar</button></div></div>`
+  overlay.innerHTML = `<div class="modal"><h2>${id ? 'Editar programação' : 'Nova programação'}</h2><div class="form-group"><label class="form-label" for="progData">Data</label><input id="progData" class="form-input" type="date" value="${escapeHtml(current?.data ?? '')}"></div><div class="form-group"><label class="form-label" for="progTipo">Tipo</label><select id="progTipo" class="form-select"><option value="local" ${current?.tipo !== 'saida_orador' && current?.tipo !== 'visitante' ? 'selected' : ''}>Discurso local</option><option value="visitante" ${current?.tipo === 'visitante' ? 'selected' : ''}>Orador visitante</option><option value="saida_orador" ${current?.tipo === 'saida_orador' ? 'selected' : ''}>Saída de orador</option></select></div><div class="form-group"><label class="form-label" for="progOrador">Orador</label><select id="progOrador" class="form-select"><option value="">A definir</option>${options}</select></div><div class="form-group"><label class="form-label" for="progCongregacao">Congregação relacionada</label><select id="progCongregacao" class="form-select"><option value="">Nenhuma</option>${congregationOptions}</select></div><div class="form-group"><label class="form-label" for="progTemaNumero">Número do tema</label><input id="progTemaNumero" class="form-input" type="number" value="${current?.temaNumero ?? ''}"></div><div class="form-group"><label class="form-label" for="progTemaTitulo">Título do tema</label><input id="progTemaTitulo" class="form-input" value="${escapeHtml(current?.temaTitulo ?? '')}"></div><div class="form-group"><label class="form-label" for="progStatus">Status</label><select id="progStatus" class="form-select"><option value="por_confirmar" ${current?.status !== 'confirmado' ? 'selected' : ''}>A confirmar</option><option value="confirmado" ${current?.status === 'confirmado' ? 'selected' : ''}>Confirmado</option></select></div><div style="display:flex;gap:8px;margin-top:8px"><button id="cancelProg" class="btn btn-ghost" type="button" style="flex:1">Cancelar</button><button id="saveProg" class="btn btn-primary" type="button" style="flex:1">Salvar</button></div></div>`
   document.body.appendChild(overlay)
   overlay.addEventListener('click', event => { if (event.target === overlay) overlay.remove() })
   overlay.querySelector('#cancelProg')?.addEventListener('click', () => overlay.remove())
@@ -223,8 +266,10 @@ async function saveProgramacao(id: string | null, overlay: HTMLElement): Promise
   const record: LegacyProgramacao = {
     ...(id ? discursos.programacao?.[id] : {}),
     data: (overlay.querySelector('#progData') as HTMLInputElement).value,
+    tipo: (overlay.querySelector('#progTipo') as HTMLSelectElement).value,
     oradorId: oradorId || undefined,
     oradorNome: orador ? (orador.nome ?? orador.name) : undefined,
+    congregacaoId: (overlay.querySelector('#progCongregacao') as HTMLSelectElement).value || undefined,
     temaNumero: Number((overlay.querySelector('#progTemaNumero') as HTMLInputElement).value) || undefined,
     temaTitulo: (overlay.querySelector('#progTemaTitulo') as HTMLInputElement).value.trim() || undefined,
     status: (overlay.querySelector('#progStatus') as HTMLSelectElement).value,
