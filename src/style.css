@@ -114,6 +114,7 @@ body {
 #bottomBar {
   position: sticky;
   bottom: 0;
+  z-index: 100;
   min-height: var(--bottom-h);
   background: var(--blue-deep);
   border-top: 1px solid var(--border);
@@ -123,6 +124,16 @@ body {
   padding: 0 16px;
   box-shadow: 0 -2px 8px rgba(0,0,0,.06);
   gap: 10px;
+}
+
+#bottomBar::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: var(--header-accent);
 }
 
 .bottom-nav-btn {
