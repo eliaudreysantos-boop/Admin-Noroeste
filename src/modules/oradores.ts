@@ -1,5 +1,6 @@
 import type { AppContext } from '../types'
 import { get, update, tarefasDiscursosRef } from '../firebase'
+import { renderMenuCards, type ItemMenu } from '../ui/menu-cards'
 
 interface LegacyOrador { nome?: string; name?: string; telefone?: string; ativo?: boolean; tipo?: string; temaIds?: string[]; pessoaId?: string }
 interface LegacyProgramacao { status?: string; data?: string; oradorId?: string; oradorNome?: string; temaNumero?: number; temaTitulo?: string }
@@ -12,8 +13,8 @@ interface LegacyDiscursos {
 }
 
 let discursos: LegacyDiscursos = {}
-type OradoresTab = 'resumo' | 'cadastro' | 'programacao' | 'temas' | 'pendencias'
-let activeTab: OradoresTab = 'resumo'
+type OradoresTab = 'indice' | 'resumo' | 'cadastro' | 'programacao' | 'temas' | 'pendencias'
+let activeTab: OradoresTab = 'indice'
 
 function toast(msg: string, ms = 2600): void {
   const el = document.getElementById('toast')
@@ -50,7 +51,7 @@ export default function mount(_ctx: AppContext): void {
       <p style="padding:24px;color:var(--ink-3);text-align:center">Carregando...</p>
     </div>`
 
-  activeTab = 'resumo'
+  activeTab = 'indice'
   void loadOradores()
 }
 
@@ -83,6 +84,20 @@ function render(): void {
     discursos.programacao,
     p => p.status === 'por_confirmar' || p.status === 'por_definir',
   )
+
+  if (activeTab === 'indice') {
+    el.innerHTML = `<div style="margin-bottom:14px"><h2 style="font-size:1.05rem;color:#5C6062;margin-bottom:2px">Oradores</h2><p style="font-size:.8rem;color:var(--ink-3)">Discursos públicos, temas, congregações e substituições.</p></div><div id="oradoresMenu"></div>`
+    const menu = el.querySelector<HTMLElement>('#oradoresMenu')!
+    const items: ItemMenu[] = [
+      { id: 'resumo', titulo: 'Resumo', subtitulo: 'Visão geral dos discursos e compromissos', icone: '▦', corFundo: '#5C6062' },
+      { id: 'cadastro', titulo: 'Cadastro', subtitulo: 'Oradores locais e visitantes', icone: '♙', corFundo: '#003F72' },
+      { id: 'programacao', titulo: 'Programação', subtitulo: 'Agenda de discursos e confirmações', icone: '▣', corFundo: '#7E3AF2' },
+      { id: 'temas', titulo: 'Temas', subtitulo: 'Catálogo de discursos públicos', icone: '▤', corFundo: '#1A6B3C' },
+      { id: 'pendencias', titulo: 'Pendências', subtitulo: 'Itens que precisam de confirmação', icone: '!', corFundo: '#B3261E' },
+    ]
+    renderMenuCards(menu, items, id => { activeTab = id as OradoresTab; render() })
+    return
+  }
 
   el.innerHTML = `
     <div style="margin-bottom:14px">

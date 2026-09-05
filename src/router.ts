@@ -1,4 +1,5 @@
 import type { AppContext, ModuleName, AppPermissions } from './types'
+import { renderMenuCards, type ItemMenu } from './ui/menu-cards'
 
 // ─── Mapa de módulos ────────────────────────────────────────────────────────
 
@@ -104,27 +105,9 @@ function renderMenu(list: ModuleName[]): void {
   _currentModule = null
   emitRouteState()
   const content = document.getElementById('appContent')!
-  const items = list.map((m) => {
+  const items: ItemMenu[] = list.map((m) => {
     const meta = MODULE_META[m]
-    return `
-      <button class="module-menu-btn" data-module="${m}">
-        <div class="mod-icon" style="background:${meta.color}20;color:${meta.color}">
-          ${meta.icon}
-        </div>
-        <div>
-          <div class="mod-label">${meta.label}</div>
-          <div class="mod-desc">${meta.desc}</div>
-        </div>
-      </button>`
-  }).join('')
-
-  content.innerHTML = `
-    <div class="module-menu">${items}</div>`
-
-  content.querySelectorAll<HTMLButtonElement>('.module-menu-btn').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const m = btn.dataset['module'] as ModuleName
-      void navigateTo(m)
-    })
+    return { id: m, titulo: meta.label, subtitulo: meta.desc, icone: meta.icon, corFundo: meta.color }
   })
+  renderMenuCards(content, items, id => void navigateTo(id as ModuleName))
 }
