@@ -1,6 +1,7 @@
 import './style.css'
 import {
   loadUsuarios,
+  loadCachedUserChoices,
   saveSession,
   loadSession,
   clearSession,
@@ -135,15 +136,25 @@ function handleBack(): void {
 async function init(): Promise<void> {
   setStatus('Carregando dados…')
 
-  let usuarios: RawUsuarios = {}
+  let usuarios: RawUsuarios = loadCachedUserChoices()
+  if (Object.keys(usuarios).length > 0) populateUsuarioSelect(usuarios)
 
   try {
-    usuarios = await loadUsuarios()
+    usuarios = await Promise.race([
+      loadUsuarios(),
+      new Promise<RawUsuarios>((_, reject) => {
+        setTimeout(() => reject(new Error('Tempo excedido ao carregar usuários')), 8000)
+      }),
+    ])
     setStatus('Conectado ao Firebase ✓')
   } catch (err) {
     setStatus('Erro de conexão com Firebase')
     console.error(err)
-    loginError.textContent = 'Sem conexão. Tente novamente.'
+    if (Object.keys(usuarios).length === 0) {
+      loginError.textContent = 'Não foi possível carregar os usuários. Verifique a conexão e tente novamente.'
+    } else {
+      loginError.textContent = 'Conexão lenta. A lista anterior está disponível; confirme o login quando a conexão voltar.'
+    }
   }
 
   // Tenta restaurar sessão
@@ -152,7 +163,7 @@ async function init(): Promise<void> {
 
   // Exibe login
   loginOverlay.classList.remove('hidden')
-  populateUsuarioSelect(usuarios)
+  if (Object.keys(usuarios).length === 0) populateUsuarioSelect(usuarios)
   selectUsuario.focus()
 
   // Eventos de login

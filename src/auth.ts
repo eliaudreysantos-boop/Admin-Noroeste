@@ -2,13 +2,30 @@ import { get, usuariosRef }           from './firebase'
 import type { Usuario, AppPermissions, RawUsuarios } from './types'
 
 const SESSION_KEY = 'noroeste_uid'
+const USER_CHOICES_KEY = 'noroeste_user_choices'
+
+type CachedUserChoice = Pick<Usuario, 'nome' | 'ativo'>
 
 // ─── Leitura ───────────────────────────────────────────────────────────────
 
 export async function loadUsuarios(): Promise<RawUsuarios> {
   const snap = await get(usuariosRef)
   if (!snap.exists()) return {}
-  return snap.val() as RawUsuarios
+  const usuarios = snap.val() as RawUsuarios
+  const choices: Record<string, CachedUserChoice> = {}
+  Object.entries(usuarios).forEach(([uid, usuario]) => {
+    choices[uid] = { nome: usuario.nome, ativo: usuario.ativo }
+  })
+  localStorage.setItem(USER_CHOICES_KEY, JSON.stringify(choices))
+  return usuarios
+}
+
+export function loadCachedUserChoices(): RawUsuarios {
+  try {
+    return JSON.parse(localStorage.getItem(USER_CHOICES_KEY) ?? '{}') as RawUsuarios
+  } catch {
+    return {}
+  }
 }
 
 // ─── Autenticação — por UID (novo padrão: select de usuário) ───────────────

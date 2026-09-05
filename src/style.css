@@ -90,6 +90,16 @@ body {
   margin: 0 auto;
 }
 
+/* Desktop uses the available width; tablet stays in the same compact layout as mobile. */
+@media (min-width: 769px) {
+  :root { --max-w: 1180px; }
+  #appContent { padding-left: 28px; padding-right: 28px; }
+}
+
+@media (max-width: 768px) {
+  :root { --max-w: 480px; }
+}
+
 #appShell.hidden { display: none; }
 
 /* Header */
