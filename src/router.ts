@@ -13,10 +13,11 @@ const MODULE_META: Record<
   escala:      { label: 'Escala',       desc: 'Escala de campo TPL',          icon: '🌿', color: '#1A6B3C' },
   programacao: { label: 'Programação',  desc: 'Programação de reuniões',      icon: '📅', color: '#003F72' },
   secretario:  { label: 'Secretário',   desc: 'Relatórios e publicadores',    icon: '📂', color: '#B3261E' },
+  individual:  { label: 'Minha agenda',  desc: 'Suas designações e compromissos', icon: '✓', color: '#006EB6' },
 }
 
 const MODULES_ORDER: ModuleName[] = [
-  'mestre', 'tarefas', 'limpeza', 'oradores', 'escala', 'programacao', 'secretario',
+  'mestre', 'tarefas', 'limpeza', 'oradores', 'escala', 'programacao', 'secretario', 'individual',
 ]
 
 // ─── Lazy loaders ───────────────────────────────────────────────────────────
@@ -33,6 +34,7 @@ async function loadModule(
     escala:      () => import('./modules/escala'),
     programacao: () => import('./modules/programacao'),
     secretario:  () => import('./modules/secretario'),
+    individual:  () => import('./modules/individual'),
   }
   const mod = await loaders[name]()
   mod.default(ctx)

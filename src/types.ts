@@ -23,6 +23,7 @@ export type ModuleName =
   | 'escala'
   | 'programacao'
   | 'secretario'
+  | 'individual'
 
 export type TipoDesignacao =
   | 'presidente'
@@ -119,6 +120,7 @@ export interface AppPermissions {
   escala:      boolean
   programacao: boolean
   secretario:  boolean
+  individual?: boolean
 }
 
 export interface Usuario {

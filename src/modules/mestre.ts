@@ -105,7 +105,7 @@ function sexLabel(sex: Sex | null): string {
 function appsList(apps: Usuario['apps']): string {
   const labels: Record<string, string> = {
     mestre:'Admin', tarefas:'Tarefas', limpeza:'Limpeza', oradores:'Oradores', escala:'Escala',
-    programacao:'Programação', secretario:'Secretário',
+    programacao:'Programação', secretario:'Secretário', individual:'Minha agenda',
   }
   return (Object.keys(apps) as Array<keyof typeof apps>)
     .filter(k => apps[k]).map(k => labels[k]).join(', ') || '—'
@@ -541,6 +541,7 @@ function openUsuarioModal(uid: string | null): void {
         ${appCheck('escala',      'Escala',       apps.escala)}
         ${appCheck('programacao', 'Programação',  apps.programacao)}
         ${appCheck('secretario',  'Secretário',   apps.secretario)}
+        ${appCheck('individual',  'Minha agenda', apps.individual ?? false)}
       </div>
       <div style="display:flex;gap:8px;margin-top:8px">
         <button id="btnCancelUsuario" class="btn btn-ghost" style="flex:1">Cancelar</button>
@@ -578,6 +579,7 @@ async function saveUsuario(uid: string | null, overlay: HTMLElement): Promise<vo
       escala:      checkApp('escala'),
       programacao: checkApp('programacao'),
       secretario:  checkApp('secretario'),
+      individual:  checkApp('individual'),
     },
   }
   const finalUid = uid ?? genId('u_')
