@@ -62,11 +62,14 @@ interface EscalaSettings {
   groupWhatsAppLink?: string
 }
 
+type RawAvailability = Record<string, Record<string, Record<string, boolean>>>
+
 // ─── Referências Firebase (sub-nós de escala/, via child()) ──────────────────
 
 const participantsRef = child(escalaRef, 'participants')
 const locaisRef       = child(escalaRef, 'scales')   // nome do nó no banco é "scales"
 const settingsRef     = child(escalaRef, 'settings')
+const availabilityRef = child(escalaRef, 'availability')
 
 function participantRef(eid: string) {
   return child(escalaRef, `participants/${eid}`)
@@ -75,22 +78,20 @@ function tabelaRef(localId: string, mes: string) {
   return child(escalaRef, `tables/${localId}/${mes}`)
 }
 
-// ─── Constante — link externo do app Escala TPL standalone ───────────────────
-// TODO: trocar pela URL real do app Escala TPL publicado no Netlify.
-const ESCALA_EXTERNAL_URL = 'https://SEU-APP-ESCALA.netlify.app'
-
 // ─── Estado do módulo ──────────────────────────────────────────────────────────
 
 let participants: RawParticipants = {}
 let pessoas:       RawPessoas      = {}
 let locais:         RawLocais       = {}
 let settings:         EscalaSettings = {}
+let availability: RawAvailability = {}
 
 let selectedLocalId = ''
 let currentTabela: EscalaTabela | null = null
 let loadingTabela = false
 
-let activeTab: 'participantes' | 'escalaAtual' | 'config' = 'participantes'
+let activeTab: 'participantes' | 'disponibilidade' | 'escalaAtual' | 'pendencias' | 'config' = 'participantes'
+let selectedParticipantId = ''
 let participantFilter = { nome: '', ativo: 'true', sex: '', pioneer: '' }
 
 // ─── Utilitários gerais ────────────────────────────────────────────────────────
@@ -138,6 +139,7 @@ export default function mount(_ctx: AppContext): void {
   participantFilter = { nome: '', ativo: 'true', sex: '', pioneer: '' }
   selectedLocalId = ''
   currentTabela = null
+  selectedParticipantId = ''
 
   const root = document.getElementById('appContent')!
   root.innerHTML = `
@@ -156,7 +158,9 @@ function renderTabBar(): void {
   const bar = document.getElementById('escalaTabs')!
   const tabs: Array<{ id: typeof activeTab; label: string }> = [
     { id: 'participantes', label: 'Participantes' },
+    { id: 'disponibilidade', label: 'Disponibilidade' },
     { id: 'escalaAtual',   label: 'Escala atual'  },
+    { id: 'pendencias',    label: 'Pendências'    },
     { id: 'config',        label: 'Config'        },
   ]
   bar.innerHTML = tabs.map(t =>
@@ -179,16 +183,18 @@ async function loadAll(): Promise<void> {
   document.getElementById('escalaContent')!.innerHTML =
     '<p style="padding:24px;color:var(--ink-3);text-align:center">Carregando…</p>'
   try {
-    const [partSnap, pessoasSnap, locaisSnap, settingsSnap] = await Promise.all([
+    const [partSnap, pessoasSnap, locaisSnap, settingsSnap, availabilitySnap] = await Promise.all([
       get(participantsRef),
       get(pessoasRef),
       get(locaisRef),
       get(settingsRef),
+      get(availabilityRef),
     ])
     participants = partSnap.exists()     ? (partSnap.val()     as RawParticipants) : {}
     pessoas      = pessoasSnap.exists()  ? (pessoasSnap.val()  as RawPessoas)       : {}
     locais       = locaisSnap.exists()   ? (locaisSnap.val()   as RawLocais)        : {}
     settings     = settingsSnap.exists() ? (settingsSnap.val() as EscalaSettings)   : {}
+    availability = availabilitySnap.exists() ? (availabilitySnap.val() as RawAvailability) : {}
 
     const primeiroLocal = locaisEmOrdem()[0]
     if (primeiroLocal) selectedLocalId = primeiroLocal[0]
@@ -215,7 +221,9 @@ async function loadTabela(): Promise<void> {
 
 function renderContent(): void {
   if      (activeTab === 'participantes') renderParticipantes()
+  else if (activeTab === 'disponibilidade') renderDisponibilidade()
   else if (activeTab === 'escalaAtual')   renderEscalaAtual()
+  else if (activeTab === 'pendencias')    renderPendencias()
   else                                     renderConfig()
 }
 
@@ -395,6 +403,97 @@ async function vincularMasterId(eid: string, overlay: HTMLElement): Promise<void
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// ABA: DISPONIBILIDADE
+// ─────────────────────────────────────────────────────────────────────────────
+
+function renderDisponibilidade(): void {
+  const mc = document.getElementById('escalaContent')!
+  const locaisOrdenados = locaisEmOrdem()
+  const ativos = Object.entries(participants)
+    .filter(([, p]) => p.active)
+    .sort(([, a], [, b]) => a.name.localeCompare(b.name, 'pt-BR'))
+  if (!selectedParticipantId && ativos[0]) selectedParticipantId = ativos[0][0]
+  const local = locais[selectedLocalId]
+  const pessoa = participants[selectedParticipantId]
+
+  if (!local || !pessoa) {
+    mc.innerHTML = '<p style="color:var(--ink-3);text-align:center;padding:24px 0">Cadastre um local e um participante ativo para informar a disponibilidade.</p>'
+    return
+  }
+
+  const dias = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
+  const mapa = availability[selectedLocalId]?.[selectedParticipantId] ?? {}
+  mc.innerHTML = `
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+      <select id="dispLocal" class="form-select" style="flex:1;min-width:150px">
+        ${locaisOrdenados.map(([id, l]) => `<option value="${id}" ${id === selectedLocalId ? 'selected' : ''}>${l.name}</option>`).join('')}
+      </select>
+      <select id="dispPessoa" class="form-select" style="flex:1;min-width:180px">
+        ${ativos.map(([id, p]) => `<option value="${id}" ${id === selectedParticipantId ? 'selected' : ''}>${p.name}</option>`).join('')}
+      </select>
+    </div>
+    <div style="font-size:.82rem;color:var(--ink-3);margin-bottom:10px">
+      Disponibilidade de <strong style="color:var(--ink)">${pessoa.name}</strong> em ${local.name}. Toque nos horários em que pode participar.
+    </div>
+    <div style="border:1px solid var(--border);border-radius:8px;overflow:auto">
+      <table style="width:100%;border-collapse:collapse;font-size:.8rem;min-width:420px">
+        <thead><tr style="background:var(--blue-light)"><th style="padding:8px;text-align:left">Dia</th>${local.slots.map(slot => `<th style="padding:8px;text-align:center;white-space:nowrap">${slot}</th>`).join('')}</tr></thead>
+        <tbody>${local.daysActive.map(dow => `<tr style="border-top:1px solid var(--border)"><td style="padding:8px;font-weight:600">${dias[dow] ?? dow}</td>${local.slots.map(slot => {
+          const key = `${dow}|${slot}`
+          const on = Boolean(mapa[key])
+          return `<td style="padding:6px;text-align:center"><button class="disp-cell ${on ? 'btn-primary' : 'btn-ghost'}" data-disp-key="${key}" aria-label="${dias[dow]} ${slot}" style="min-width:54px;padding:7px">${on ? 'Sim' : 'Não'}</button></td>`
+        }).join('')}</tr>`).join('')}</tbody>
+      </table>
+    </div>`
+
+  document.getElementById('dispLocal')!.addEventListener('change', e => {
+    selectedLocalId = (e.target as HTMLSelectElement).value
+    renderDisponibilidade()
+  })
+  document.getElementById('dispPessoa')!.addEventListener('change', e => {
+    selectedParticipantId = (e.target as HTMLSelectElement).value
+    renderDisponibilidade()
+  })
+  document.querySelectorAll<HTMLButtonElement>('[data-disp-key]').forEach(btn => {
+    btn.addEventListener('click', () => void toggleAvailability(btn.dataset['dispKey']!))
+  })
+}
+
+async function toggleAvailability(key: string): Promise<void> {
+  if (!selectedLocalId || !selectedParticipantId) return
+  const mapa = availability[selectedLocalId]?.[selectedParticipantId] ?? {}
+  const next = !Boolean(mapa[key])
+  try {
+    await update(child(availabilityRef, `${selectedLocalId}/${selectedParticipantId}`), { [key]: next })
+    availability[selectedLocalId] ??= {}
+    availability[selectedLocalId]![selectedParticipantId] = { ...mapa, [key]: next }
+    renderDisponibilidade()
+  } catch { toast('Erro ao salvar disponibilidade') }
+}
+
+// Pendências do app antigo, adaptadas ao schema atual para apontar o próximo passo.
+function renderPendencias(): void {
+  const mc = document.getElementById('escalaContent')!
+  const itens: Array<{ level: 'alta' | 'media' | 'baixa'; title: string; detail: string; tab: typeof activeTab }> = []
+  const ativos = Object.entries(participants).filter(([, p]) => p.active)
+  const presos = ativos.filter(([, p]) => p.onlyWithId && (!participants[p.onlyWithId] || !participants[p.onlyWithId]?.active))
+  if (presos.length) itens.push({ level: 'alta', title: `${presos.length} participante${presos.length > 1 ? 's' : ''} depende${presos.length > 1 ? 'm' : ''} de alguém inativo`, detail: presos.map(([, p]) => `${p.name} só participa com ${participants[p.onlyWithId!]?.name ?? 'cadastro removido'}`).join('; '), tab: 'participantes' })
+  const semTelefone = ativos.filter(([, p]) => !String(p.phone ?? '').trim())
+  if (semTelefone.length) itens.push({ level: 'media', title: `${semTelefone.length} participante${semTelefone.length > 1 ? 's' : ''} sem telefone`, detail: semTelefone.slice(0, 5).map(([, p]) => p.name).join(', '), tab: 'participantes' })
+  const semDisponibilidade = ativos.filter(([id]) => !Object.values(availability).some(local => Object.values(local[id] ?? {}).some(Boolean)))
+  if (semDisponibilidade.length) itens.push({ level: 'media', title: `${semDisponibilidade.length} participante${semDisponibilidade.length > 1 ? 's' : ''} sem disponibilidade`, detail: semDisponibilidade.slice(0, 5).map(([, p]) => p.name).join(', '), tab: 'disponibilidade' })
+  const semTabela = locaisEmOrdem().filter(([id]) => !currentTabela || id !== selectedLocalId).length
+  if (semTabela && selectedLocalId) itens.push({ level: 'baixa', title: 'Confira a escala publicada do local selecionado', detail: 'Abra Escala atual para verificar se o mês corrente já tem linhas preenchidas.', tab: 'escalaAtual' })
+
+  mc.innerHTML = itens.length ? itens.map((item, i) => `
+    <div style="border:1px solid var(--border);border-left:4px solid ${item.level === 'alta' ? '#B3261E' : item.level === 'media' ? '#C8922A' : '#477A9E'};border-radius:8px;padding:12px;margin-bottom:8px">
+      <div style="font-weight:700">${item.title}</div><div style="font-size:.8rem;color:var(--ink-3);margin:4px 0 8px">${item.detail}</div>
+      <button class="btn btn-ghost" data-pendencia="${i}" style="font-size:.78rem;padding:5px 9px">Resolver agora</button>
+    </div>`).join('') : '<div style="background:#E3F5EB;border:1px solid #1A6B3C;border-radius:8px;padding:14px;color:#1A6B3C">Nenhuma pendência encontrada.</div>'
+  document.querySelectorAll<HTMLButtonElement>('[data-pendencia]').forEach(btn => btn.addEventListener('click', () => switchTab(itens[Number(btn.dataset['pendencia'])]!.tab)))
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // ABA: ESCALA ATUAL (somente leitura — por local, não existe "a escala do mês")
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -418,10 +517,6 @@ function renderEscalaAtual(): void {
           `<option value="${id}" ${id === selectedLocalId ? 'selected' : ''}>${l.name}</option>`
         ).join('')}
       </select>
-      <a href="${ESCALA_EXTERNAL_URL}" target="_blank" rel="noopener noreferrer"
-        class="btn btn-ghost" style="font-size:.8rem;padding:5px 12px;text-decoration:none;white-space:nowrap">
-        Ver no app Escala ↗
-      </a>
     </div>
     <div style="font-size:.85rem;font-weight:600;margin-bottom:8px">
       ${formatMonthLabel(mesAtual)}
@@ -432,7 +527,7 @@ function renderEscalaAtual(): void {
         : renderTabelaHtml()}
     </div>
     <p style="font-size:.72rem;color:var(--ink-3);margin-top:10px">
-      Somente leitura — a escala é gerada e editada no app Escala TPL.
+      Esta é a escala do mês corrente para o local selecionado.
     </p>`
 
   document.getElementById('eLocalSelect')!.addEventListener('change', e => {
