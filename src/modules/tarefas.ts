@@ -21,6 +21,8 @@ const A4_LANDSCAPE_HEIGHT_PX = ((210 - 16) / 25.4) * 96
 interface TarefasPessoa {
   name?: string
   nome?: string
+  whatsapp?: string
+  telefone?: string
   active?: boolean
   ativo?: boolean
   masterId?: string
@@ -415,9 +417,9 @@ function renderPendencias(): void {
 
   const items: Array<{ title: string; detail: string; tab: TarefasTab }> = []
   futureMeetings().forEach(meeting => {
-    const missing = Object.entries(meeting.assignments ?? {})
-      .filter(([, value]) => !value)
-      .map(([role]) => roleLabel(role))
+    const missing = GENERATED_ROLES
+      .filter(role => meetingAllowsRole(meeting, role) && !meeting.assignments?.[role])
+      .map(role => roleLabel(role))
     if (missing.length) {
       items.push({
         title: `Reunião de ${formatDate(meeting.date)}`,
@@ -463,13 +465,71 @@ function renderMensagens(): void {
   const content = document.getElementById('tarefasContent')
   if (!content) return
 
+  const meetings = futureMeetings().filter(meeting => Object.keys(meeting.assignments ?? {}).length > 0)
+  const peopleWithAssignments = Object.entries(pessoas)
+    .filter(([id, person]) => isActive(person) && meetings.some(meeting => Object.values(meeting.assignments ?? {}).some(value => assignmentPersonId(value) === id)))
+    .sort(([, a], [, b]) => pessoaNome(a, '').localeCompare(pessoaNome(b, ''), 'pt-BR'))
+
   content.innerHTML = `
     ${sectionTitle('Mensagens', 'Use depois de revisar a escala e confirmar que os participantes estão vinculados.')}
-    <div style="display:flex;flex-direction:column;gap:8px">
-      ${optionCard('Para uma pessoa', 'Tarefas futuras de um participante')}
-      ${optionCard('Da reunião', 'Todas as funções de uma data')}
-      ${optionCard('Confirmar disponibilidade', 'Checagem antes de fechar a escala')}
+    <div class="module-form-grid">
+      <div class="form-group">
+        <label class="form-label" for="messagePerson">Pessoa</label>
+        <select id="messagePerson" class="form-select">
+          <option value="">Selecione uma pessoa</option>
+          ${peopleWithAssignments.map(([id, person]) => `<option value="${escapeHtml(id)}">${escapeHtml(pessoaNome(person, id))}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="messageMeeting">Reunião</label>
+        <select id="messageMeeting" class="form-select">
+          <option value="">Selecione uma reunião</option>
+          ${meetings.map(meeting => `<option value="${escapeHtml(meeting.date ?? '')}">${escapeHtml(formatDate(meeting.date))} · ${escapeHtml(meeting.type ?? 'Reunião')}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <div id="messagePreview" class="message-preview">Selecione uma pessoa e uma reunião para montar a mensagem.</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button id="btnOpenPersonMessage" class="btn btn-primary" type="button">Abrir WhatsApp</button>
+      <button id="btnCopyPersonMessage" class="btn btn-ghost" type="button">Copiar texto</button>
     </div>`
+
+  const updatePreview = () => {
+    const personId = (document.getElementById('messagePerson') as HTMLSelectElement).value
+    const date = (document.getElementById('messageMeeting') as HTMLSelectElement).value
+    const person = personId ? pessoas[personId] : undefined
+    const meeting = meetings.find(item => item.date === date)
+    const text = buildPersonMessage(personId, person, meeting)
+    const preview = document.getElementById('messagePreview')
+    if (preview) preview.textContent = text || 'Selecione uma pessoa e uma reunião para montar a mensagem.'
+    return text
+  }
+
+  document.getElementById('messagePerson')?.addEventListener('change', updatePreview)
+  document.getElementById('messageMeeting')?.addEventListener('change', updatePreview)
+  document.getElementById('btnOpenPersonMessage')?.addEventListener('click', () => {
+    const text = updatePreview()
+    if (!text) { toast('Selecione a pessoa e a reunião'); return }
+    const personId = (document.getElementById('messagePerson') as HTMLSelectElement).value
+    const phone = String(pessoas[personId]?.whatsapp ?? pessoas[personId]?.telefone ?? '').replace(/\D/g, '')
+    const target = phone ? `https://wa.me/${phone.startsWith('55') ? phone : `55${phone}`}?text=${encodeURIComponent(text)}` : `https://wa.me/?text=${encodeURIComponent(text)}`
+    window.open(target, '_blank', 'noopener,noreferrer')
+    toast('WhatsApp aberto. Revise e envie a mensagem.')
+  })
+  document.getElementById('btnCopyPersonMessage')?.addEventListener('click', async () => {
+    const text = updatePreview()
+    if (!text) { toast('Selecione a pessoa e a reunião'); return }
+    try { await navigator.clipboard.writeText(text); toast('Texto copiado') } catch { toast('Não foi possível copiar o texto') }
+  })
+}
+
+function buildPersonMessage(id: string, person: TarefasPessoa | undefined, meeting: TarefasMeeting | undefined): string {
+  if (!id || !person || !meeting) return ''
+  const roles = Object.entries(meeting.assignments ?? {})
+    .filter(([, value]) => assignmentPersonId(value) === id)
+    .map(([role]) => roleLabel(role))
+  if (!roles.length) return ''
+  return `Olá, ${pessoaNome(person, id)}! Você está designado(a) para ${roles.join(' e ')} na reunião de ${formatDate(meeting.date)}. Por favor, confirme sua disponibilidade.`
 }
 
 function sectionTitle(title: string, desc: string): string {
@@ -598,18 +658,6 @@ function pessoaRow(id: string, p: TarefasPessoa): string {
       </div>
       <span style="width:9px;height:9px;border-radius:50%;background:${linked ? '#1A6B3C' : '#B3261E'}"></span>
     </div>`
-}
-
-function optionCard(title: string, desc: string): string {
-  return `
-    <button class="module-menu-btn" type="button" disabled
-      style="opacity:.72;cursor:not-allowed;border-radius:8px;padding:12px 14px">
-      <div style="flex:1;min-width:0">
-        <div class="mod-label">${escapeHtml(title)}</div>
-        <div class="mod-desc">${escapeHtml(desc)}</div>
-      </div>
-      <span style="font-size:.72rem;color:var(--ink-3);font-weight:700">Em preparo</span>
-    </button>`
 }
 
 function emptyState(text: string): string {

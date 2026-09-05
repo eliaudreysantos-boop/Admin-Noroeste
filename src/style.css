@@ -537,6 +537,28 @@ textarea.form-input {
   gap: 8px;
 }
 
+.module-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.message-preview {
+  min-height: 76px;
+  margin: 2px 0 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  color: var(--ink-2);
+  font-size: .84rem;
+  white-space: pre-wrap;
+}
+
+@media (max-width: 560px) {
+  .module-form-grid { grid-template-columns: 1fr; }
+}
+
 .empty-state {
   margin: 0;
   padding: 16px;
