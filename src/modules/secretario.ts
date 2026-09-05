@@ -1,5 +1,5 @@
 import type { AppContext, RawUsuarios, Usuario } from '../types'
-import { get, secretarioRef, usuariosRef } from '../firebase'
+import { get, secretarioRef, update, usuariosRef } from '../firebase'
 import { renderMenuCards, type ItemMenu } from '../ui/menu-cards'
 
 type SecretarioTab = 'indice' | 'resumo' | 'publicadores' | 'relatorios' | 'assistencia' | 'arquivos'
@@ -45,7 +45,6 @@ function hasMonthlyReport(uid: string, masterId?: string): boolean {
 function toast(message: string): void {
   const el = document.getElementById('toast')
   if (!el) return
-  activeTab = 'indice'
   el.textContent = message
   el.classList.add('show')
   setTimeout(() => el.classList.remove('show'), 2600)
@@ -95,6 +94,11 @@ function render(): void {
     })
   })
 
+  el.querySelector<HTMLFormElement>('[data-secretario-form]')?.addEventListener('submit', event => {
+    event.preventDefault()
+    void saveSecretaryRecord(event.currentTarget as HTMLFormElement)
+  })
+
   if (activeTab === 'indice') {
     const menu = document.createElement('div')
     menu.className = 'module-option-list'
@@ -134,19 +138,38 @@ function publishers(pubs: Array<[string, Usuario]>): string {
 function reportsView(data: Record<string, unknown>): string {
   const rows = Object.entries(data).sort(([a], [b]) => b.localeCompare(a)).slice(0, 12)
     .map(([key, value]) => `<div style="display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)"><div><strong>${escapeHtml(key)}</strong><div style="font-size:.75rem;color:var(--ink-3)">${escapeHtml(summaryValue(value))}</div></div><span style="font-size:.72rem;font-weight:700;color:#1A6B3C">Registrado</span></div>`).join('')
-  return section('Relatórios mensais', `${count(data)} registro${count(data) === 1 ? '' : 's'} no histórico`, rows || '<p class="empty-state">Nenhum relatório registrado no banco de dados.</p>')
+  return section('Relatórios mensais', `${count(data)} registro${count(data) === 1 ? '' : 's'} no histórico`, editor('relatorios', 'Competência', '2026-09', 'Status', 'Recebido') + (rows || '<p class="empty-state">Nenhum relatório registrado no banco de dados.</p>'))
 }
 
 function assistanceView(data: unknown): string {
   const rows = Object.entries(records(data)).sort(([a], [b]) => b.localeCompare(a)).slice(0, 12)
     .map(([key, value]) => `<div style="display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)"><strong>${escapeHtml(key)}</strong><span style="font-size:.8rem;color:var(--ink-3)">${escapeHtml(summaryValue(value))}</span></div>`).join('')
-  return section('Assistência', `${count(data)} registro${count(data) === 1 ? '' : 's'} disponível${count(data) === 1 ? '' : 'is'}`, rows || '<p class="empty-state">Nenhum registro de assistência encontrado.</p>')
+  return section('Assistência', `${count(data)} registro${count(data) === 1 ? '' : 's'} disponível${count(data) === 1 ? '' : 'is'}`, editor('assistencia', 'Data', currentMonth(), 'Quantidade', '0') + (rows || '<p class="empty-state">Nenhum registro de assistência encontrado.</p>'))
 }
 
 function filesView(data: unknown): string {
   const rows = Object.entries(records(data)).sort(([a], [b]) => b.localeCompare(a)).slice(0, 12)
     .map(([key, value]) => `<div style="display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)"><strong>${escapeHtml(key)}</strong><span style="font-size:.8rem;color:var(--ink-3)">${escapeHtml(summaryValue(value))}</span></div>`).join('')
-  return section('Arquivo da congregação', `${count(data)} item${count(data) === 1 ? '' : 's'} no arquivo`, rows || '<p class="empty-state">Nenhum arquivo registrado no banco de dados.</p>')
+  return section('Arquivo da congregação', `${count(data)} item${count(data) === 1 ? '' : 's'} no arquivo`, editor('arquivos', 'Nome do arquivo', '', 'Link ou observação', '') + (rows || '<p class="empty-state">Nenhum arquivo registrado no banco de dados.</p>'))
+}
+
+function editor(kind: 'relatorios' | 'assistencia' | 'arquivos', keyLabel: string, keyValue: string, valueLabel: string, valueValue: string): string {
+  return `<form class="form-panel" data-secretario-form data-secretario-kind="${kind}" style="margin-bottom:12px"><div class="module-form-grid"><label class="form-field"><span>${keyLabel}</span><input name="recordKey" value="${escapeHtml(keyValue)}" required></label><label class="form-field"><span>${valueLabel}</span><input name="recordValue" value="${escapeHtml(valueValue)}" required></label></div><button class="secondary-btn" type="submit" style="margin-top:10px">Salvar registro</button></form>`
+}
+
+async function saveSecretaryRecord(form: HTMLFormElement): Promise<void> {
+  const kind = form.dataset.secretarioKind
+  const key = String(new FormData(form).get('recordKey') ?? '').trim()
+  const value = String(new FormData(form).get('recordValue') ?? '').trim()
+  if (!kind || !key || !value) return
+  try {
+    await update(secretarioRef, { [`${kind}/${key}`]: { valor: value, atualizadoEm: new Date().toISOString() } })
+    secretario[kind] = { ...records(secretario[kind]), [key]: { valor: value, atualizadoEm: new Date().toISOString() } }
+    toast('Registro salvo')
+    render()
+  } catch {
+    toast('Não foi possível salvar o registro')
+  }
 }
 
 function summaryValue(value: unknown): string {
