@@ -7,7 +7,7 @@ import {
   tarefasScaleRef,
 } from '../firebase'
 
-type TarefasTab = 'resumo' | 'escala' | 'participantes' | 'mensagens'
+type TarefasTab = 'resumo' | 'escala' | 'participantes' | 'mensagens' | 'pendencias'
 
 const PRINT_FONT_KEY = 'noroeste_tarefas_print_font_pt'
 const PRINT_MIN_PT = 8
@@ -22,6 +22,9 @@ interface TarefasPessoa {
   active?: boolean
   ativo?: boolean
   masterId?: string
+  roles?: Record<string, boolean>
+  weight?: number
+  unavailableDates?: string[]
 }
 
 interface TarefasMeeting {
@@ -88,6 +91,84 @@ function futureMeetings(): TarefasMeeting[] {
 
 function assignmentCount(meeting: TarefasMeeting): number {
   return Object.keys(meeting.assignments ?? {}).length
+}
+
+const GENERATED_ROLES = ['presidente', 'leitor', 'operador1', 'operador2', 'microfone1', 'microfone2', 'entrada', 'auditorio']
+
+function assignmentPersonId(value: unknown): string | null {
+  if (typeof value === 'string') return pessoas[value] ? value : null
+  if (!value || typeof value !== 'object') return null
+  const item = value as Record<string, unknown>
+  const id = item['personId'] ?? item['pessoaId'] ?? item['peopleId'] ?? item['id']
+  return typeof id === 'string' && pessoas[id] ? id : null
+}
+
+function meetingAllowsRole(meeting: TarefasMeeting, role: string): boolean {
+  const type = String(meeting.type ?? '').toLowerCase()
+  if ((role === 'presidente' || role === 'leitor') && /meio|mid|ministerio/.test(type)) return false
+  return true
+}
+
+function roleIsAllowed(person: TarefasPessoa, role: string): boolean {
+  return person.roles?.[role] !== false
+}
+
+function isUnavailable(person: TarefasPessoa, date: string | undefined): boolean {
+  return Boolean(date && person.unavailableDates?.includes(date))
+}
+
+function scaleMeetingEntries(): Array<{ periodId: string; meetingId: string; meeting: TarefasMeeting }> {
+  return Object.entries(periods).flatMap(([periodId, period]) =>
+    Object.entries(period.meetings ?? {}).map(([meetingId, meeting]) => ({ periodId, meetingId, meeting })),
+  )
+}
+
+function chooseCandidate(role: string, meeting: TarefasMeeting, used: Set<string>, history: Record<string, number>): string | null {
+  const candidates = Object.entries(pessoas)
+    .filter(([, person]) => isActive(person) && roleIsAllowed(person, role) && !isUnavailable(person, meeting.date))
+    .filter(([id]) => !used.has(id))
+    .sort(([idA, a], [idB, b]) => {
+      const scoreA = (history[idA] ?? 0) / Math.max(0.1, a.weight ?? 1)
+      const scoreB = (history[idB] ?? 0) / Math.max(0.1, b.weight ?? 1)
+      return scoreA - scoreB || pessoaNome(a, idA).localeCompare(pessoaNome(b, idB), 'pt-BR')
+    })
+  return candidates[0]?.[0] ?? null
+}
+
+async function generateAssignments(startDate: string): Promise<number> {
+  const entries = scaleMeetingEntries()
+    .filter(({ meeting }) => meeting.date && meeting.date >= startDate)
+    .sort((a, b) => String(a.meeting.date).localeCompare(String(b.meeting.date)))
+  if (entries.length === 0) return 0
+
+  const history: Record<string, number> = {}
+  scaleMeetingEntries()
+    .filter(({ meeting }) => meeting.date && meeting.date < startDate)
+    .forEach(({ meeting }) => Object.values(meeting.assignments ?? {}).forEach(value => {
+    const id = assignmentPersonId(value)
+    if (id) history[id] = (history[id] ?? 0) + 1
+    }))
+
+  const patch: Record<string, unknown> = {}
+  let generated = 0
+  entries.forEach(({ periodId, meetingId, meeting }) => {
+    const assignments = meeting.assignments ?? {}
+    const used = new Set(Object.values(assignments).map(assignmentPersonId).filter((id): id is string => Boolean(id)))
+    used.forEach(id => { history[id] = (history[id] ?? 0) + 1 })
+    const roles = Array.from(new Set([...Object.keys(assignments), ...GENERATED_ROLES]))
+    roles.forEach(role => {
+      if (assignments[role] !== undefined || !meetingAllowsRole(meeting, role)) return
+      const personId = chooseCandidate(role, meeting, used, history)
+      if (!personId) return
+      patch[`${periodId}/meetings/${meetingId}/assignments/${role}`] = personId
+      used.add(personId)
+      history[personId] = (history[personId] ?? 0) + 1
+      generated += 1
+    })
+  })
+
+  if (generated > 0) await update(tarefasScaleRef, patch)
+  return generated
 }
 
 function formatDate(value: string | undefined): string {
@@ -161,6 +242,7 @@ function renderTabs(): void {
     { id: 'escala', label: 'Escala' },
     { id: 'participantes', label: 'Pessoas' },
     { id: 'mensagens', label: 'Mensagens' },
+    { id: 'pendencias', label: 'Pendências' },
   ]
 
   bar.innerHTML = tabs.map(t => `
@@ -201,7 +283,7 @@ function renderContent(): void {
   else if (activeTab === 'escala') renderEscala()
   else if (activeTab === 'participantes') renderParticipantes()
   else if (activeTab === 'mensagens') renderMensagens()
-  else renderMensagens()
+  else renderPendencias()
 }
 
 function renderResumo(): void {
@@ -227,6 +309,7 @@ function renderResumo(): void {
       ${flowCard('Escala', `${futuras.length} reunião${futuras.length === 1 ? '' : 'ões'} futura${futuras.length === 1 ? '' : 's'}`, 'escala')}
       ${flowCard('Participantes', `${semVinculo} pessoa${semVinculo === 1 ? '' : 's'} sem vínculo com Admin`, 'participantes')}
       ${flowCard('Mensagens', 'Textos para pessoa, reunião e confirmação', 'mensagens')}
+      ${flowCard('Pendências', 'Funções vazias e vínculos que precisam de atenção', 'pendencias')}
     </div>`
 
   bindFlowCards()
@@ -296,12 +379,15 @@ async function generateScale(startDate: string): Promise<void> {
   const button = document.getElementById('btnGenerateScale') as HTMLButtonElement | null
   if (button) button.disabled = true
   try {
-    planning = { ...planning, scaleStartDate: startDate, generatedAt: new Date().toISOString() }
+    const generatedAt = new Date().toISOString()
+    const generated = await generateAssignments(startDate)
+    planning = { ...planning, scaleStartDate: startDate, generatedAt }
     await update(tarefasPlanejamentoRef, {
       scaleStartDate: startDate,
-      generatedAt: planning.generatedAt,
+      generatedAt,
     })
-    toast(`Escala gerada a partir de ${formatDate(startDate)}`)
+    toast(generated ? `${generated} designações geradas a partir de ${formatDate(startDate)}` : 'Nenhuma função nova disponível para gerar')
+    if (generated) await loadTarefas()
     renderEscala()
   } catch {
     toast('Não foi possível gerar a escala')
@@ -323,6 +409,57 @@ function renderParticipantes(): void {
         ? rows.map(([id, p]) => pessoaRow(id, p)).join('')
         : emptyState('Nenhum participante cadastrado.')}
     </div>`
+}
+
+function renderPendencias(): void {
+  const content = document.getElementById('tarefasContent')
+  if (!content) return
+
+  const items: Array<{ title: string; detail: string; tab: TarefasTab }> = []
+  futureMeetings().forEach(meeting => {
+    const missing = Object.entries(meeting.assignments ?? {})
+      .filter(([, value]) => !value)
+      .map(([role]) => roleLabel(role))
+    if (missing.length) {
+      items.push({
+        title: `Reunião de ${formatDate(meeting.date)}`,
+        detail: `Funções sem pessoa: ${missing.join(', ')}`,
+        tab: 'escala',
+      })
+    }
+    Object.entries(meeting.assignments ?? {}).forEach(([role, value]) => {
+      if (typeof value === 'string' && !pessoas[value]) {
+        items.push({
+          title: `${roleLabel(role)} sem vínculo`,
+          detail: `A designação de ${formatDate(meeting.date)} aponta para uma pessoa que não está cadastrada.`,
+          tab: 'participantes',
+        })
+      }
+    })
+  })
+
+  const unlinked = Object.values(pessoas).filter(person => isActive(person) && !person.masterId).length
+  if (unlinked) {
+    items.push({
+      title: `${unlinked} participante${unlinked === 1 ? '' : 's'} sem vínculo com Admin`,
+      detail: 'Revise os vínculos antes de enviar mensagens ou gerar uma nova escala.',
+      tab: 'participantes',
+    })
+  }
+
+  content.innerHTML = `
+    ${sectionTitle('Pendências', items.length ? 'Resolva estes itens antes de confirmar a escala.' : 'A escala atual não tem pendências identificadas.')}
+    ${items.length
+      ? `<div style="display:flex;flex-direction:column;gap:8px">${items.map(item => `<button class="module-menu-btn" type="button" data-target-tab="${item.tab}" style="border-radius:8px;padding:12px 14px"><div style="flex:1;min-width:0"><div class="mod-label">${escapeHtml(item.title)}</div><div class="mod-desc">${escapeHtml(item.detail)}</div></div><span style="font-size:1.1rem;color:#B3261E">›</span></button>`).join('')}</div>`
+      : '<div style="padding:18px;border:1px solid #B7DEC7;background:#F1FAF4;border-radius:8px;color:#1A6B3C;font-size:.84rem">Tudo certo por enquanto.</div>'}`
+
+  content.querySelectorAll<HTMLButtonElement>('[data-target-tab]').forEach(button => {
+    button.addEventListener('click', () => {
+      activeTab = button.dataset['targetTab'] as TarefasTab
+      renderTabs()
+      renderContent()
+    })
+  })
 }
 
 function renderMensagens(): void {
