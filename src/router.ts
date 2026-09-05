@@ -47,6 +47,12 @@ let _ctx: AppContext | null = null
 let _accessList: ModuleName[] = []
 let _currentModule: ModuleName | null = null
 
+function animateRoute(content: HTMLElement): void {
+  content.classList.remove('screen-enter')
+  void content.offsetWidth
+  content.classList.add('screen-enter')
+}
+
 function emitRouteState(): void {
   window.dispatchEvent(new CustomEvent('app-route-change', {
     detail: { canBack: _accessList.length > 1 && _currentModule !== null },
@@ -60,6 +66,7 @@ export async function navigateTo(modulo: ModuleName): Promise<void> {
   const content = document.getElementById('appContent')!
   content.innerHTML = '<p style="padding:24px;color:var(--ink-3)">Carregando…</p>'
   await loadModule(modulo, _ctx)
+  animateRoute(content)
 }
 
 export function navigateBack(): void {
@@ -114,4 +121,5 @@ function renderMenu(list: ModuleName[]): void {
     return { id: m, titulo: meta.label, subtitulo: meta.desc, icone: meta.icon, corFundo: meta.color }
   })
   renderMenuCards(content, items, id => void navigateTo(id as ModuleName))
+  animateRoute(content)
 }

@@ -484,7 +484,7 @@ function sectionTitle(title: string, desc: string): string {
 function metricCard(label: string, value: string, color: string): string {
   return `
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 12px">
-      <div style="font-size:1.15rem;font-weight:800;color:${color};line-height:1">${escapeHtml(value)}</div>
+      <div style="font-size:1.15rem;font-weight:800;color:${color};line-height:1"><span data-kpi-value="${escapeHtml(value)}">0</span></div>
       <div style="font-size:.72rem;color:var(--ink-3);margin-top:4px;text-transform:uppercase;font-weight:700">
         ${escapeHtml(label)}
       </div>

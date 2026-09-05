@@ -8,6 +8,7 @@ import {
 } from './auth'
 import { initRouter, navigateBack, navigateModuleIndex } from './router'
 import type { RawUsuarios, Usuario } from './types'
+import { animateKpis } from './ui/animations'
 
 // ─── Elementos ──────────────────────────────────────────────────────────────
 
@@ -99,6 +100,8 @@ function handleLogin(): void {
 
   if (!uid || !senha) {
     loginError.textContent = 'Selecione o usuário e digite a senha.'
+    inputSenha.classList.add('field-error')
+    setTimeout(() => inputSenha.classList.remove('field-error'), 1000)
     return
   }
 
@@ -111,6 +114,8 @@ function handleLogin(): void {
 
   if (!usuario || usuario.senha !== senha || !usuario.ativo) {
     loginError.textContent = 'Usuário ou senha inválidos.'
+    inputSenha.classList.add('field-error')
+    setTimeout(() => inputSenha.classList.remove('field-error'), 1000)
     inputSenha.value = ''
     inputSenha.focus()
     return
@@ -140,6 +145,9 @@ document.addEventListener('click', event => {
   const target = event.target as HTMLElement
   if (target.closest('[data-module-index]')) navigateModuleIndex()
 })
+
+const kpiObserver = new MutationObserver(() => animateKpis(document))
+kpiObserver.observe(document.getElementById('appContent')!, { childList: true, subtree: true })
 
 // ─── Bootstrap ──────────────────────────────────────────────────────────────
 

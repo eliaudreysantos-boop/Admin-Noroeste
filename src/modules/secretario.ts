@@ -111,7 +111,7 @@ function render(): void {
 }
 
 function metric(label: string, value: string, color: string): string {
-  return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 12px"><div style="font-size:1.15rem;font-weight:800;color:${color};line-height:1">${value}</div><div style="font-size:.72rem;color:var(--ink-3);margin-top:4px;text-transform:uppercase;font-weight:700">${label}</div></div>`
+  return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 12px"><div style="font-size:1.15rem;font-weight:800;color:${color};line-height:1"><span data-kpi-value="${escapeHtml(value)}">0</span></div><div style="font-size:.72rem;color:var(--ink-3);margin-top:4px;text-transform:uppercase;font-weight:700">${label}</div></div>`
 }
 
 function summary(total: number, linked: number, sent: number, assistance: number, files: number): string {
