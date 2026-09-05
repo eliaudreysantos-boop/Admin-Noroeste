@@ -55,7 +55,7 @@ function animateRoute(content: HTMLElement): void {
 
 function emitRouteState(): void {
   window.dispatchEvent(new CustomEvent('app-route-change', {
-    detail: { canBack: _accessList.length > 1 && _currentModule !== null },
+    detail: { canBack: _currentModule !== null },
   }))
 }
 
@@ -70,8 +70,11 @@ export async function navigateTo(modulo: ModuleName): Promise<void> {
 }
 
 export function navigateBack(): void {
-  if (_accessList.length <= 1) return
-  renderMenu(_accessList)
+  if (_currentModule) {
+    void navigateTo(_currentModule)
+    return
+  }
+  if (_accessList.length > 1) renderMenu(_accessList)
 }
 
 export function navigateModuleIndex(): void {
