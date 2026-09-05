@@ -1,10 +1,12 @@
 import type { AppContext } from '../types'
-import { get, tarefasScaleRef, tarefasDiscursosRef } from '../firebase'
+import { get, tarefasScaleRef, tarefasDiscursosRef, pessoasRef, configLimpezaRef } from '../firebase'
 
 type Row = Record<string, unknown>
 let ctx: AppContext | null = null
 let scale: Row = {}
 let discursos: Row = {}
+let pessoas: Row = {}
+let limpeza: Row = {}
 
 function records(value: unknown): Row { return value && typeof value === 'object' ? value as Row : {} }
 function esc(value: unknown): string { return String(value ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#039;' }[c] ?? c)) }
@@ -28,9 +30,11 @@ export default function mount(context: AppContext): void {
 
 async function load(): Promise<void> {
   try {
-    const [scaleSnap, discursosSnap] = await Promise.all([get(tarefasScaleRef), get(tarefasDiscursosRef)])
+    const [scaleSnap, discursosSnap, pessoasSnap, limpezaSnap] = await Promise.all([get(tarefasScaleRef), get(tarefasDiscursosRef), get(pessoasRef), get(configLimpezaRef)])
     scale = scaleSnap.exists() ? records(scaleSnap.val()) : {}
     discursos = discursosSnap.exists() ? records(discursosSnap.val()) : {}
+    pessoas = pessoasSnap.exists() ? records(pessoasSnap.val()) : {}
+    limpeza = limpezaSnap.exists() ? records(limpezaSnap.val()) : {}
   } catch { /* a tela continua mostrando o estado vazio */ }
   render()
 }
@@ -48,7 +52,13 @@ function render(): void {
     }
   }
   const speakerRows = Object.values(records(discursos.oradores)).filter(value => samePerson(records(value).nome) || samePerson(records(value).name)).map(value => `<div style="padding:10px 0;border-bottom:1px solid var(--border)"><strong>Orador</strong><div style="font-size:.78rem;color:var(--ink-3)">${esc(records(value).nome ?? records(value).name)}</div></div>`).join('')
+  const person = ctx.usuario.masterId ? records(pessoas[ctx.usuario.masterId]) : {}
+  const group = Number(person.limpeza && records(person.limpeza).grupo)
+  const cleaning = group > 0 && limpeza.ativa === true
+    ? `<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:12px"><strong>Limpeza</strong><div style="font-size:.78rem;color:var(--ink-3);margin-top:4px">Você está no grupo ${group}. Consulte a escala de limpeza para a próxima reunião.</div></div>`
+    : ''
   root.innerHTML = `<div style="margin-bottom:14px"><h2 style="font-size:1.05rem;color:var(--blue-deep);margin-bottom:2px">Minha agenda</h2><p style="font-size:.8rem;color:var(--ink-3)">Designações associadas a ${esc(ctx.usuario.nome)}.</p></div>
+    ${cleaning}
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:0 12px;margin-bottom:12px">${assignments.join('') || '<p style="padding:18px 0;color:var(--ink-3);text-align:center">Nenhuma designação encontrada.</p>'}</div>
     ${speakerRows ? `<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:0 12px"><div style="font-weight:700;padding:12px 0 4px">Oradores</div>${speakerRows}</div>` : ''}`
 }
