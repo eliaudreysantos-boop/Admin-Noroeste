@@ -430,8 +430,17 @@ function renderDisponibilidade(): void {
         ${ativos.map(([id, p]) => `<option value="${id}" ${id === selectedParticipantId ? 'selected' : ''}>${p.name}</option>`).join('')}
       </select>
     </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+      <select id="dispCopiarDe" class="form-select" style="flex:1;min-width:180px">
+        <option value="">Copiar disponibilidade de...</option>
+        ${ativos.filter(([id]) => id !== selectedParticipantId).map(([id, p]) => `<option value="${id}">${p.name}</option>`).join('')}
+      </select>
+      <button id="btnCopiarDisponibilidade" class="btn btn-ghost" type="button">Copiar</button>
+      <button id="btnConfirmarDisponibilidade" class="btn btn-ghost" type="button">Conferi hoje</button>
+    </div>
     <div style="font-size:.82rem;color:var(--ink-3);margin-bottom:10px">
       Disponibilidade de <strong style="color:var(--ink)">${pessoa.name}</strong> em ${local.name}. Toque nos horários em que pode participar.
+      ${pessoa.availabilityUpdatedAt ? `<span style="display:block;margin-top:3px;font-size:.75rem">Conferida em ${new Date(String(pessoa.availabilityUpdatedAt)).toLocaleDateString('pt-BR')}.</span>` : '<span style="display:block;margin-top:3px;font-size:.75rem;color:#B3261E">Ainda não conferida.</span>'}
     </div>
     <div style="border:1px solid var(--border);border-radius:8px;overflow:auto">
       <table style="width:100%;border-collapse:collapse;font-size:.8rem;min-width:420px">
@@ -455,6 +464,12 @@ function renderDisponibilidade(): void {
   document.querySelectorAll<HTMLButtonElement>('[data-disp-key]').forEach(btn => {
     btn.addEventListener('click', () => void toggleAvailability(btn.dataset['dispKey']!))
   })
+  document.getElementById('btnCopiarDisponibilidade')?.addEventListener('click', () => {
+    const origem = (document.getElementById('dispCopiarDe') as HTMLSelectElement).value
+    if (!origem) { toast('Escolha uma pessoa para copiar'); return }
+    void copyAvailability(origem)
+  })
+  document.getElementById('btnConfirmarDisponibilidade')?.addEventListener('click', () => void confirmAvailability())
 }
 
 async function toggleAvailability(key: string): Promise<void> {
@@ -467,6 +482,30 @@ async function toggleAvailability(key: string): Promise<void> {
     availability[selectedLocalId]![selectedParticipantId] = { ...mapa, [key]: next }
     renderDisponibilidade()
   } catch { toast('Erro ao salvar disponibilidade') }
+}
+
+async function copyAvailability(sourceId: string): Promise<void> {
+  if (!selectedLocalId || !selectedParticipantId || sourceId === selectedParticipantId) return
+  const source = availability[selectedLocalId]?.[sourceId] ?? {}
+  const values = Object.fromEntries(Object.entries(source).filter(([, value]) => value === true))
+  try {
+    await update(child(availabilityRef, `${selectedLocalId}/${selectedParticipantId}`), values)
+    availability[selectedLocalId] ??= {}
+    availability[selectedLocalId]![selectedParticipantId] = { ...values }
+    toast('Disponibilidade copiada')
+    renderDisponibilidade()
+  } catch { toast('Erro ao copiar disponibilidade') }
+}
+
+async function confirmAvailability(): Promise<void> {
+  if (!selectedParticipantId) return
+  const today = new Date().toISOString()
+  try {
+    await update(participantRef(selectedParticipantId), { availabilityUpdatedAt: today })
+    participants[selectedParticipantId] = { ...participants[selectedParticipantId]!, availabilityUpdatedAt: today }
+    toast('Disponibilidade conferida')
+    renderDisponibilidade()
+  } catch { toast('Erro ao registrar conferência') }
 }
 
 // Pendências do app antigo, adaptadas ao schema atual para apontar o próximo passo.
