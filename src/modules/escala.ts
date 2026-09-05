@@ -145,7 +145,6 @@ export default function mount(_ctx: AppContext): void {
   const root = document.getElementById('appContent')!
   root.innerHTML = `
     <div id="escalaRoot">
-      <div id="escalaTabs" style="display:flex;gap:4px;margin-bottom:16px"></div>
       <div id="escalaContent"></div>
     </div>`
 
@@ -154,27 +153,8 @@ export default function mount(_ctx: AppContext): void {
 
 // ─── Tabs ────────────────────────────────────────────────────────────────────────
 
-function renderTabBar(): void {
-  const bar = document.getElementById('escalaTabs')!
-  const tabs: Array<{ id: typeof activeTab; label: string }> = [
-    { id: 'participantes', label: 'Participantes' },
-    { id: 'disponibilidade', label: 'Disponibilidade' },
-    { id: 'escalaAtual',   label: 'Escala atual'  },
-    { id: 'pendencias',    label: 'Pendências'    },
-    { id: 'config',        label: 'Config'        },
-  ]
-  bar.innerHTML = tabs.map(t =>
-    `<button class="btn ${activeTab === t.id ? 'btn-primary' : 'btn-ghost'}"
-      data-tab="${t.id}" style="flex:1;font-size:.82rem">${t.label}</button>`
-  ).join('')
-  bar.querySelectorAll<HTMLButtonElement>('[data-tab]').forEach(btn => {
-    btn.addEventListener('click', () => switchTab(btn.dataset['tab'] as typeof activeTab))
-  })
-}
-
 function switchTab(t: typeof activeTab): void {
   activeTab = t
-  renderTabBar()
   renderContent()
   if (t === 'escalaAtual' && selectedLocalId && !currentTabela) void loadTabela()
 }
@@ -224,7 +204,6 @@ function renderContent(): void {
     renderIndex()
     return
   }
-  renderTabBar()
   if      (activeTab === 'participantes') renderParticipantes()
   else if (activeTab === 'disponibilidade') renderDisponibilidade()
   else if (activeTab === 'escalaAtual')   renderEscalaAtual()
@@ -235,7 +214,7 @@ function renderContent(): void {
 function renderIndex(): void {
   const content = document.getElementById('escalaContent')
   if (!content) return
-  content.innerHTML = `<div style="margin-bottom:14px"><h2 style="font-size:1.05rem;color:#1A6B3C;margin-bottom:2px">Escala</h2><p style="font-size:.8rem;color:var(--ink-3)">Escala de campo TPL.</p></div><div id="escalaMenu"></div>`
+  content.innerHTML = `<div style="margin-bottom:14px"><h2 style="font-size:1.05rem;color:#1A6B3C;margin-bottom:2px">Escala</h2></div><div id="escalaMenu"></div>`
   const items: ItemMenu[] = [
     { id: 'participantes', titulo: 'Participantes', subtitulo: 'Cadastro e vínculo com Admin', icone: '♙', corFundo: '#1A6B3C' },
     { id: 'disponibilidade', titulo: 'Disponibilidade', subtitulo: 'Informe dias e horários disponíveis', icone: '◫', corFundo: '#006EB6' },

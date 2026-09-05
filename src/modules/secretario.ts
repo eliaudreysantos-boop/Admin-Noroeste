@@ -1,7 +1,8 @@
 import type { AppContext, RawUsuarios, Usuario } from '../types'
 import { get, secretarioRef, usuariosRef } from '../firebase'
+import { renderMenuCards, type ItemMenu } from '../ui/menu-cards'
 
-type SecretarioTab = 'resumo' | 'publicadores' | 'relatorios' | 'assistencia' | 'arquivos'
+type SecretarioTab = 'indice' | 'resumo' | 'publicadores' | 'relatorios' | 'assistencia' | 'arquivos'
 
 let secretario: Record<string, unknown> = {}
 let usuarios: RawUsuarios = {}
@@ -44,6 +45,7 @@ function hasMonthlyReport(uid: string, masterId?: string): boolean {
 function toast(message: string): void {
   const el = document.getElementById('toast')
   if (!el) return
+  activeTab = 'indice'
   el.textContent = message
   el.classList.add('show')
   setTimeout(() => el.classList.remove('show'), 2600)
@@ -79,18 +81,8 @@ function render(): void {
   const sent = pubs.filter(([uid, user]) => hasMonthlyReport(uid, user.masterId)).length
 
   el.innerHTML = `
-    <div style="margin-bottom:14px">
-      <h2 style="font-size:1.05rem;color:#5C6062;margin-bottom:2px">Secretário</h2>
-      <p style="font-size:.8rem;color:var(--ink-3)">Publicadores, relatórios mensais, assistência e arquivo da congregação.</p>
-    </div>
-    <div class="module-tabs" role="tablist" aria-label="Áreas do Secretário">
-      ${tabButton('resumo', 'Resumo')}
-      ${tabButton('publicadores', 'Publicadores')}
-      ${tabButton('relatorios', 'Relatórios')}
-      ${tabButton('assistencia', 'Assistência')}
-      ${tabButton('arquivos', 'Arquivos')}
-    </div>
-    ${activeTab === 'resumo' ? summary(pubs.length, linked, sent, count(assistance), count(files)) : ''}
+    <div style="margin-bottom:14px"><h2 style="font-size:1.05rem;color:#5C6062;margin-bottom:2px">Secretário</h2></div>
+    ${activeTab === 'indice' || activeTab === 'resumo' ? summary(pubs.length, linked, sent, count(assistance), count(files)) : ''}
     ${activeTab === 'publicadores' ? publishers(pubs) : ''}
     ${activeTab === 'relatorios' ? reportsView(reports) : ''}
     ${activeTab === 'assistencia' ? assistanceView(assistance) : ''}
@@ -102,10 +94,20 @@ function render(): void {
       render()
     })
   })
-}
 
-function tabButton(tab: SecretarioTab, label: string): string {
-  return `<button class="module-tab${activeTab === tab ? ' active' : ''}" type="button" data-secretario-tab="${tab}" role="tab" aria-selected="${activeTab === tab}">${label}</button>`
+  if (activeTab === 'indice') {
+    const menu = document.createElement('div')
+    menu.className = 'module-option-list'
+    const items: ItemMenu[] = [
+      { id: 'publicadores', titulo: 'Publicadores', subtitulo: 'Vínculos e pendências do mês', icone: '♙', corFundo: '#5C6062' },
+      { id: 'relatorios', titulo: 'Relatórios', subtitulo: 'Fechamento mensal da congregação', icone: '▦', corFundo: '#003F72' },
+      { id: 'assistencia', titulo: 'Assistência', subtitulo: 'Registros por reunião e grupo', icone: '◫', corFundo: '#006EB6' },
+      { id: 'arquivos', titulo: 'Arquivo', subtitulo: 'Documentos e históricos', icone: '▤', corFundo: '#7E3AF2' },
+    ]
+    menu.innerHTML = ''
+    renderMenuCards(menu, items, id => { activeTab = id as SecretarioTab; render() })
+    el.appendChild(menu)
+  }
 }
 
 function metric(label: string, value: string, color: string): string {
@@ -119,12 +121,6 @@ function summary(total: number, linked: number, sent: number, assistance: number
     ${metric('Relatório do mês', `${sent}/${total}`, sent === total ? '#1A6B3C' : '#B3261E')}
     ${metric('Assistência', String(assistance), '#006EB6')}
     ${metric('Arquivos', String(files), '#7E3AF2')}
-  </div>
-  <div class="module-option-list">
-    ${actionCard('Publicadores', 'Confira vínculos e pendências do mês.', 'publicadores')}
-    ${actionCard('Relatórios mensais', 'Registre e acompanhe o fechamento.', 'relatorios')}
-    ${actionCard('Assistência', 'Organize os registros por reunião e grupo.', 'assistencia')}
-    ${actionCard('Arquivo da congregação', 'Mantenha os documentos e históricos acessíveis.', 'arquivos')}
   </div>`
 }
 
@@ -165,9 +161,4 @@ function summaryValue(value: unknown): string {
 
 function section(title: string, subtitle: string, body: string): string {
   return `<div style="margin-top:14px"><h3 style="font-size:.95rem;color:#5C6062;margin-bottom:2px">${title}</h3><p style="font-size:.75rem;color:var(--ink-3);margin-bottom:10px">${subtitle}</p><div class="module-option-list">${body}</div></div>`
-}
-
-function actionCard(title: string, desc: string, tab?: SecretarioTab): string {
-  const enabled = Boolean(tab)
-  return `<button class="module-menu-btn" type="button" ${enabled ? `data-secretario-tab="${tab}"` : 'disabled'} style="${enabled ? '' : 'opacity:.72;cursor:not-allowed;'}border-radius:8px;padding:12px 14px"><div style="flex:1;min-width:0"><div class="mod-label">${title}</div><div class="mod-desc">${desc}</div></div><span style="font-size:.72rem;color:var(--ink-3);font-weight:700">${enabled ? 'Abrir' : 'Em preparo'}</span></button>`
 }

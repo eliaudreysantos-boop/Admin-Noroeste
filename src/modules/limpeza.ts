@@ -138,34 +138,10 @@ export default function mount(_ctx: AppContext): void {
   if (!root) return
   root.innerHTML = `
     <div id="limpezaRoot">
-      <div id="limpezaTabs" style="display:flex;gap:4px;margin-bottom:16px"></div>
       <div id="limpezaContent"></div>
     </div>`
 
   void loadAll()
-}
-
-function renderTabBar(): void {
-  const bar = document.getElementById('limpezaTabs')
-  if (!bar) return
-  const tabs: Array<{ id: LimpezaTab; label: string }> = [
-    { id: 'grupos', label: 'Grupos' },
-    { id: 'config', label: 'Config' },
-    { id: 'texto',  label: 'Texto' },
-    { id: 'pdf',    label: 'PDF' },
-  ]
-  bar.innerHTML = tabs.map(t => `
-    <button class="btn ${activeTab === t.id ? 'btn-primary' : 'btn-ghost'}"
-      data-tab="${t.id}" style="flex:1;font-size:.82rem">${t.label}</button>`
-  ).join('')
-
-  bar.querySelectorAll<HTMLButtonElement>('[data-tab]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      activeTab = btn.dataset['tab'] as LimpezaTab
-      renderTabBar()
-      renderContent()
-    })
-  })
 }
 
 async function loadAll(): Promise<void> {
@@ -194,7 +170,6 @@ function renderContent(): void {
     renderIndex()
     return
   }
-  renderTabBar()
   if (activeTab === 'grupos') renderGrupos()
   else if (activeTab === 'config') renderConfig()
   else if (activeTab === 'texto') renderTexto()
@@ -204,7 +179,7 @@ function renderContent(): void {
 function renderIndex(): void {
   const content = document.getElementById('limpezaContent')
   if (!content) return
-  content.innerHTML = `<div style="margin-bottom:14px"><h2 style="font-size:1.05rem;color:var(--blue-deep);margin-bottom:2px">Limpeza</h2><p style="font-size:.8rem;color:var(--ink-3)">Grupos, textos e PDF.</p></div><div id="limpezaMenu"></div>`
+  content.innerHTML = `<div style="margin-bottom:14px"><h2 style="font-size:1.05rem;color:var(--blue-deep);margin-bottom:2px">Limpeza</h2></div><div id="limpezaMenu"></div>`
   const items: ItemMenu[] = [
     { id: 'grupos', titulo: 'Grupos', subtitulo: 'Distribua as pessoas pelos grupos de limpeza', icone: '♧', corFundo: '#006EB6' },
     { id: 'config', titulo: 'Configuração', subtitulo: 'Rotação, coordenador e instruções', icone: '⚙', corFundo: '#003F72' },

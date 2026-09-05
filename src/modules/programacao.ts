@@ -54,7 +54,6 @@ export default function mount(_ctx: AppContext): void {
 
   el.innerHTML = `
     <div id="programacaoRoot">
-      <div id="programacaoTabs" style="display:flex;gap:4px;margin-bottom:16px"></div>
       <div id="programacaoContent">
         <p style="padding:24px;color:var(--ink-3);text-align:center">Carregando...</p>
       </div>
@@ -74,39 +73,11 @@ async function loadProgramacao(): Promise<void> {
   renderContent()
 }
 
-function renderTabs(): void {
-  const bar = document.getElementById('programacaoTabs')
-  if (!bar) return
-
-  const tabs: Array<{ id: ProgramacaoTab; label: string }> = [
-    { id: 'programa', label: 'Programa' },
-    { id: 'apostilas', label: 'Apostilas' },
-    { id: 'pessoas', label: 'Pessoas' },
-    { id: 'arquivos', label: 'Arquivos' },
-    { id: 'lembretes', label: 'Lembretes' },
-  ]
-
-  bar.innerHTML = tabs.map(t => `
-    <button class="btn ${activeTab === t.id ? 'btn-primary' : 'btn-ghost'}"
-      data-tab="${t.id}" style="flex:1;font-size:.74rem;padding:8px 3px">
-      ${t.label}
-    </button>`).join('')
-
-  bar.querySelectorAll<HTMLButtonElement>('[data-tab]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      activeTab = btn.dataset['tab'] as ProgramacaoTab
-      renderTabs()
-      renderContent()
-    })
-  })
-}
-
 function renderContent(): void {
   if (activeTab === 'indice') {
     renderIndex()
     return
   }
-  renderTabs()
   if (activeTab === 'programa') renderPrograma()
   else if (activeTab === 'apostilas') renderApostilas()
   else if (activeTab === 'pessoas') renderPessoas()
@@ -117,7 +88,7 @@ function renderContent(): void {
 function renderIndex(): void {
   const content = document.getElementById('programacaoContent')
   if (!content) return
-  content.innerHTML = `<div style="margin-bottom:14px"><h2 style="font-size:1.05rem;color:var(--blue-deep);margin-bottom:2px">Programação</h2><p style="font-size:.8rem;color:var(--ink-3)">Programação de reuniões.</p></div><div id="programacaoMenu"></div>`
+  content.innerHTML = `<div style="margin-bottom:14px"><h2 style="font-size:1.05rem;color:var(--blue-deep);margin-bottom:2px">Programação</h2></div><div id="programacaoMenu"></div>`
   const items: ItemMenu[] = [
     { id: 'programa', titulo: 'Programa', subtitulo: 'Semanas, partes e designações', icone: '▦', corFundo: '#003F72' },
     { id: 'apostilas', titulo: 'Apostilas', subtitulo: 'Importação dos programas oficiais', icone: '▤', corFundo: '#7E3AF2' },

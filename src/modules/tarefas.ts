@@ -229,40 +229,12 @@ export default function mount(_ctx: AppContext): void {
 
   el.innerHTML = `
     <div id="tarefasRoot">
-      <div id="tarefasTabs" style="display:flex;gap:4px;margin-bottom:16px"></div>
       <div id="tarefasContent">
         <p style="padding:24px;color:var(--ink-3);text-align:center">Carregando...</p>
       </div>
     </div>`
 
   void loadTarefas()
-}
-
-function renderTabs(): void {
-  const bar = document.getElementById('tarefasTabs')
-  if (!bar) return
-
-  const tabs: Array<{ id: TarefasTab; label: string }> = [
-    { id: 'resumo', label: 'Resumo' },
-    { id: 'escala', label: 'Escala' },
-    { id: 'participantes', label: 'Pessoas' },
-    { id: 'mensagens', label: 'Mensagens' },
-    { id: 'pendencias', label: 'Pendências' },
-  ]
-
-  bar.innerHTML = tabs.map(t => `
-    <button class="btn ${activeTab === t.id ? 'btn-primary' : 'btn-ghost'}"
-      data-tab="${t.id}" style="flex:1;font-size:.78rem;padding:8px 4px">
-      ${t.label}
-    </button>`).join('')
-
-  bar.querySelectorAll<HTMLButtonElement>('[data-tab]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      activeTab = btn.dataset['tab'] as TarefasTab
-      renderTabs()
-      renderContent()
-    })
-  })
 }
 
 async function loadTarefas(): Promise<void> {
@@ -288,7 +260,6 @@ function renderContent(): void {
     renderIndex()
     return
   }
-  renderTabs()
   if (activeTab === 'resumo') renderResumo()
   else if (activeTab === 'escala') renderEscala()
   else if (activeTab === 'participantes') renderParticipantes()
@@ -299,7 +270,7 @@ function renderContent(): void {
 function renderIndex(): void {
   const content = document.getElementById('tarefasContent')
   if (!content) return
-  content.innerHTML = `<div style="margin-bottom:14px"><h2 style="font-size:1.05rem;color:#7E3AF2;margin-bottom:2px">Tarefas</h2><p style="font-size:.8rem;color:var(--ink-3)">Funções da reunião, participantes e mensagens.</p></div><div id="tarefasMenu"></div>`
+  content.innerHTML = `<div style="margin-bottom:14px"><h2 style="font-size:1.05rem;color:#7E3AF2;margin-bottom:2px">Tarefas</h2></div><div id="tarefasMenu"></div>`
   const items: ItemMenu[] = [
     { id: 'resumo', titulo: 'Resumo', subtitulo: 'Visão geral da escala de tarefas', icone: '▦', corFundo: '#7E3AF2' },
     { id: 'escala', titulo: 'Escala', subtitulo: 'Defina o início e gere a escala', icone: '▣', corFundo: '#003F72' },
@@ -482,7 +453,6 @@ function renderPendencias(): void {
   content.querySelectorAll<HTMLButtonElement>('[data-target-tab]').forEach(button => {
     button.addEventListener('click', () => {
       activeTab = button.dataset['targetTab'] as TarefasTab
-      renderTabs()
       renderContent()
     })
   })
@@ -535,7 +505,6 @@ function bindFlowCards(): void {
   document.querySelectorAll<HTMLButtonElement>('.tarefas-flow-card').forEach(btn => {
     btn.addEventListener('click', () => {
       activeTab = btn.dataset['targetTab'] as TarefasTab
-      renderTabs()
       renderContent()
     })
   })

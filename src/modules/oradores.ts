@@ -1,6 +1,5 @@
 import type { AppContext } from '../types'
 import { get, update, tarefasDiscursosRef } from '../firebase'
-import { renderMenuCards, type ItemMenu } from '../ui/menu-cards'
 
 interface LegacyOrador { nome?: string; name?: string; telefone?: string; ativo?: boolean; tipo?: string; temaIds?: string[]; pessoaId?: string }
 interface LegacyProgramacao { status?: string; data?: string; oradorId?: string; oradorNome?: string; temaNumero?: number; temaTitulo?: string }
@@ -85,36 +84,12 @@ function render(): void {
     p => p.status === 'por_confirmar' || p.status === 'por_definir',
   )
 
-  if (activeTab === 'indice') {
-    el.innerHTML = `<div style="margin-bottom:14px"><h2 style="font-size:1.05rem;color:#5C6062;margin-bottom:2px">Oradores</h2><p style="font-size:.8rem;color:var(--ink-3)">Discursos públicos, temas, congregações e substituições.</p></div><div id="oradoresMenu"></div>`
-    const menu = el.querySelector<HTMLElement>('#oradoresMenu')!
-    const items: ItemMenu[] = [
-      { id: 'resumo', titulo: 'Resumo', subtitulo: 'Visão geral dos discursos e compromissos', icone: '▦', corFundo: '#5C6062' },
-      { id: 'cadastro', titulo: 'Cadastro', subtitulo: 'Oradores locais e visitantes', icone: '♙', corFundo: '#003F72' },
-      { id: 'programacao', titulo: 'Programação', subtitulo: 'Agenda de discursos e confirmações', icone: '▣', corFundo: '#7E3AF2' },
-      { id: 'temas', titulo: 'Temas', subtitulo: 'Catálogo de discursos públicos', icone: '▤', corFundo: '#1A6B3C' },
-      { id: 'pendencias', titulo: 'Pendências', subtitulo: 'Itens que precisam de confirmação', icone: '!', corFundo: '#B3261E' },
-    ]
-    renderMenuCards(menu, items, id => { activeTab = id as OradoresTab; render() })
-    return
-  }
-
   el.innerHTML = `
     <div style="margin-bottom:14px">
       <h2 style="font-size:1.05rem;color:#5C6062;margin-bottom:2px">Oradores</h2>
-      <p style="font-size:.8rem;color:var(--ink-3)">
-        Discursos públicos, temas, congregações e substituições.
-      </p>
     </div>
 
-    <div class="module-tabs" role="tablist" aria-label="Áreas de Oradores">
-      ${tabButton('resumo', 'Resumo')}
-      ${tabButton('cadastro', 'Cadastro')}
-      ${tabButton('programacao', 'Programação')}
-      ${tabButton('temas', 'Temas')}
-      ${tabButton('pendencias', 'Pendências')}
-    </div>
-    ${activeTab === 'resumo' ? `<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
+    ${activeTab === 'indice' || activeTab === 'resumo' ? `<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
       ${metricCard('Oradores', `${oradoresAtivos}/${totalOradores}`, '#5C6062')}
       ${metricCard('Locais', String(locais), '#003F72')}
       ${metricCard('Visitantes', String(visitantes), '#7E3AF2')}
@@ -152,10 +127,6 @@ function render(): void {
   el.querySelectorAll<HTMLButtonElement>('[data-delete-tema]').forEach(button => {
     button.addEventListener('click', () => void deleteTema(button.dataset['deleteTema'] ?? ''))
   })
-}
-
-function tabButton(tab: OradoresTab, label: string): string {
-  return `<button class="module-tab${activeTab === tab ? ' active' : ''}" type="button" data-oradores-tab="${tab}" role="tab" aria-selected="${activeTab === tab}">${label}</button>`
 }
 
 function renderTabContent(tab: OradoresTab): string {

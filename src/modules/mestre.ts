@@ -21,6 +21,7 @@ import {
   configLimpezaRef,
   configDesignacoesRef,
 } from '../firebase'
+import { renderMenuCards, type ItemMenu } from '../ui/menu-cards'
 
 // ─── Estado do módulo ────────────────────────────────────────────────────────
 
@@ -28,7 +29,7 @@ let pessoas:   RawPessoas  = {}
 let usuarios:  RawUsuarios = {}
 let config:    MasterConfig = {}
 
-let activeTab: 'pessoas' | 'usuarios' | 'config' = 'pessoas'
+let activeTab: 'indice' | 'pessoas' | 'usuarios' | 'config' = 'indice'
 let activeConfigSection: 'congregacao' | 'limpeza' | 'designacoes' = 'congregacao'
 
 let pessoaFilter = { nome: '', role: '', ativo: 'true', sex: '' }
@@ -163,42 +164,23 @@ function keepApprovalIfTextUnchanged(
 // ─── Mount ───────────────────────────────────────────────────────────────────
 
 export default function mount(_ctx: AppContext): void {
-  activeTab = 'pessoas'
+  activeTab = 'indice'
   activeConfigSection = 'congregacao'
   pessoaFilter = { nome: '', role: '', ativo: 'true', sex: '' }
 
   const root = document.getElementById('appContent')!
   root.innerHTML = `
     <div id="mestreRoot">
-      <div id="mestreTabs" style="display:flex;gap:4px;margin-bottom:16px"></div>
       <div id="mestreContent"></div>
     </div>`
 
-  renderTabBar()
   void loadAll()
 }
 
 // ─── Tabs ────────────────────────────────────────────────────────────────────
 
-function renderTabBar(): void {
-  const bar = document.getElementById('mestreTabs')!
-  const tabs: Array<{ id: typeof activeTab; label: string }> = [
-    { id: 'pessoas',  label: 'Pessoas'  },
-    { id: 'usuarios', label: 'Usuários' },
-    { id: 'config',   label: 'Config'   },
-  ]
-  bar.innerHTML = tabs.map(t =>
-    `<button class="btn ${activeTab === t.id ? 'btn-primary' : 'btn-ghost'}"
-      data-tab="${t.id}" style="flex:1;font-size:.82rem">${t.label}</button>`
-  ).join('')
-  bar.querySelectorAll<HTMLButtonElement>('[data-tab]').forEach(btn => {
-    btn.addEventListener('click', () => switchTab(btn.dataset['tab'] as typeof activeTab))
-  })
-}
-
 function switchTab(t: typeof activeTab): void {
   activeTab = t
-  renderTabBar()
   renderContent()
 }
 
@@ -219,9 +201,22 @@ async function loadAll(): Promise<void> {
 }
 
 function renderContent(): void {
-  if      (activeTab === 'pessoas')  renderPessoas()
+  if      (activeTab === 'indice')   renderIndex()
+  else if (activeTab === 'pessoas')  renderPessoas()
   else if (activeTab === 'usuarios') renderUsuarios()
   else                               renderConfig()
+}
+
+function renderIndex(): void {
+  const content = document.getElementById('mestreContent')
+  if (!content) return
+  content.innerHTML = '<div style="margin-bottom:14px"><h2 style="font-size:1.05rem;color:var(--blue-deep);margin-bottom:2px">Admin</h2></div><div id="mestreMenu"></div>'
+  const items: ItemMenu[] = [
+    { id: 'pessoas', titulo: 'Pessoas', subtitulo: 'Cadastros e dados da congregação', icone: '♙', corFundo: '#003F72' },
+    { id: 'usuarios', titulo: 'Usuários', subtitulo: 'Acessos e módulos disponíveis', icone: '⚿', corFundo: '#006EB6' },
+    { id: 'config', titulo: 'Configuração', subtitulo: 'Congregação, reuniões e designações', icone: '⚙', corFundo: '#5C6062' },
+  ]
+  renderMenuCards(content.querySelector<HTMLElement>('#mestreMenu')!, items, id => switchTab(id as typeof activeTab))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
