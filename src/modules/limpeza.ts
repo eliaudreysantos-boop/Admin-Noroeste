@@ -2,6 +2,9 @@ import type {
   AppContext,
   ConfigLimpeza,
   ConfigLimpezaGrupo,
+  ConfigCongregacao,
+  ConfigReunioes,
+  LimpezaPeriodoGerado,
   MasterPessoa,
   RawPessoas,
 } from '../types'
@@ -11,18 +14,33 @@ import {
   update,
   pessoasRef,
   configLimpezaRef,
+  configCongregacaoRef,
+  configReunioesRef,
+  limpezaPeriodosRef,
+  tarefasPlanejamentoRef,
 } from '../firebase'
 import { renderMenuCards, type ItemMenu } from '../ui/menu-cards'
 import { moduleBackButton } from '../ui/module-header'
+import {
+  cleaningTextForTasks,
+  generateCleaningPeriod,
+  monthLabel,
+  periodBounds,
+  type CleaningPeriodMode,
+} from './limpeza-domain'
 
-type LimpezaTab = 'indice' | 'grupos' | 'config' | 'texto' | 'pdf'
+type LimpezaTab = 'indice' | 'escala' | 'grupos' | 'config' | 'texto' | 'pdf'
 
 let pessoas: RawPessoas = {}
 let limpeza: Partial<ConfigLimpeza> = {}
 let activeTab: LimpezaTab = 'grupos'
 let limpezaChanges = new Map<string, number | null>()
-
-const MS_PER_WEEK = 7 * 24 * 60 * 60 * 1000
+let periodos: Record<string, LimpezaPeriodoGerado> = {}
+let periodMode: CleaningPeriodMode = 'bimester'
+let periodAnchor = todayStr()
+let selectedPeriodId = ''
+let congregationName = 'Noroeste'
+let reunioes: Partial<ConfigReunioes> = {}
 
 function toast(msg: string, ms = 2600): void {
   const el = document.getElementById('toast')
@@ -92,10 +110,6 @@ function groupCount(): number {
   return Math.max(1, Math.min(12, Number(limpeza.grupos ?? 4)))
 }
 
-function personName(mid: string): string {
-  return pessoas[mid]?.name ?? mid
-}
-
 function candidateOptions(selectedMid = ''): string {
   const candidates = activePeople()
   return candidates
@@ -105,30 +119,12 @@ function candidateOptions(selectedMid = ''): string {
     .join('')
 }
 
-function calculateGroup(date: string): number | null {
-  const start = limpeza.inicioRotacao
-  const total = groupCount()
-  if (!start || !date || total <= 0) return null
-
-  const startDate = new Date(`${start}T00:00:00`)
-  const targetDate = new Date(`${date}T00:00:00`)
-  if (Number.isNaN(startDate.getTime()) || Number.isNaN(targetDate.getTime())) return null
-
-  const weeks = Math.floor((targetDate.getTime() - startDate.getTime()) / MS_PER_WEEK)
-  const index = ((weeks % total) + total) % total
-  return index + 1
-}
-
-function peopleInGroup(group: number): [string, MasterPessoa][] {
-  return activePeople().filter(([, p]) => p.limpeza?.grupo === group)
-}
-
 function renderSectionTitle(title: string, desc: string): string {
   return `
     <div style="margin-bottom:14px">
       ${moduleBackButton()}
       <h2 style="font-size:1.05rem;color:var(--blue-deep);margin-bottom:2px">${title}</h2>
-      <p style="font-size:.8rem;color:var(--ink-3)">${desc}</p>
+      ${desc ? `<p style="font-size:.8rem;color:var(--ink-3)">${desc}</p>` : ''}
     </div>`
 }
 
@@ -154,12 +150,24 @@ async function loadAll(): Promise<void> {
   }
 
   try {
-    const [pessoasSnap, limpezaSnap] = await Promise.all([
+    const [pessoasSnap, limpezaSnap, periodosSnap, congregacaoSnap, reunioesSnap, planejamentoSnap] = await Promise.all([
       get(pessoasRef),
       get(configLimpezaRef),
+      get(limpezaPeriodosRef),
+      get(configCongregacaoRef),
+      get(configReunioesRef),
+      get(tarefasPlanejamentoRef),
     ])
     pessoas = pessoasSnap.exists() ? (pessoasSnap.val() as RawPessoas) : {}
     limpeza = limpezaSnap.exists() ? (limpezaSnap.val() as ConfigLimpeza) : {}
+    periodos = periodosSnap.exists() ? (periodosSnap.val() as Record<string, LimpezaPeriodoGerado>) : {}
+    const congregacao = congregacaoSnap.exists() ? (congregacaoSnap.val() as ConfigCongregacao) : undefined
+    congregationName = congregacao?.nome?.trim() || 'Noroeste'
+    reunioes = reunioesSnap.exists() ? (reunioesSnap.val() as ConfigReunioes) : {}
+    const planejamento = planejamentoSnap.exists() ? (planejamentoSnap.val() as { periodMode?: CleaningPeriodMode }) : {}
+    periodMode = planejamento.periodMode === 'month' ? 'month' : 'bimester'
+    const ids = Object.keys(periodos).sort()
+    selectedPeriodId = ids[ids.length - 1] ?? ''
   } catch {
     toast('Erro ao carregar dados de limpeza')
   }
@@ -172,7 +180,8 @@ function renderContent(): void {
     renderIndex()
     return
   }
-  if (activeTab === 'grupos') renderGrupos()
+  if (activeTab === 'escala') renderEscala()
+  else if (activeTab === 'grupos') renderGrupos()
   else if (activeTab === 'config') renderConfig()
   else if (activeTab === 'texto') renderTexto()
   else renderPdf()
@@ -183,12 +192,88 @@ function renderIndex(): void {
   if (!content) return
   content.innerHTML = `<div style="margin-bottom:14px"><h2 style="font-size:1.05rem;color:var(--blue-deep);margin-bottom:2px">Limpeza</h2></div><div id="limpezaMenu"></div>`
   const items: ItemMenu[] = [
+    { id: 'escala', titulo: 'Gerar escala', subtitulo: 'Calcule e salve a rotação mensal ou bimestral', icone: '▦', corFundo: '#B83E18' },
     { id: 'grupos', titulo: 'Grupos', subtitulo: 'Distribua as pessoas pelos grupos de limpeza', icone: '♧', corFundo: '#006EB6' },
     { id: 'config', titulo: 'Configuração', subtitulo: 'Rotação, coordenador e instruções', icone: '⚙', corFundo: '#003F72' },
     { id: 'texto', titulo: 'Texto', subtitulo: 'Gere a mensagem para publicar em Tarefas', icone: '≡', corFundo: '#1A6B3C' },
-    { id: 'pdf', titulo: 'PDF', subtitulo: 'Consulte a opção de arquivo separado', icone: '▤', corFundo: '#7E3AF2' },
+    { id: 'pdf', titulo: 'PDF', subtitulo: 'Baixe a escala já gerada em arquivo separado', icone: '▤', corFundo: '#7E3AF2' },
   ]
   renderMenuCards(content.querySelector<HTMLElement>('#limpezaMenu')!, items, id => { activeTab = id as LimpezaTab; renderContent() })
+}
+
+function formatGeneratedDate(value: string): string {
+  const [year, month, day] = value.split('-')
+  return year && month && day ? `${day}/${month}/${year.slice(-2)}` : value
+}
+
+function generatedPeriod(): LimpezaPeriodoGerado | null {
+  return selectedPeriodId ? periodos[selectedPeriodId] ?? null : null
+}
+
+function generatedPeriodOptions(): string {
+  return Object.values(periodos)
+    .sort((a, b) => b.inicio.localeCompare(a.inicio))
+    .map(period => `<option value="${period.id}" ${period.id === selectedPeriodId ? 'selected' : ''}>${escapeHtml(monthLabel(period.inicio))}${period.modo === 'bimester' ? ` / ${escapeHtml(monthLabel(period.fim))}` : ''} ${period.inicio.slice(0, 4)}</option>`)
+    .join('')
+}
+
+function renderPeriodRows(period: LimpezaPeriodoGerado): string {
+  return period.semanas.map(week => `
+    <div class="cleaning-period-row" style="padding:10px 12px;border-bottom:1px solid var(--border)">
+      <strong style="color:var(--blue-deep)">Grupo ${week.grupo}</strong>
+      <span style="font-size:.82rem;font-weight:600;overflow-wrap:anywhere">${escapeHtml(week.grupoNome)}</span>
+      <span class="cleaning-period-dates" style="font-size:.78rem;color:var(--ink-3)">${formatGeneratedDate(week.dataMeioSemana)} e ${formatGeneratedDate(week.dataFimSemana)}</span>
+    </div>`).join('')
+}
+
+function renderEscala(): void {
+  const content = document.getElementById('limpezaContent')
+  if (!content) return
+  const currentId = periodBounds(`${periodAnchor.slice(0, 7)}-01`, periodMode).id
+  const preview = periodos[currentId]
+  content.innerHTML = `
+    ${renderSectionTitle('Gerar escala', '')}
+    <div class="module-form-grid">
+      <div class="form-group"><label class="form-label">Período</label><select id="limpezaPeriodMode" class="form-select"><option value="month" ${periodMode === 'month' ? 'selected' : ''}>Mensal</option><option value="bimester" ${periodMode === 'bimester' ? 'selected' : ''}>Bimestral</option></select></div>
+      <div class="form-group"><label class="form-label">Mês inicial</label><input id="limpezaPeriodAnchor" class="form-input" type="month" value="${periodAnchor.slice(0, 7)}"></div>
+    </div>
+    <button id="btnGerarEscalaLimpeza" class="btn btn-primary btn-full" type="button">Gerar escala</button>
+    <div style="margin-top:14px;background:var(--surface);border:1px solid var(--border);border-radius:8px;overflow:hidden">
+      ${preview ? renderPeriodRows(preview) : '<p style="padding:18px;text-align:center;color:var(--ink-3);font-size:.82rem">Gere este período para revisar as datas e os grupos.</p>'}
+    </div>`
+  document.getElementById('limpezaPeriodMode')?.addEventListener('change', event => {
+    periodMode = (event.target as HTMLSelectElement).value as CleaningPeriodMode
+    renderEscala()
+  })
+  document.getElementById('limpezaPeriodAnchor')?.addEventListener('change', event => {
+    periodAnchor = `${(event.target as HTMLInputElement).value}-01`
+    renderEscala()
+  })
+  document.getElementById('btnGerarEscalaLimpeza')?.addEventListener('click', () => void saveGeneratedPeriod())
+}
+
+async function saveGeneratedPeriod(): Promise<void> {
+  const button = document.getElementById('btnGerarEscalaLimpeza') as HTMLButtonElement | null
+  try {
+    if (!limpeza.ativa || !limpeza.inicioRotacao || !limpeza.grupos || !reunioes.meiaDeSemana || !reunioes.fimDeSemana) {
+      throw new Error('Complete a configuração da rotação e dos dias de reunião antes de gerar.')
+    }
+    button?.setAttribute('disabled', '')
+    if (button) button.textContent = 'Gerando...'
+    const generated = generateCleaningPeriod(
+      `${periodAnchor.slice(0, 7)}-01`, periodMode, limpeza as ConfigLimpeza,
+      reunioes as ConfigReunioes, pessoas, congregationName, new Date().toISOString(),
+    )
+    await update(limpezaPeriodosRef, { [generated.id]: generated })
+    periodos[generated.id] = generated
+    selectedPeriodId = generated.id
+    toast(`Escala gerada com ${generated.semanas.length} semanas`)
+    renderEscala()
+  } catch (error) {
+    toast(error instanceof Error ? error.message : 'Erro ao gerar a escala')
+  } finally {
+    button?.removeAttribute('disabled')
+  }
 }
 
 function renderGrupos(): void {
@@ -198,10 +283,7 @@ function renderGrupos(): void {
 
   const ativos = activePeople()
   content.innerHTML = `
-    ${renderSectionTitle(
-      'Grupos de limpeza',
-      'Defina o grupo de cada pessoa antes de gerar o texto da próxima designação.',
-    )}
+    ${renderSectionTitle('Grupos de limpeza', '')}
     <div id="limpezaCounters" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px"></div>
     <div style="font-size:.78rem;color:var(--ink-3);margin-bottom:8px">
       ${ativos.length} pessoa${ativos.length !== 1 ? 's' : ''} ativa${ativos.length !== 1 ? 's' : ''}
@@ -310,6 +392,7 @@ function renderConfig(): void {
   const grupoCards = Array.from({ length: grupos }, (_, i) => {
     const gid = String(i + 1)
     const item: Partial<ConfigLimpezaGrupo> = limpeza.gruposConfig?.[gid] ?? {}
+    const nome = item.nome ?? ''
     const superintendenteMid = item.superintendenteMid ?? ''
     const ajudantesMid = toStringArray(item.ajudantesMid as string[] | Record<string, string> | undefined)
     const textoInstrucoes = item.textoInstrucoes ?? ''
@@ -320,6 +403,10 @@ function renderConfig(): void {
         padding:12px;margin-bottom:10px">
         <div style="font-size:.9rem;font-weight:700;color:var(--blue-deep);margin-bottom:10px">
           Grupo ${gid}
+        </div>
+        <div class="form-group">
+          <label class="form-label">Nome do grupo</label>
+          <input id="gNome_${gid}" class="form-input" maxlength="40" value="${escapeHtml(nome)}" placeholder="Ex.: Salão do Reino">
         </div>
         <div class="form-group">
           <label class="form-label">Superintendente</label>
@@ -359,10 +446,7 @@ function renderConfig(): void {
   }).join('')
 
   content.innerHTML = `
-    ${renderSectionTitle(
-      'Configuração da limpeza',
-      'Controla rotação, textos aprovados, superintendentes e ajudantes.',
-    )}
+    ${renderSectionTitle('Configuração da limpeza', '')}
     <div class="form-group">
       <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
         <input type="checkbox" id="lAtiva" ${ativa ? 'checked' : ''}>
@@ -448,6 +532,7 @@ async function approveGrupoTexto(gid: string): Promise<void> {
     })
     if (!limpeza.gruposConfig) limpeza.gruposConfig = {}
     limpeza.gruposConfig[gid] = {
+      nome: limpeza.gruposConfig[gid]?.nome ?? '',
       superintendenteMid: limpeza.gruposConfig[gid]?.superintendenteMid ?? '',
       ajudantesMid: limpeza.gruposConfig[gid]?.ajudantesMid ?? [],
       textoInstrucoes,
@@ -475,6 +560,7 @@ async function saveConfig(): Promise<void> {
     ).map(cb => cb.value)
 
     gruposConfig[gid] = {
+      nome: value(`gNome_${gid}`),
       superintendenteMid: value(`gSuper_${gid}`),
       ajudantesMid,
       textoInstrucoes,
@@ -517,70 +603,27 @@ async function saveConfig(): Promise<void> {
 function renderTexto(): void {
   const content = document.getElementById('limpezaContent')
   if (!content) return
-
-  const date = todayStr()
+  const period = generatedPeriod()
   content.innerHTML = `
-    ${renderSectionTitle(
-      'Gerar texto',
-      'Use esta opção quando a limpeza for enviada junto com Tarefas ou por mensagem.',
-    )}
+    ${renderSectionTitle('Texto para Tarefas', '')}
     <div class="form-group">
-      <label class="form-label">Data da reunião</label>
-      <input id="txtData" class="form-input" type="date" value="${date}">
-    </div>
-    <div class="form-group">
-      <label class="form-label">Saída</label>
-      <select id="txtModo" class="form-select">
-        <option value="tarefas">Texto dentro de Tarefas</option>
-        <option value="pdf">Resumo para PDF separado</option>
+      <label class="form-label">Escala gerada</label>
+      <select id="limpezaTextoPeriodo" class="form-select" ${Object.keys(periodos).length ? '' : 'disabled'}>
+        ${generatedPeriodOptions() || '<option>Nenhuma escala gerada</option>'}
       </select>
     </div>
-    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:10px">
-      <div id="textoPreview" style="white-space:pre-wrap;font-size:.88rem;color:var(--ink);line-height:1.5"></div>
-    </div>
-    <button id="btnCopiarTextoLimpeza" class="btn btn-primary btn-full">Copiar texto</button>`
-
-  const updatePreview = () => {
-    const currentDate = (document.getElementById('txtData') as HTMLInputElement).value
-    const mode = (document.getElementById('txtModo') as HTMLSelectElement).value as 'tarefas' | 'pdf'
-    document.getElementById('textoPreview')!.textContent = buildCleaningText(currentDate, mode)
-  }
-
-  document.getElementById('txtData')!.addEventListener('change', updatePreview)
-  document.getElementById('txtModo')!.addEventListener('change', updatePreview)
+    <div class="form-group"><label class="form-label">Mensagem</label><textarea id="textoPreview" class="form-input" rows="16">${escapeHtml(period ? cleaningTextForTasks(period, pessoas) : '')}</textarea></div>
+    <button id="btnCopiarTextoLimpeza" class="btn btn-primary btn-full" ${period ? '' : 'disabled'}>Copiar texto</button>`
+  document.getElementById('limpezaTextoPeriodo')?.addEventListener('change', event => {
+    selectedPeriodId = (event.target as HTMLSelectElement).value
+    renderTexto()
+  })
   document.getElementById('btnCopiarTextoLimpeza')!
     .addEventListener('click', () => void copyGeneratedText())
-  updatePreview()
-}
-
-function buildCleaningText(date: string, mode: 'tarefas' | 'pdf'): string {
-  const grupo = calculateGroup(date)
-  if (!limpeza.ativa) return 'A rotação de limpeza está desativada.'
-  if (!grupo) return 'Defina o início da rotação em Config para gerar o texto.'
-
-  const groupConfig = limpeza.gruposConfig?.[String(grupo)]
-  const members = peopleInGroup(grupo).map(([, p]) => p.name)
-  const superName = groupConfig?.superintendenteMid ? personName(groupConfig.superintendenteMid) : ''
-  const helperNames = toStringArray(groupConfig?.ajudantesMid).map(personName)
-  const defaultText = limpeza.textoPadraoAprovadoEm ? (limpeza.textoPadrao ?? '') : ''
-  const groupText = groupConfig?.aprovadoEm ? (groupConfig.textoInstrucoes ?? '') : ''
-
-  const lines = mode === 'tarefas'
-    ? [`Limpeza - ${formatDate(date)}`, `Grupo ${grupo}`]
-    : [`Resumo da limpeza`, `Data: ${formatDate(date)}`, `Grupo: ${grupo}`]
-
-  if (superName) lines.push(`Superintendente: ${superName}`)
-  if (helperNames.length > 0) lines.push(`Ajudantes: ${helperNames.join(', ')}`)
-  if (members.length > 0) lines.push(`Grupo: ${members.join(', ')}`)
-  if (defaultText) lines.push('', defaultText)
-  if (groupText) lines.push('', groupText)
-  if (!defaultText && !groupText) lines.push('', 'Nenhum texto aprovado para publicar.')
-
-  return lines.join('\n')
 }
 
 async function copyGeneratedText(): Promise<void> {
-  const text = document.getElementById('textoPreview')?.textContent ?? ''
+  const text = (document.getElementById('textoPreview') as HTMLTextAreaElement | null)?.value ?? ''
   if (!text) return
 
   try {
@@ -594,43 +637,44 @@ async function copyGeneratedText(): Promise<void> {
 function renderPdf(): void {
   const content = document.getElementById('limpezaContent')
   if (!content) return
-
+  const period = generatedPeriod()
+  const fontSize = Number(localStorage.getItem('noroeste_limpeza_pdf_font') ?? 15)
   content.innerHTML = `
-    ${renderSectionTitle(
-      'PDF separado',
-      'Use esta opção quando a limpeza não for publicada dentro de Tarefas.',
-    )}
+    ${renderSectionTitle('PDF separado', '')}
     <div class="form-panel">
-      <label class="form-field"><span>Data da reunião</span><input id="pdfLimpezaData" type="date" value="${todayStr()}"></label>
-      <label class="form-field"><span>Tamanho da fonte: <strong id="pdfLimpezaFonteValor">16px</strong></span><input id="pdfLimpezaFonte" type="range" min="10" max="28" value="16"></label>
-      <div id="pdfLimpezaPreview" style="white-space:pre-wrap;background:#fff;border:1px solid var(--border);padding:14px;margin:12px 0;line-height:1.45"></div>
-      <button id="btnGerarPdfLimpeza" class="btn btn-primary btn-full" type="button">Gerar PDF separado</button>
-      <div class="form-help">Será aberta a impressão do navegador. Escolha “Salvar como PDF” para criar o arquivo.</div>
+      <label class="form-field"><span>Escala gerada</span><select id="pdfLimpezaPeriodo" class="form-select" ${Object.keys(periodos).length ? '' : 'disabled'}>${generatedPeriodOptions() || '<option>Nenhuma escala gerada</option>'}</select></label>
+      <label class="form-field"><span>Fonte base: <strong id="pdfLimpezaFonteValor">${fontSize} pt</strong></span><input id="pdfLimpezaFonte" type="range" min="8" max="22" value="${fontSize}"></label>
+      <div id="pdfLimpezaPreview" style="background:#fff;border:1px solid var(--border);padding:14px;margin:12px 0;min-height:180px">
+        ${period ? `<div style="text-align:center;font-weight:800;font-size:1.1rem;margin-bottom:10px">LIMPEZA DO SALÃO</div>${renderPeriodRows(period)}` : '<p style="text-align:center;color:var(--ink-3)">Nenhuma escala gerada.</p>'}
+      </div>
+      <button id="btnGerarPdfLimpeza" class="btn btn-primary btn-full" type="button" ${period ? '' : 'disabled'}>Baixar PDF</button>
     </div>`
-  const refresh = () => {
-    const date = (document.getElementById('pdfLimpezaData') as HTMLInputElement).value
-    const size = (document.getElementById('pdfLimpezaFonte') as HTMLInputElement).value
-    const preview = document.getElementById('pdfLimpezaPreview')
-    const label = document.getElementById('pdfLimpezaFonteValor')
-    if (preview) { preview.textContent = buildCleaningText(date, 'pdf'); preview.style.fontSize = `${size}px` }
-    if (label) label.textContent = `${size}px`
-  }
-  document.getElementById('pdfLimpezaData')?.addEventListener('change', refresh)
-  document.getElementById('pdfLimpezaFonte')?.addEventListener('input', refresh)
-  document.getElementById('btnGerarPdfLimpeza')?.addEventListener('click', () => {
-    const date = (document.getElementById('pdfLimpezaData') as HTMLInputElement).value
-    const size = Number((document.getElementById('pdfLimpezaFonte') as HTMLInputElement).value)
-    openCleaningPrint(date, size)
+  document.getElementById('pdfLimpezaPeriodo')?.addEventListener('change', event => {
+    selectedPeriodId = (event.target as HTMLSelectElement).value
+    renderPdf()
   })
-  refresh()
+  document.getElementById('pdfLimpezaFonte')?.addEventListener('input', event => {
+    const value = (event.target as HTMLInputElement).value
+    localStorage.setItem('noroeste_limpeza_pdf_font', value)
+    const label = document.getElementById('pdfLimpezaFonteValor')
+    if (label) label.textContent = `${value} pt`
+  })
+  document.getElementById('btnGerarPdfLimpeza')?.addEventListener('click', () => void exportCleaningPdf())
 }
 
-function openCleaningPrint(date: string, fontSize: number): void {
-  const popup = window.open('', '_blank')
-  if (!popup) { toast('Permita pop-ups para gerar o PDF'); return }
-  const text = escapeHtml(buildCleaningText(date, 'pdf')).replace(/\n/g, '<br>')
-  popup.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Limpeza - ${formatDate(date)}</title><style>@page{margin:18mm}body{font-family:Arial,sans-serif;color:#222;font-size:${fontSize}px;line-height:1.45}h1{font-size:${Math.max(18, fontSize + 4)}px;color:#003f72;border-bottom:2px solid #7e3af2;padding-bottom:8px}button{margin-top:20px;padding:8px 14px}@media print{button{display:none}}</style></head><body><h1>Limpeza</h1><div>${text}</div><button onclick="window.print()">Imprimir / Salvar PDF</button></body></html>`)
-  popup.document.close()
-  popup.focus()
-  toast('Pré-visualização do PDF aberta')
+async function exportCleaningPdf(): Promise<void> {
+  const period = generatedPeriod()
+  if (!period) { toast('Gere a escala antes de baixar o PDF'); return }
+  const button = document.getElementById('btnGerarPdfLimpeza') as HTMLButtonElement | null
+  const fontSize = Number((document.getElementById('pdfLimpezaFonte') as HTMLInputElement).value)
+  try {
+    if (button) { button.disabled = true; button.textContent = 'Preparando PDF...' }
+    const { downloadCleaningPdf } = await import('./limpeza-documents')
+    const result = await downloadCleaningPdf(period, { requestedFontSize: fontSize })
+    toast(result.effectiveFontSize < fontSize ? `PDF ajustado para ${result.effectiveFontSize} pt sem quebrar texto` : 'PDF baixado')
+  } catch {
+    toast('Erro ao gerar o PDF')
+  } finally {
+    if (button) { button.disabled = false; button.textContent = 'Baixar PDF' }
+  }
 }

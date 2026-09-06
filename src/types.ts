@@ -81,10 +81,33 @@ export interface ConfigReunioes {
 }
 
 export interface ConfigLimpezaGrupo {
+  nome?:              string
   superintendenteMid: string
   ajudantesMid:       string[]
   textoInstrucoes:    string
   aprovadoEm:         string   // 'YYYY-MM-DD' | ''
+}
+
+export interface LimpezaSemanaGerada {
+  referencia:          string
+  dataMeioSemana:      string
+  dataFimSemana:       string
+  grupo:               number
+  grupoNome:           string
+  superintendenteMid:  string
+  ajudantesMid:        string[]
+  membrosMid:          string[]
+  textoAprovado:       string
+}
+
+export interface LimpezaPeriodoGerado {
+  id:          string
+  modo:        'month' | 'bimester'
+  inicio:      string
+  fim:         string
+  geradoEm:    string
+  congregacao: string
+  semanas:     LimpezaSemanaGerada[]
 }
 
 export interface ConfigLimpeza {

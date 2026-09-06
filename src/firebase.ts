@@ -55,6 +55,9 @@ export const configReunioesRef: DatabaseReference =
 export const configLimpezaRef: DatabaseReference =
   ref(db, 'master/config/limpeza')
 
+export const limpezaPeriodosRef: DatabaseReference =
+  ref(db, 'limpeza/periodos')
+
 export const configDesignacoesRef: DatabaseReference =
   ref(db, 'master/config/designacoes')
 

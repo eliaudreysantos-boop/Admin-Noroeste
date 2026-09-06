@@ -707,6 +707,7 @@ textarea.form-input {
 }
 
 .scale-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.cleaning-period-row { display: grid; grid-template-columns: minmax(78px, .55fr) minmax(130px, 1fr) minmax(120px, 1fr); gap: 10px; align-items: center; }
 .scale-days { display: grid; gap: 10px; }
 .scale-day { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); overflow: hidden; }
 .scale-day h3 { margin: 0; padding: 9px 12px; background: #E3F5EB; color: #1A6B3C; font-size: .86rem; }
@@ -731,6 +732,11 @@ textarea.form-input {
 
 @media (min-width: 900px) {
   .scale-days { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 560px) {
+  .cleaning-period-row { grid-template-columns: 72px minmax(0, 1fr); gap: 4px 8px; }
+  .cleaning-period-dates { grid-column: 1 / -1; }
 }
 
 @media print {
