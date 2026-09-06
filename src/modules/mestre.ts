@@ -20,6 +20,7 @@ import {
   configReunioesRef,
   configLimpezaRef,
   configDesignacoesRef,
+  rootRef,
 } from '../firebase'
 import { renderMenuCards, type ItemMenu } from '../ui/menu-cards'
 
@@ -28,8 +29,14 @@ import { renderMenuCards, type ItemMenu } from '../ui/menu-cards'
 let pessoas:   RawPessoas  = {}
 let usuarios:  RawUsuarios = {}
 let config:    MasterConfig = {}
+let rootData:  Record<string, unknown> | null = null
+let rootLoading = false
+let rootLoadError = ''
+let restoreCandidate: Record<string, unknown> | null = null
+let restoreFileName = ''
 
-let activeTab: 'indice' | 'pessoas' | 'usuarios' | 'config' = 'indice'
+type AdminTab = 'indice' | 'pessoas' | 'usuarios' | 'config' | 'vinculos' | 'dados'
+let activeTab: AdminTab = 'indice'
 let activeConfigSection: 'congregacao' | 'limpeza' | 'designacoes' = 'congregacao'
 
 let pessoaFilter = { nome: '', role: '', ativo: 'true', sex: '' }
@@ -68,6 +75,29 @@ function toast(msg: string, ms = 2600): void {
   el.textContent = msg
   el.classList.add('show')
   setTimeout(() => el.classList.remove('show'), ms)
+}
+
+function escapeHtml(value: unknown): string {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;')
+}
+
+function records(value: unknown): Record<string, Record<string, unknown>> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter(([, item]) => item && typeof item === 'object' && !Array.isArray(item)),
+  ) as Record<string, Record<string, unknown>>
+}
+
+function objectValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {}
 }
 
 function genId(prefix: string): string {
@@ -167,6 +197,10 @@ export default function mount(_ctx: AppContext): void {
   activeTab = 'indice'
   activeConfigSection = 'congregacao'
   pessoaFilter = { nome: '', role: '', ativo: 'true', sex: '' }
+  rootData = null
+  rootLoadError = ''
+  restoreCandidate = null
+  restoreFileName = ''
 
   const root = document.getElementById('appContent')!
   root.innerHTML = `
@@ -181,7 +215,28 @@ export default function mount(_ctx: AppContext): void {
 
 function switchTab(t: typeof activeTab): void {
   activeTab = t
+  if ((t === 'vinculos' || t === 'dados') && !rootData) {
+    void loadRootData()
+    return
+  }
   renderContent()
+}
+
+async function loadRootData(force = false): Promise<void> {
+  if (rootLoading || (rootData && !force)) return
+  rootLoading = true
+  rootLoadError = ''
+  renderContent()
+  try {
+    const snap = await get(rootRef)
+    rootData = snap.exists() ? objectValue(snap.val()) : {}
+  } catch {
+    rootLoadError = 'Não foi possível carregar os dados completos.'
+    toast('Erro ao carregar dados para auditoria')
+  } finally {
+    rootLoading = false
+    renderContent()
+  }
 }
 
 async function loadAll(): Promise<void> {
@@ -204,7 +259,9 @@ function renderContent(): void {
   if      (activeTab === 'indice')   renderIndex()
   else if (activeTab === 'pessoas')  renderPessoas()
   else if (activeTab === 'usuarios') renderUsuarios()
-  else                               renderConfig()
+  else if (activeTab === 'config')   renderConfig()
+  else if (activeTab === 'vinculos') renderVinculos()
+  else                               renderDados()
 }
 
 function renderIndex(): void {
@@ -215,8 +272,359 @@ function renderIndex(): void {
     { id: 'pessoas', titulo: 'Pessoas', subtitulo: 'Cadastros e dados da congregação', icone: '♙', corFundo: '#003F72' },
     { id: 'usuarios', titulo: 'Usuários', subtitulo: 'Acessos e módulos disponíveis', icone: '⚿', corFundo: '#006EB6' },
     { id: 'config', titulo: 'Configuração', subtitulo: 'Congregação, reuniões e designações', icone: '⚙', corFundo: '#5C6062' },
+    { id: 'vinculos', titulo: 'Vínculos', subtitulo: 'IDs compartilhados entre os módulos', icone: '⌁', corFundo: '#1A6B3C' },
+    { id: 'dados', titulo: 'Dados', subtitulo: 'Backup completo e restauração', icone: '▤', corFundo: '#B3261E' },
   ]
   renderMenuCards(content.querySelector<HTMLElement>('#mestreMenu')!, items, id => switchTab(id as typeof activeTab))
+}
+
+interface LinkIssue {
+  module: string
+  id: string
+  kind: 'sem_vinculo' | 'orfao' | 'duplicado'
+  detail: string
+}
+
+function linkCollections(data: Record<string, unknown>) {
+  const tarefas = objectValue(data['tarefas'])
+  const escala = objectValue(data['escala'])
+  const secretario = objectValue(data['secretario'])
+  const programacao = objectValue(data['programacao'])
+  const discursos = objectValue(tarefas['discursos'])
+
+  return {
+    tarefas: records(tarefas['people']),
+    escala: records(escala['participants']),
+    oradores: records(discursos['oradores']),
+    secretario: records(secretario['pessoas']),
+    programacao: {
+      ...records(programacao['people']),
+      ...records(programacao['pessoas']),
+    },
+  }
+}
+
+function collectDirectLinkIssues(
+  module: string,
+  collection: Record<string, Record<string, unknown>>,
+  required: (item: Record<string, unknown>) => boolean = () => true,
+): LinkIssue[] {
+  const issues: LinkIssue[] = []
+  const byMaster = new Map<string, string[]>()
+
+  Object.entries(collection).forEach(([id, item]) => {
+    if (!required(item)) return
+    const masterId = typeof item['masterId'] === 'string' ? item['masterId'].trim() : ''
+    if (!masterId) {
+      issues.push({ module, id, kind: 'sem_vinculo', detail: 'Sem masterId' })
+      return
+    }
+    if (!pessoas[masterId]) {
+      issues.push({ module, id, kind: 'orfao', detail: `masterId inexistente: ${masterId}` })
+      return
+    }
+    const ids = byMaster.get(masterId) ?? []
+    ids.push(id)
+    byMaster.set(masterId, ids)
+  })
+
+  byMaster.forEach((ids, masterId) => {
+    if (ids.length < 2) return
+    ids.forEach(id => issues.push({
+      module,
+      id,
+      kind: 'duplicado',
+      detail: `${masterId} também está ligado a ${ids.filter(other => other !== id).join(', ')}`,
+    }))
+  })
+  return issues
+}
+
+function collectLinkIssues(data: Record<string, unknown>): LinkIssue[] {
+  const collections = linkCollections(data)
+  const issues = [
+    ...collectDirectLinkIssues('Tarefas', collections.tarefas, item => item['active'] !== false),
+    ...collectDirectLinkIssues('Escala', collections.escala, item => item['active'] !== false),
+    ...collectDirectLinkIssues('Secretário', collections.secretario),
+    ...collectDirectLinkIssues('Programação', collections.programacao),
+  ]
+
+  Object.entries(usuarios).forEach(([uid, user]) => {
+    if (user.secretarioPapel !== 'publicador') return
+    if (!user.masterId) {
+      issues.push({ module: 'Usuários', id: uid, kind: 'sem_vinculo', detail: 'Publicador sem masterId' })
+    } else if (!pessoas[user.masterId]) {
+      issues.push({ module: 'Usuários', id: uid, kind: 'orfao', detail: `masterId inexistente: ${user.masterId}` })
+    }
+  })
+
+  Object.entries(collections.oradores).forEach(([id, orador]) => {
+    if (orador['ativo'] === false || orador['tipo'] === 'visitante') return
+    const directMaster = typeof orador['masterId'] === 'string' ? orador['masterId'] : ''
+    if (directMaster) {
+      if (!pessoas[directMaster]) issues.push({ module: 'Oradores', id, kind: 'orfao', detail: `masterId inexistente: ${directMaster}` })
+      return
+    }
+    const pessoaId = typeof orador['pessoaId'] === 'string' ? orador['pessoaId'] : ''
+    if (!pessoaId) {
+      issues.push({ module: 'Oradores', id, kind: 'sem_vinculo', detail: 'Orador local sem pessoaId' })
+      return
+    }
+    const tarefaPessoa = collections.tarefas[pessoaId]
+    if (!tarefaPessoa) {
+      issues.push({ module: 'Oradores', id, kind: 'orfao', detail: `pessoaId inexistente em Tarefas: ${pessoaId}` })
+      return
+    }
+    const masterId = typeof tarefaPessoa['masterId'] === 'string' ? tarefaPessoa['masterId'] : ''
+    if (!masterId || !pessoas[masterId]) {
+      issues.push({ module: 'Oradores', id, kind: masterId ? 'orfao' : 'sem_vinculo', detail: masterId ? `masterId indireto inexistente: ${masterId}` : `Pessoa ${pessoaId} sem masterId` })
+    }
+  })
+
+  return issues.sort((a, b) => a.module.localeCompare(b.module, 'pt-BR') || a.id.localeCompare(b.id))
+}
+
+function renderVinculos(): void {
+  const mc = document.getElementById('mestreContent')!
+  if (rootLoadError) {
+    mc.innerHTML = `<div style="padding:18px;border:1px solid #E6B8B5;background:#FFF4F3;border-radius:8px;color:#B3261E;font-size:.84rem">${escapeHtml(rootLoadError)}<br><button id="btnRetryRoot" class="btn btn-ghost" type="button" style="margin-top:10px">Tentar novamente</button></div>`
+    document.getElementById('btnRetryRoot')?.addEventListener('click', () => void loadRootData(true))
+    return
+  }
+  if (rootLoading || !rootData) {
+    mc.innerHTML = '<p style="padding:24px;color:var(--ink-3);text-align:center">Verificando vínculos...</p>'
+    return
+  }
+
+  const issues = collectLinkIssues(rootData)
+  const orphanCount = issues.filter(item => item.kind === 'orfao').length
+  const missingCount = issues.filter(item => item.kind === 'sem_vinculo').length
+  const duplicateCount = issues.filter(item => item.kind === 'duplicado').length
+  const labels: Record<LinkIssue['kind'], string> = {
+    sem_vinculo: 'Sem vínculo',
+    orfao: 'ID órfão',
+    duplicado: 'Vínculo duplicado',
+  }
+
+  mc.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:12px">
+      <div style="font-size:.8rem;color:var(--ink-3)">${issues.length ? `${issues.length} item${issues.length === 1 ? '' : 's'} para revisar` : 'Todos os vínculos estão consistentes'}</div>
+      <button id="btnRefreshLinks" class="btn btn-ghost" type="button">Atualizar</button>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px">
+      ${linkMetric('Sem vínculo', missingCount, '#C8922A')}
+      ${linkMetric('IDs órfãos', orphanCount, '#B3261E')}
+      ${linkMetric('Duplicados', duplicateCount, '#7E3AF2')}
+    </div>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      ${issues.length ? issues.map(item => `
+        <div style="border:1px solid var(--border);border-left:4px solid ${item.kind === 'orfao' ? '#B3261E' : item.kind === 'duplicado' ? '#7E3AF2' : '#C8922A'};border-radius:8px;padding:10px 12px">
+          <div style="display:flex;justify-content:space-between;gap:8px;align-items:center">
+            <strong style="font-size:.84rem">${escapeHtml(item.module)}</strong>
+            <span style="font-size:.7rem;font-weight:700;color:var(--ink-3)">${labels[item.kind]}</span>
+          </div>
+          <div style="font-family:monospace;font-size:.72rem;margin-top:4px;overflow-wrap:anywhere">${escapeHtml(item.id)}</div>
+          <div style="font-size:.76rem;color:var(--ink-3);margin-top:3px">${escapeHtml(item.detail)}</div>
+        </div>`).join('') : '<div style="padding:18px;border:1px solid #B7DEC7;background:#F1FAF4;border-radius:8px;color:#1A6B3C;font-size:.84rem">Nenhum vínculo ausente, órfão ou duplicado.</div>'}
+    </div>`
+
+  document.getElementById('btnRefreshLinks')?.addEventListener('click', () => void loadRootData(true))
+}
+
+function linkMetric(label: string, value: number, color: string): string {
+  return `<div style="border:1px solid var(--border);border-radius:8px;padding:10px;background:var(--surface)"><div style="font-size:1.1rem;font-weight:800;color:${color}">${value}</div><div style="font-size:.68rem;color:var(--ink-3);margin-top:3px">${label}</div></div>`
+}
+
+interface BackupSummary {
+  pessoas: number
+  usuarios: number
+  modulos: number
+}
+
+type BackupValidation =
+  | { ok: true; data: Record<string, unknown>; summary: BackupSummary }
+  | { ok: false; error: string }
+
+function hasActiveAdmin(candidate: RawUsuarios): boolean {
+  return Object.values(candidate).some(user => user.ativo && user.apps?.mestre === true)
+}
+
+function validateFirebaseValue(value: unknown, path = 'raiz'): string | null {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return null
+  if (typeof value === 'number') return Number.isFinite(value) ? null : `${path} contém um número inválido.`
+  if (Array.isArray(value)) {
+    for (let index = 0; index < value.length; index += 1) {
+      const error = validateFirebaseValue(value[index], `${path}[${index}]`)
+      if (error) return error
+    }
+    return null
+  }
+  if (!value || typeof value !== 'object') return `${path} contém um valor incompatível.`
+
+  for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+    if (!key || /[.#$\[\]\/]/.test(key)) return `${path} contém a chave inválida "${key}".`
+    const error = validateFirebaseValue(child, `${path}.${key}`)
+    if (error) return error
+  }
+  return null
+}
+
+function validateBackup(value: unknown): BackupValidation {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { ok: false, error: 'O arquivo precisa conter a raiz completa do banco.' }
+  }
+  const data = value as Record<string, unknown>
+  const master = objectValue(data['master'])
+  const backupPessoas = records(master['pessoas'])
+  const backupUsuarios = records(data['usuarios'])
+
+  if (!data['master'] || !master['pessoas']) {
+    return { ok: false, error: 'O arquivo não contém master/pessoas.' }
+  }
+  if (!data['usuarios'] || Object.keys(backupUsuarios).length === 0) {
+    return { ok: false, error: 'O arquivo não contém usuários.' }
+  }
+
+  for (const [uid, rawUser] of Object.entries(backupUsuarios)) {
+    const apps = objectValue(rawUser['apps'])
+    if (typeof rawUser['nome'] !== 'string' || typeof rawUser['senha'] !== 'string' ||
+        typeof rawUser['ativo'] !== 'boolean' || !rawUser['apps'] || Array.isArray(rawUser['apps']) ||
+        typeof apps['mestre'] !== 'boolean') {
+      return { ok: false, error: `O usuário ${uid} não tem a estrutura esperada.` }
+    }
+  }
+
+  if (!hasActiveAdmin(backupUsuarios as unknown as RawUsuarios)) {
+    return { ok: false, error: 'O backup precisa manter ao menos um Admin ativo.' }
+  }
+  const firebaseError = validateFirebaseValue(data)
+  if (firebaseError) return { ok: false, error: firebaseError }
+
+  return {
+    ok: true,
+    data,
+    summary: {
+      pessoas: Object.keys(backupPessoas).length,
+      usuarios: Object.keys(backupUsuarios).length,
+      modulos: Object.keys(data).length,
+    },
+  }
+}
+
+function backupFileName(prefix = 'noroeste-backup'): string {
+  return `${prefix}-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.json`
+}
+
+function downloadBackup(data: Record<string, unknown>, prefix?: string): void {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = backupFileName(prefix)
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
+function renderDados(): void {
+  const mc = document.getElementById('mestreContent')!
+  if (rootLoadError) {
+    mc.innerHTML = `<div style="padding:18px;border:1px solid #E6B8B5;background:#FFF4F3;border-radius:8px;color:#B3261E;font-size:.84rem">${escapeHtml(rootLoadError)}<br><button id="btnRetryRoot" class="btn btn-ghost" type="button" style="margin-top:10px">Tentar novamente</button></div>`
+    document.getElementById('btnRetryRoot')?.addEventListener('click', () => void loadRootData(true))
+    return
+  }
+  if (rootLoading || !rootData) {
+    mc.innerHTML = '<p style="padding:24px;color:var(--ink-3);text-align:center">Carregando dados...</p>'
+    return
+  }
+
+  const validated = restoreCandidate ? validateBackup(restoreCandidate) : null
+  mc.innerHTML = `
+    <section style="padding-bottom:18px;border-bottom:1px solid var(--border);margin-bottom:18px">
+      <h3 style="font-size:.95rem;margin:0 0 6px;color:var(--blue-deep)">Backup completo</h3>
+      <p style="font-size:.8rem;color:var(--ink-3);margin:0 0 12px">Baixa uma cópia de todos os módulos e configurações.</p>
+      <button id="btnDownloadBackup" class="btn btn-primary" type="button">Baixar backup</button>
+    </section>
+    <section>
+      <h3 style="font-size:.95rem;margin:0 0 6px;color:var(--blue-deep)">Restaurar backup</h3>
+      <p style="font-size:.8rem;color:var(--ink-3);margin:0 0 12px">A restauração substitui todos os dados atuais. Um backup de segurança será baixado antes da troca.</p>
+      <label class="form-label" for="restoreFile">Arquivo JSON</label>
+      <input id="restoreFile" class="form-input" type="file" accept="application/json,.json">
+      ${validated?.ok ? `
+        <div style="margin-top:10px;padding:10px 12px;border:1px solid #B7DEC7;background:#F1FAF4;border-radius:8px;font-size:.78rem;color:#1A6B3C">
+          <strong>${escapeHtml(restoreFileName)}</strong><br>
+          ${validated.summary.pessoas} pessoas, ${validated.summary.usuarios} usuários e ${validated.summary.modulos} áreas na raiz.
+        </div>
+        <div class="form-group" style="margin-top:12px">
+          <label class="form-label" for="restorePhrase">Digite RESTAURAR para confirmar</label>
+          <input id="restorePhrase" class="form-input" autocomplete="off" placeholder="RESTAURAR">
+        </div>
+        <button id="btnRestoreBackup" class="btn btn-danger" type="button" disabled>Restaurar todos os dados</button>` : ''}
+    </section>`
+
+  document.getElementById('btnDownloadBackup')?.addEventListener('click', () => downloadBackup(rootData!))
+  document.getElementById('restoreFile')?.addEventListener('change', event => {
+    const file = (event.currentTarget as HTMLInputElement).files?.[0]
+    if (file) void readRestoreFile(file)
+  })
+  const phrase = document.getElementById('restorePhrase') as HTMLInputElement | null
+  const restoreButton = document.getElementById('btnRestoreBackup') as HTMLButtonElement | null
+  phrase?.addEventListener('input', () => { if (restoreButton) restoreButton.disabled = phrase.value !== 'RESTAURAR' })
+  restoreButton?.addEventListener('click', () => void restoreBackup())
+}
+
+async function readRestoreFile(file: File): Promise<void> {
+  if (file.size > 20 * 1024 * 1024) {
+    restoreCandidate = null
+    restoreFileName = ''
+    toast('O arquivo ultrapassa o limite de 20 MB')
+    renderDados()
+    return
+  }
+  try {
+    const parsed = JSON.parse(await file.text()) as unknown
+    const validation = validateBackup(parsed)
+    if (!validation.ok) {
+      restoreCandidate = null
+      restoreFileName = ''
+      toast(validation.error, 5000)
+      renderDados()
+      return
+    }
+    restoreCandidate = validation.data
+    restoreFileName = file.name
+    renderDados()
+  } catch {
+    restoreCandidate = null
+    restoreFileName = ''
+    toast('Não foi possível ler este arquivo JSON')
+    renderDados()
+  }
+}
+
+async function restoreBackup(): Promise<void> {
+  if (!restoreCandidate || !rootData) return
+  const phrase = document.getElementById('restorePhrase') as HTMLInputElement | null
+  if (phrase?.value !== 'RESTAURAR') return
+  if (!confirm('Restaurar este backup e substituir todos os dados atuais?')) return
+
+  const button = document.getElementById('btnRestoreBackup') as HTMLButtonElement | null
+  if (button) { button.disabled = true; button.textContent = 'Restaurando...' }
+  try {
+    downloadBackup(rootData, 'noroeste-antes-da-restauracao')
+    await set(rootRef, restoreCandidate)
+    restoreCandidate = null
+    restoreFileName = ''
+    rootData = null
+    await loadAll()
+    activeTab = 'dados'
+    await loadRootData(true)
+    toast('Backup restaurado com sucesso')
+  } catch {
+    toast('A restauração falhou; os dados atuais foram preservados', 5000)
+    if (button) { button.disabled = false; button.textContent = 'Restaurar todos os dados' }
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -238,7 +646,7 @@ function renderPessoas(): void {
   mc.innerHTML = `
     <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
       <input id="pFiltroNome" class="form-input" placeholder="Buscar nome…"
-        value="${pessoaFilter.nome}" style="flex:2;min-width:120px">
+        value="${escapeHtml(pessoaFilter.nome)}" style="flex:2;min-width:120px">
       <select id="pFiltroRole" class="form-select" style="flex:2;min-width:120px">
         <option value="">Todas funções</option>
         <option value="anciao">Ancião</option>
@@ -314,11 +722,11 @@ function pessoaCard(mid: string, p: MasterPessoa): string {
       <div style="width:34px;height:34px;border-radius:50%;background:var(--blue-light);
         display:flex;align-items:center;justify-content:center;font-size:.8rem;font-weight:700;
         color:var(--blue-deep);flex-shrink:0">
-        ${p.name.charAt(0).toUpperCase()}
+        ${escapeHtml(p.name.charAt(0).toUpperCase())}
       </div>
       <div style="flex:1;min-width:0">
         <div style="font-weight:600;font-size:.9rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
-          ${p.name}
+          ${escapeHtml(p.name)}
         </div>
         <div style="font-size:.75rem;color:var(--ink-3);display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:1px">
           <span>${roleLabel(p.role)}</span>
@@ -327,9 +735,9 @@ function pessoaCard(mid: string, p: MasterPessoa): string {
           ${p.limpeza?.grupo ? `<span>G${p.limpeza.grupo}</span>` : ''}
         </div>
       </div>
-      <button class="btn btn-ghost" data-edit-pessoa="${mid}"
+      <button class="btn btn-ghost" data-edit-pessoa="${escapeHtml(mid)}"
         style="padding:4px 10px;font-size:.78rem;flex-shrink:0">Editar</button>
-      <button class="btn btn-danger" data-del-pessoa="${mid}"
+      <button class="btn btn-danger" data-del-pessoa="${escapeHtml(mid)}"
         style="padding:4px 8px;font-size:.82rem;flex-shrink:0">✕</button>
     </div>`
 }
@@ -344,13 +752,13 @@ function openPessoaModal(mid: string | null): void {
       <h2>${mid ? 'Editar Pessoa' : 'Nova Pessoa'}</h2>
       <div class="form-group">
         <label class="form-label">Nome *</label>
-        <input id="pNome" class="form-input" value="${p?.name ?? ''}" placeholder="Nome">
+        <input id="pNome" class="form-input" value="${escapeHtml(p?.name)}" placeholder="Nome">
       </div>
       <div class="form-group">
         <label class="form-label">WhatsApp
           <span style="color:var(--ink-3);font-weight:400;text-transform:none"> — 55 + DDD + número</span>
         </label>
-        <input id="pWpp" class="form-input" value="${p?.whatsapp ?? ''}"
+        <input id="pWpp" class="form-input" value="${escapeHtml(p?.whatsapp)}"
           placeholder="5579999999999" inputmode="numeric">
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
@@ -422,8 +830,10 @@ async function savePessoa(mid: string | null, overlay: HTMLElement): Promise<voi
 
   setLoading('btnSalvarPessoa', true)
   try {
-    await set(pessoaRef(finalMid), pessoa)
-    pessoas[finalMid] = pessoa
+    if (existing) await update(pessoaRef(finalMid), pessoa)
+    else await set(pessoaRef(finalMid), pessoa)
+    pessoas[finalMid] = existing ? { ...existing, ...pessoa } : pessoa
+    rootData = null
     overlay.remove()
     toast(mid ? 'Pessoa atualizada ✓' : 'Pessoa adicionada ✓')
     renderPessoas()
@@ -436,16 +846,61 @@ async function savePessoa(mid: string | null, overlay: HTMLElement): Promise<voi
 async function deletePessoa(mid: string): Promise<void> {
   const p = pessoas[mid]
   if (!p) return
+  try {
+    const snap = await get(rootRef)
+    const freshRoot = snap.exists() ? objectValue(snap.val()) : {}
+    const references = findMasterReferences(freshRoot, mid)
+    if (references.length) {
+      rootData = freshRoot
+      activeTab = 'vinculos'
+      renderContent()
+      toast(`Não é possível remover: ${references.join(', ')}`, 5000)
+      return
+    }
+  } catch {
+    toast('Não foi possível verificar os vínculos. A pessoa não foi removida.', 5000)
+    return
+  }
   if (!confirm(`Remover "${p.name}" permanentemente? Esta ação não pode ser desfeita.`)) return
   try {
     await remove(pessoaRef(mid))
     // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
     delete pessoas[mid]
+    rootData = null
     toast('Pessoa removida')
     renderPessoas()
   } catch {
     toast('Erro ao remover')
   }
+}
+
+function findMasterReferences(data: Record<string, unknown>, mid: string): string[] {
+  const collections = linkCollections(data)
+  const found = new Set<string>()
+  const labels: Record<string, string> = {
+    tarefas: 'Tarefas', escala: 'Escala', oradores: 'Oradores',
+    secretario: 'Secretário', programacao: 'Programação',
+  }
+  Object.entries(collections).forEach(([module, collection]) => {
+    Object.values(collection).forEach(item => {
+      if (item['masterId'] === mid) found.add(labels[module] ?? module)
+      if (module === 'oradores') {
+        const pessoaId = typeof item['pessoaId'] === 'string' ? item['pessoaId'] : ''
+        if (pessoaId && collections.tarefas[pessoaId]?.['masterId'] === mid) found.add('Oradores')
+      }
+    })
+  })
+  Object.values(records(data['usuarios'])).forEach(user => {
+    if (user['masterId'] === mid) found.add('Usuários')
+  })
+  const limpeza = objectValue(objectValue(objectValue(data['master'])['config'])['limpeza'])
+  if (limpeza['coordenadorMid'] === mid) found.add('Configuração de limpeza')
+  Object.values(records(limpeza['gruposConfig'])).forEach(group => {
+    if (group['superintendenteMid'] === mid || (Array.isArray(group['ajudantesMid']) && group['ajudantesMid'].includes(mid))) {
+      found.add('Grupos de limpeza')
+    }
+  })
+  return [...found]
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -488,14 +943,14 @@ function usuarioCard(uid: string, u: Usuario): string {
       padding:10px 12px;margin-bottom:6px;display:flex;align-items:center;gap:8px">
       <div style="flex:1;min-width:0">
         <div style="font-weight:600;font-size:.9rem;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-          ${u.nome} ${badge}
+          ${escapeHtml(u.nome)} ${badge}
         </div>
-        <div style="font-size:.75rem;color:var(--ink-3);margin-top:2px">Apps: ${appsList(u.apps)}</div>
-        <div style="font-size:.7rem;color:var(--ink-3);margin-top:1px;font-family:monospace">${uid}</div>
+        <div style="font-size:.75rem;color:var(--ink-3);margin-top:2px">Apps: ${escapeHtml(appsList(u.apps))}</div>
+        <div style="font-size:.7rem;color:var(--ink-3);margin-top:1px;font-family:monospace">${escapeHtml(uid)}</div>
       </div>
-      <button class="btn btn-ghost" data-edit-usuario="${uid}"
+      <button class="btn btn-ghost" data-edit-usuario="${escapeHtml(uid)}"
         style="padding:4px 10px;font-size:.78rem;flex-shrink:0">Editar</button>
-      <button class="btn btn-danger" data-del-usuario="${uid}"
+      <button class="btn btn-danger" data-del-usuario="${escapeHtml(uid)}"
         style="padding:4px 8px;font-size:.82rem;flex-shrink:0">✕</button>
     </div>`
 }
@@ -514,12 +969,12 @@ function openUsuarioModal(uid: string | null): void {
       <h2>${uid ? 'Editar Usuário' : 'Novo Usuário'}</h2>
       <div class="form-group">
         <label class="form-label">Nome *</label>
-        <input id="uNome" class="form-input" value="${u?.nome ?? ''}" placeholder="Nome de login">
+        <input id="uNome" class="form-input" value="${escapeHtml(u?.nome)}" placeholder="Nome de login">
       </div>
       <div class="form-group">
         <label class="form-label">Senha *</label>
         <input id="uSenha" class="form-input" type="password"
-          value="${u?.senha ?? ''}" placeholder="Senha" autocomplete="new-password">
+          value="${escapeHtml(u?.senha)}" placeholder="Senha" autocomplete="new-password">
       </div>
       <div class="form-group">
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
@@ -578,11 +1033,17 @@ async function saveUsuario(uid: string | null, overlay: HTMLElement): Promise<vo
     },
   }
   const finalUid = uid ?? genId('u_')
+  const proposedUsuarios: RawUsuarios = { ...usuarios, [finalUid]: usuario }
+  if (!hasActiveAdmin(proposedUsuarios)) {
+    toast('Mantenha ao menos um usuário Admin ativo', 4000)
+    return
+  }
   setLoading('btnSalvarUsuario', true)
 
   try {
     await set(usuarioRef(finalUid), usuario)
     usuarios[finalUid] = usuario
+    rootData = null
     overlay.remove()
     toast(uid ? 'Usuário atualizado ✓' : 'Usuário adicionado ✓')
     renderUsuarios()
@@ -595,11 +1056,17 @@ async function saveUsuario(uid: string | null, overlay: HTMLElement): Promise<vo
 async function deleteUsuario(uid: string): Promise<void> {
   const u = usuarios[uid]
   if (!u) return
+  const remainingUsuarios = Object.fromEntries(Object.entries(usuarios).filter(([id]) => id !== uid)) as RawUsuarios
+  if (!hasActiveAdmin(remainingUsuarios)) {
+    toast('Não é possível remover o último Admin ativo', 4000)
+    return
+  }
   if (!confirm(`Remover usuário "${u.nome}" permanentemente?`)) return
   try {
     await remove(usuarioRef(uid))
     // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
     delete usuarios[uid]
+    rootData = null
     toast('Usuário removido')
     renderUsuarios()
   } catch {
@@ -663,7 +1130,7 @@ function renderConfigCongregacao(): void {
         </div>
         <div class="form-group" style="margin:0">
           <label class="form-label">Horário</label>
-          <input id="${id}Hora" class="form-input" type="time" value="${hora ?? ''}">
+          <input id="${id}Hora" class="form-input" type="time" value="${escapeHtml(hora)}">
         </div>
       </div>
     </div>`
@@ -671,16 +1138,16 @@ function renderConfigCongregacao(): void {
   el.innerHTML = `
     <div class="form-group">
       <label class="form-label">Nome da congregação</label>
-      <input id="cNome" class="form-input" value="${c.nome}" placeholder="Congregação Noroeste">
+      <input id="cNome" class="form-input" value="${escapeHtml(c.nome)}" placeholder="Congregação Noroeste">
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
       <div class="form-group">
         <label class="form-label">Cidade</label>
-        <input id="cCidade" class="form-input" value="${c.cidade}" placeholder="Aracaju">
+        <input id="cCidade" class="form-input" value="${escapeHtml(c.cidade)}" placeholder="Aracaju">
       </div>
       <div class="form-group">
         <label class="form-label">Circuito</label>
-        <input id="cCircuito" class="form-input" value="${c.circuito}" placeholder="SE-01">
+        <input id="cCircuito" class="form-input" value="${escapeHtml(c.circuito)}" placeholder="SE-01">
       </div>
     </div>
 
@@ -747,7 +1214,7 @@ function renderConfigLimpeza(): void {
     .sort((a, b) => a[1].name.localeCompare(b[1].name, 'pt-BR'))
 
   const coordOpts = ancioes
-    .map(([mid, p]) => `<option value="${mid}" ${coordenadorMid === mid ? 'selected' : ''}>${p.name}</option>`)
+    .map(([mid, p]) => `<option value="${escapeHtml(mid)}" ${coordenadorMid === mid ? 'selected' : ''}>${escapeHtml(p.name)}</option>`)
     .join('')
 
   const grupoCards = Array.from({ length: grupos }, (_, i) => {
@@ -759,13 +1226,13 @@ function renderConfigLimpeza(): void {
     const aprovadoGrupo = gc.aprovadoEm ?? ''
 
     const superOpts = ancioes
-      .map(([mid, p]) => `<option value="${mid}" ${superMid === mid ? 'selected' : ''}>${p.name}</option>`)
+      .map(([mid, p]) => `<option value="${escapeHtml(mid)}" ${superMid === mid ? 'selected' : ''}>${escapeHtml(p.name)}</option>`)
       .join('')
 
     const ajudantesCheck = ativos.map(([mid, p]) => `
       <label style="display:flex;align-items:center;gap:5px;cursor:pointer;padding:2px 0;font-size:.8rem">
-        <input type="checkbox" class="gAjud_${gid}" value="${mid}" ${ajudantes.includes(mid) ? 'checked' : ''}>
-        <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.name.split(' ')[0]}</span>
+        <input type="checkbox" class="gAjud_${gid}" value="${escapeHtml(mid)}" ${ajudantes.includes(mid) ? 'checked' : ''}>
+        <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(p.name.split(' ')[0])}</span>
       </label>`).join('')
 
     return `
@@ -797,7 +1264,7 @@ function renderConfigLimpeza(): void {
             </span>
           </div>
           <textarea id="gTexto_${gid}" class="form-input" rows="3"
-            maxlength="250" style="resize:vertical">${textoGrupo}</textarea>
+            maxlength="250" style="resize:vertical">${escapeHtml(textoGrupo)}</textarea>
           <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px">
             <span style="font-size:.74rem;color:var(--ink-3)">
               Aprovado: <strong>${aprovadoGrupo ? formatDate(aprovadoGrupo) : 'Não aprovado'}</strong>
@@ -826,7 +1293,7 @@ function renderConfigLimpeza(): void {
       </div>
       <div class="form-group">
         <label class="form-label">Início da rotação</label>
-        <input id="lInicio" class="form-input" type="date" value="${inicioRotacao}">
+        <input id="lInicio" class="form-input" type="date" value="${escapeHtml(inicioRotacao)}">
       </div>
     </div>
     <div class="form-group">
@@ -844,7 +1311,7 @@ function renderConfigLimpeza(): void {
         </span>
       </div>
       <textarea id="lTextoPadrao" class="form-input" rows="3"
-        maxlength="250" style="resize:vertical">${textoPadrao}</textarea>
+        maxlength="250" style="resize:vertical">${escapeHtml(textoPadrao)}</textarea>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px">
         <span style="font-size:.74rem;color:var(--ink-3)">
           Aprovado: <strong>${tpAprovado ? formatDate(tpAprovado) : 'Não aprovado'}</strong>
@@ -1007,7 +1474,7 @@ function renderConfigDesignacoes(): void {
           </span>
         </div>
         <textarea id="dTexto_${tipo}" class="form-input" rows="2"
-          maxlength="250" style="resize:none;font-size:.82rem">${d.textoIcs}</textarea>
+          maxlength="250" style="resize:none;font-size:.82rem">${escapeHtml(d.textoIcs)}</textarea>
         <div style="display:flex;justify-content:space-between;align-items:center;margin-top:5px">
           <span style="font-size:.72rem;color:var(--ink-3)">
             Aprovado: <strong>${d.aprovadoEm ? formatDate(d.aprovadoEm) : '—'}</strong>
