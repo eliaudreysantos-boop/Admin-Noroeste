@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "test:tarefas": "node --test tests/tarefas-domain.test.mjs"
+    "test:tarefas": "node --test tests/tarefas-domain.test.mjs",
+    "test:escala": "node --test tests/escala-domain.test.mjs"
   },
   "dependencies": {
     "firebase": "^10.14.1"
