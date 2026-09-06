@@ -708,6 +708,17 @@ textarea.form-input {
 
 .scale-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
 .cleaning-period-row { display: grid; grid-template-columns: minmax(78px, .55fr) minmax(130px, 1fr) minmax(120px, 1fr); gap: 10px; align-items: center; }
+.secretary-row { display: flex; justify-content: space-between; gap: 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.secretary-row > div:first-child { min-width: 0; }
+.secretary-row strong, .secretary-row small { display: block; overflow-wrap: anywhere; }
+.secretary-row small { margin-top: 3px; color: var(--ink-3); font-size: .75rem; }
+.secretary-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.secretary-row .secretary-actions { flex-wrap: nowrap; flex: 0 0 auto; margin-top: 0; }
+.secretary-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-bottom: 14px; }
+.secretary-metric { padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.secretary-metric strong, .secretary-metric span { display: block; }
+.secretary-metric strong { color: var(--blue-deep); font-size: 1.15rem; }
+.secretary-metric span { margin-top: 3px; color: var(--ink-3); font-size: .72rem; font-weight: 700; text-transform: uppercase; }
 .scale-days { display: grid; gap: 10px; }
 .scale-day { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); overflow: hidden; }
 .scale-day h3 { margin: 0; padding: 9px 12px; background: #E3F5EB; color: #1A6B3C; font-size: .86rem; }
@@ -732,11 +743,14 @@ textarea.form-input {
 
 @media (min-width: 900px) {
   .scale-days { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .secretary-metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
 
 @media (max-width: 560px) {
   .cleaning-period-row { grid-template-columns: 72px minmax(0, 1fr); gap: 4px 8px; }
   .cleaning-period-dates { grid-column: 1 / -1; }
+  .secretary-row { align-items: flex-start; }
+  .secretary-row .secretary-actions { flex-direction: column; }
 }
 
 @media print {

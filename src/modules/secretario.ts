@@ -1,187 +1,136 @@
-import type { AppContext, RawUsuarios, Usuario } from '../types'
-import { get, secretarioRef, update, usuariosRef } from '../firebase'
+import type { AppContext, ConfigCongregacao, RawPessoas } from '../types'
+import { configCongregacaoRef, get, pessoasRef, secretarioRef, update } from '../firebase'
 import { renderMenuCards, type ItemMenu } from '../ui/menu-cards'
+import { moduleBackButton } from '../ui/module-header'
+import { CATEGORY_LABELS, archiveCanBeDeleted, isReportLate, records, serviceYearStart, summarizeCongregation, type PublisherCategory, type SecretaryAttendance, type SecretaryGroup, type SecretaryPublisher, type SecretaryReport } from './secretario-domain'
 
-type SecretarioTab = 'indice' | 'resumo' | 'publicadores' | 'relatorios' | 'assistencia' | 'arquivos'
+type Tab = 'indice' | 'publicadores' | 'grupos' | 'relatorios' | 'conferencia' | 'assistencia' | 'documentos' | 'arquivos'
+interface ArchiveRecord { id: string; nome: string; tipo: string; referencia: string; criadoEm: string }
+let activeTab: Tab = 'indice'
+let root: Record<string, unknown> = {}
+let people: RawPessoas = {}
+let congregation: ConfigCongregacao = { nome: 'Noroeste', cidade: '', circuito: '', idioma: 'pt-BR' }
+let editingPublisher = '', editingGroup = '', editingReport = '', editingAttendance = ''
+let reportMonth = new Date().toISOString().slice(0, 7)
 
-let secretario: Record<string, unknown> = {}
-let usuarios: RawUsuarios = {}
-let activeTab: SecretarioTab = 'resumo'
-
-function escapeHtml(value: unknown): string {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;')
+const esc = (value: unknown): string => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;')
+const today = (): string => new Date().toISOString().slice(0, 10)
+const newId = (prefix: string): string => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+function typedRecords<T>(value: unknown, accepts: (item: Record<string, unknown>) => boolean): Record<string, T> {
+  return Object.fromEntries(Object.entries(records<Record<string, unknown>>(value)).filter(([, item]) => accepts(item))) as Record<string, T>
 }
+const publishers = (): Record<string, SecretaryPublisher> => typedRecords(root['publicadores'], item => typeof item['masterId'] === 'string' && typeof item['categoria'] === 'string')
+const groups = (): Record<string, SecretaryGroup> => typedRecords(root['grupos'], item => typeof item['nome'] === 'string')
+const reports = (): Record<string, SecretaryReport> => typedRecords(root['relatorios'], item => typeof item['masterId'] === 'string' && /^\d{4}-\d{2}$/.test(String(item['competencia'] ?? '')))
+const attendance = (): Record<string, SecretaryAttendance> => typedRecords(root['assistencia'] ?? root['presenca'], item => typeof item['data'] === 'string' && ['meio_semana', 'fim_semana'].includes(String(item['tipo'])))
+const archives = (): Record<string, ArchiveRecord> => typedRecords(root['arquivos'] ?? root['arquivoCongregacao'], item => typeof item['nome'] === 'string' && typeof item['criadoEm'] === 'string')
+const personName = (masterId: string): string => people[masterId]?.name ?? 'Cadastro não encontrado'
 
-function records(value: unknown): Record<string, unknown> {
-  return value && typeof value === 'object' ? value as Record<string, unknown> : {}
+function toast(message: string): void { const element = document.getElementById('toast'); if (!element) return; element.textContent = message; element.classList.add('show'); setTimeout(() => element.classList.remove('show'), 2600) }
+function sectionTitle(title: string): string { return `<div style="margin-bottom:14px">${moduleBackButton()}<h2 style="font-size:1.05rem;color:#5C6062;margin:0">${esc(title)}</h2></div>` }
+function syncLocal(path: string, value: unknown): void { const [collection, key] = path.split('/'); root[collection!] = { ...records(root[collection!]), [key!]: value } }
+async function save(path: string, value: unknown, message: string): Promise<void> { await update(secretarioRef, { [path]: value }); syncLocal(path, value); toast(message) }
+function personOptions(selected = '', onlyUnlinked = false): string {
+  const linked = new Set(Object.values(publishers()).filter(item => item.id !== editingPublisher).map(item => item.masterId))
+  return Object.entries(people).filter(([, person]) => person.active).filter(([masterId]) => !onlyUnlinked || !linked.has(masterId) || masterId === selected).sort((a, b) => a[1].name.localeCompare(b[1].name, 'pt-BR')).map(([masterId, person]) => `<option value="${masterId}" ${masterId === selected ? 'selected' : ''}>${esc(person.name)}</option>`).join('')
 }
+function categoryOptions(selected: PublisherCategory): string { return Object.entries(CATEGORY_LABELS).map(([value, label]) => `<option value="${value}" ${value === selected ? 'selected' : ''}>${label}</option>`).join('') }
+function groupOptions(selected = ''): string { return `<option value="">Sem grupo</option>${Object.values(groups()).filter(group => group.ativo).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')).map(group => `<option value="${group.id}" ${group.id === selected ? 'selected' : ''}>${esc(group.nome)}</option>`).join('')}` }
+function publisherOptions(selected = ''): string { return Object.values(publishers()).filter(item => item.ativo).sort((a, b) => personName(a.masterId).localeCompare(personName(b.masterId), 'pt-BR')).map(item => `<option value="${item.id}" ${item.id === selected ? 'selected' : ''}>${esc(personName(item.masterId))}</option>`).join('') }
 
-function count(value: unknown): number {
-  return Object.keys(records(value)).length
+export default function mount(_context: AppContext): void {
+  activeTab = 'indice'; const element = document.getElementById('appContent'); if (!element) return
+  element.innerHTML = '<div id="secretarioRoot"><p style="padding:24px;color:var(--ink-3);text-align:center">Carregando...</p></div>'; void load()
 }
-
-function currentMonth(): string {
-  return new Date().toISOString().slice(0, 7)
-}
-
-function publicadores(): Array<[string, Usuario]> {
-  return Object.entries(usuarios).filter(([, user]) => user.secretarioPapel === 'publicador')
-}
-
-function hasMonthlyReport(uid: string, masterId?: string): boolean {
-  const reports = records(secretario.relatorios)
-  const month = currentMonth()
-  const byUser = records(reports[uid])
-  const byMaster = masterId ? records(reports[masterId]) : {}
-  const monthRecord = records(reports[month])
-  return Boolean(byUser[month] || byMaster[month] || monthRecord.congregacao)
-}
-
-function toast(message: string): void {
-  const el = document.getElementById('toast')
-  if (!el) return
-  el.textContent = message
-  el.classList.add('show')
-  setTimeout(() => el.classList.remove('show'), 2600)
-}
-
-export default function mount(_ctx: AppContext): void {
-  const el = document.getElementById('appContent')
-  if (!el) return
-  el.innerHTML = '<div id="secretarioRoot"><p style="padding:24px;color:var(--ink-3);text-align:center">Carregando...</p></div>'
-  void load()
-}
-
 async function load(): Promise<void> {
-  try {
-    const [secretarioSnap, usuariosSnap] = await Promise.all([get(secretarioRef), get(usuariosRef)])
-    secretario = secretarioSnap.exists() ? records(secretarioSnap.val()) : {}
-    usuarios = usuariosSnap.exists() ? usuariosSnap.val() as RawUsuarios : {}
-  } catch {
-    toast('Erro ao carregar Secretário')
-  }
+  try { const [secretarySnapshot, peopleSnapshot, congregationSnapshot] = await Promise.all([get(secretarioRef), get(pessoasRef), get(configCongregacaoRef)]); root = secretarySnapshot.exists() ? records(secretarySnapshot.val()) : {}; people = peopleSnapshot.exists() ? peopleSnapshot.val() as RawPessoas : {}; if (congregationSnapshot.exists()) congregation = { ...congregation, ...congregationSnapshot.val() as ConfigCongregacao } } catch { toast('Erro ao carregar Secretário') }
   render()
 }
-
 function render(): void {
-  const el = document.getElementById('secretarioRoot')
-  if (!el) return
-
-  const pubs = publicadores()
-  const reports = records(secretario.relatorios)
-  const assistance = secretario.assistencia ?? secretario.presenca
-  const files = secretario.arquivoCongregacao ?? secretario.arquivos
-  const linked = pubs.filter(([, user]) => Boolean(user.masterId)).length
-  const sent = pubs.filter(([uid, user]) => hasMonthlyReport(uid, user.masterId)).length
-
-  el.innerHTML = `
-    <div style="margin-bottom:14px"><h2 style="font-size:1.05rem;color:#5C6062;margin-bottom:2px">Secretário</h2></div>
-    ${activeTab === 'indice' || activeTab === 'resumo' ? summary(pubs.length, linked, sent, count(assistance), count(files)) : ''}
-    ${activeTab === 'publicadores' ? publishers(pubs) : ''}
-    ${activeTab === 'relatorios' ? reportsView(reports) : ''}
-    ${activeTab === 'assistencia' ? assistanceView(assistance) : ''}
-    ${activeTab === 'arquivos' ? filesView(files) : ''}`
-
-  el.querySelectorAll<HTMLButtonElement>('[data-secretario-tab]').forEach(button => {
-    button.addEventListener('click', () => {
-      activeTab = button.dataset.secretarioTab as SecretarioTab
-      render()
-    })
-  })
-
-  el.querySelector<HTMLFormElement>('[data-secretario-form]')?.addEventListener('submit', event => {
-    event.preventDefault()
-    void saveSecretaryRecord(event.currentTarget as HTMLFormElement)
-  })
-
-  if (activeTab === 'indice') {
-    const menu = document.createElement('div')
-    menu.className = 'module-option-list'
-    const items: ItemMenu[] = [
-      { id: 'publicadores', titulo: 'Publicadores', subtitulo: 'Vínculos e pendências do mês', icone: '♙', corFundo: '#5C6062' },
-      { id: 'relatorios', titulo: 'Relatórios', subtitulo: 'Fechamento mensal da congregação', icone: '▦', corFundo: '#003F72' },
-      { id: 'assistencia', titulo: 'Assistência', subtitulo: 'Registros por reunião e grupo', icone: '◫', corFundo: '#006EB6' },
-      { id: 'arquivos', titulo: 'Arquivo', subtitulo: 'Documentos e históricos', icone: '▤', corFundo: '#7E3AF2' },
-    ]
-    menu.innerHTML = ''
-    renderMenuCards(menu, items, id => { activeTab = id as SecretarioTab; render() })
-    el.appendChild(menu)
-  }
+  const element = document.getElementById('secretarioRoot'); if (!element) return
+  if (activeTab === 'indice') renderIndex(element); else if (activeTab === 'publicadores') renderPublishers(element); else if (activeTab === 'grupos') renderGroups(element); else if (activeTab === 'relatorios') renderReports(element); else if (activeTab === 'conferencia') renderConference(element); else if (activeTab === 'assistencia') renderAttendance(element); else if (activeTab === 'documentos') renderDocuments(element); else renderArchives(element)
 }
-
-function metric(label: string, value: string, color: string): string {
-  return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 12px"><div style="font-size:1.15rem;font-weight:800;color:${color};line-height:1"><span data-kpi-value="${escapeHtml(value)}">0</span></div><div style="font-size:.72rem;color:var(--ink-3);margin-top:4px;text-transform:uppercase;font-weight:700">${label}</div></div>`
+function renderIndex(element: HTMLElement): void {
+  element.innerHTML = '<div style="margin-bottom:14px"><h2 style="font-size:1.05rem;color:#5C6062;margin:0">Secretário</h2></div><div id="secretarioMenu"></div>'
+  const items: ItemMenu[] = [
+    { id: 'publicadores', titulo: 'Publicadores', subtitulo: 'Vínculos ao cadastro do Admin e categorias', icone: '♙', corFundo: '#5C6062' },
+    { id: 'grupos', titulo: 'Grupos', subtitulo: 'Organização congregacional dos publicadores', icone: '◫', corFundo: '#1A6B3C' },
+    { id: 'relatorios', titulo: 'Relatórios', subtitulo: 'Entrega mensal e registros atrasados', icone: '▦', corFundo: '#003F72' },
+    { id: 'conferencia', titulo: 'Relatório JW.org', subtitulo: 'Totais prontos para conferência e envio', icone: '✓', corFundo: '#B83E18' },
+    { id: 'assistencia', titulo: 'Assistência', subtitulo: 'Presença por data e tipo de reunião', icone: '≡', corFundo: '#006EB6' },
+    { id: 'documentos', titulo: 'Documentos', subtitulo: 'Preenchimento de S-21, S-1, S-88 e S-3', icone: '▤', corFundo: '#7E3AF2' },
+    { id: 'arquivos', titulo: 'Arquivo', subtitulo: 'Histórico e arquivo da congregação', icone: '□', corFundo: '#8A5A00' },
+  ]
+  renderMenuCards(element.querySelector<HTMLElement>('#secretarioMenu')!, items, selected => { activeTab = selected as Tab; render() })
 }
-
-function summary(total: number, linked: number, sent: number, assistance: number, files: number): string {
-  return `<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
-    ${metric('Publicadores', String(total), '#5C6062')}
-    ${metric('Vinculados', `${linked}/${total}`, '#003F72')}
-    ${metric('Relatório do mês', `${sent}/${total}`, sent === total ? '#1A6B3C' : '#B3261E')}
-    ${metric('Assistência', String(assistance), '#006EB6')}
-    ${metric('Arquivos', String(files), '#7E3AF2')}
-  </div>`
+function renderPublishers(element: HTMLElement): void {
+  const current = publishers()[editingPublisher]
+  const rows = Object.values(publishers()).sort((a, b) => Number(b.ativo) - Number(a.ativo) || personName(a.masterId).localeCompare(personName(b.masterId), 'pt-BR')).map(item => `<div class="secretary-row"><div><strong>${esc(personName(item.masterId))}</strong><small>${esc(CATEGORY_LABELS[item.categoria])} · ${esc(groups()[item.grupoId]?.nome || 'Sem grupo')} · ${item.ativo ? 'Ativo' : 'Inativo'}</small></div><button class="btn btn-ghost" data-edit-publisher="${item.id}">Editar</button></div>`).join('')
+  element.innerHTML = `${sectionTitle('Publicadores')}<form id="publisherForm" class="form-panel"><input type="hidden" name="recordId" value="${esc(current?.id)}"><div class="module-form-grid"><label class="form-field"><span>Pessoa do Admin</span><select name="masterId" required><option value="">Selecionar...</option>${personOptions(current?.masterId, true)}</select></label><label class="form-field"><span>Categoria</span><select name="categoria">${categoryOptions(current?.categoria ?? 'publicador')}</select></label><label class="form-field"><span>Grupo</span><select name="grupoId">${groupOptions(current?.grupoId)}</select></label><label class="form-field"><span>Situação</span><select name="ativo"><option value="true" ${current?.ativo !== false ? 'selected' : ''}>Ativo</option><option value="false" ${current?.ativo === false ? 'selected' : ''}>Inativo</option></select></label></div><div class="secretary-actions"><button class="btn btn-primary" type="submit">${current ? 'Salvar alterações' : 'Vincular pessoa'}</button>${current ? '<button class="btn btn-ghost" id="cancelPublisher" type="button">Cancelar</button>' : ''}</div></form><div class="module-option-list">${rows || '<p class="empty-state">Nenhum publicador vinculado.</p>'}</div>`
+  element.querySelector<HTMLFormElement>('#publisherForm')?.addEventListener('submit', event => { event.preventDefault(); void submitPublisher(event.currentTarget as HTMLFormElement) }); element.querySelector('#cancelPublisher')?.addEventListener('click', () => { editingPublisher = ''; render() }); element.querySelectorAll<HTMLButtonElement>('[data-edit-publisher]').forEach(button => button.addEventListener('click', () => { editingPublisher = button.dataset.editPublisher!; render() }))
 }
-
-function publishers(pubs: Array<[string, Usuario]>): string {
-  const rows = pubs.length === 0
-    ? '<p class="empty-state">Nenhum publicador encontrado no cadastro.</p>'
-    : pubs.map(([uid, user]) => `<div style="display:flex;justify-content:space-between;gap:12px;align-items:center;padding:10px 0;border-bottom:1px solid var(--border)"><div><strong>${escapeHtml(user.nome)}</strong><div style="font-size:.75rem;color:var(--ink-3)">${user.masterId ? `Vinculado ao cadastro ${escapeHtml(user.masterId)}` : 'Sem vínculo com o cadastro Admin'}</div></div><span style="font-size:.72rem;font-weight:700;color:${hasMonthlyReport(uid, user.masterId) ? '#1A6B3C' : '#B3261E'}">${hasMonthlyReport(uid, user.masterId) ? 'Relatório recebido' : 'Pendente'}</span></div>`).join('')
-  return section('Publicadores', `Competência ${currentMonth()}`, rows)
+async function submitPublisher(form: HTMLFormElement): Promise<void> {
+  const data = new FormData(form), masterId = String(data.get('masterId') ?? ''), recordId = String(data.get('recordId') ?? '') || newId('pub')
+  if (!people[masterId]) { toast('Selecione uma pessoa do cadastro do Admin'); return }
+  if (Object.values(publishers()).some(item => item.masterId === masterId && item.id !== recordId)) { toast('Esta pessoa já está vinculada'); return }
+  const item: SecretaryPublisher = { id: recordId, masterId, categoria: String(data.get('categoria')) as PublisherCategory, grupoId: String(data.get('grupoId') ?? ''), ativo: String(data.get('ativo')) === 'true' }
+  try { await save(`publicadores/${recordId}`, item, 'Publicador salvo'); editingPublisher = ''; render() } catch { toast('Não foi possível salvar') }
 }
-
-function reportsView(data: Record<string, unknown>): string {
-  const rows = Object.entries(data).sort(([a], [b]) => b.localeCompare(a)).slice(0, 12)
-    .map(([key, value]) => `<div style="display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)"><div><strong>${escapeHtml(key)}</strong><div style="font-size:.75rem;color:var(--ink-3)">${escapeHtml(summaryValue(value))}</div></div><span style="font-size:.72rem;font-weight:700;color:#1A6B3C">Registrado</span></div>`).join('')
-  return section('Relatórios mensais', `${count(data)} registro${count(data) === 1 ? '' : 's'} no histórico`, editor('relatorios', 'Competência', '2026-09', 'Status', 'Recebido') + (rows || '<p class="empty-state">Nenhum relatório registrado no banco de dados.</p>'))
+function renderGroups(element: HTMLElement): void {
+  const current = groups()[editingGroup], rows = Object.values(groups()).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')).map(group => `<div class="secretary-row"><div><strong>${esc(group.nome)}</strong><small>${group.superintendenteMasterId ? esc(personName(group.superintendenteMasterId)) : 'Sem superintendente'} · ${group.ativo ? 'Ativo' : 'Inativo'}</small></div><button class="btn btn-ghost" data-edit-group="${group.id}">Editar</button></div>`).join('')
+  element.innerHTML = `${sectionTitle('Grupos')}<form id="groupForm" class="form-panel"><input type="hidden" name="recordId" value="${esc(current?.id)}"><div class="module-form-grid"><label class="form-field"><span>Nome</span><input name="nome" value="${esc(current?.nome)}" required maxlength="50"></label><label class="form-field"><span>Superintendente</span><select name="superintendenteMasterId"><option value="">Selecionar...</option>${personOptions(current?.superintendenteMasterId)}</select></label><label class="form-field"><span>Situação</span><select name="ativo"><option value="true" ${current?.ativo !== false ? 'selected' : ''}>Ativo</option><option value="false" ${current?.ativo === false ? 'selected' : ''}>Inativo</option></select></label></div><div class="secretary-actions"><button class="btn btn-primary" type="submit">Salvar grupo</button>${current ? '<button class="btn btn-ghost" id="cancelGroup" type="button">Cancelar</button>' : ''}</div></form><div class="module-option-list">${rows || '<p class="empty-state">Nenhum grupo cadastrado.</p>'}</div>`
+  element.querySelector<HTMLFormElement>('#groupForm')?.addEventListener('submit', event => { event.preventDefault(); void submitGroup(event.currentTarget as HTMLFormElement) }); element.querySelector('#cancelGroup')?.addEventListener('click', () => { editingGroup = ''; render() }); element.querySelectorAll<HTMLButtonElement>('[data-edit-group]').forEach(button => button.addEventListener('click', () => { editingGroup = button.dataset.editGroup!; render() }))
 }
-
-function assistanceView(data: unknown): string {
-  const rows = Object.entries(records(data)).sort(([a], [b]) => b.localeCompare(a)).slice(0, 12)
-    .map(([key, value]) => `<div style="display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)"><strong>${escapeHtml(key)}</strong><span style="font-size:.8rem;color:var(--ink-3)">${escapeHtml(summaryValue(value))}</span></div>`).join('')
-  return section('Assistência', `${count(data)} registro${count(data) === 1 ? '' : 's'} disponível${count(data) === 1 ? '' : 'is'}`, editor('assistencia', 'Data', currentMonth(), 'Quantidade', '0') + (rows || '<p class="empty-state">Nenhum registro de assistência encontrado.</p>'))
+async function submitGroup(form: HTMLFormElement): Promise<void> { const data = new FormData(form), recordId = String(data.get('recordId') ?? '') || newId('grupo'); const item: SecretaryGroup = { id: recordId, nome: String(data.get('nome') ?? '').trim(), superintendenteMasterId: String(data.get('superintendenteMasterId') ?? ''), ativo: String(data.get('ativo')) === 'true' }; try { await save(`grupos/${recordId}`, item, 'Grupo salvo'); editingGroup = ''; render() } catch { toast('Não foi possível salvar') } }
+function renderReports(element: HTMLElement): void {
+  const current = reports()[editingReport], currentPublisher = Object.values(publishers()).find(item => item.masterId === current?.masterId)?.id
+  const rows = Object.values(reports()).sort((a, b) => b.competencia.localeCompare(a.competencia) || personName(a.masterId).localeCompare(personName(b.masterId), 'pt-BR')).slice(0, 80).map(report => `<div class="secretary-row"><div><strong>${esc(personName(report.masterId))}</strong><small>${report.competencia} · ${esc(CATEGORY_LABELS[report.categoria])}${report.atrasado ? ' · Atrasado' : ''}</small></div><div class="secretary-actions"><button class="btn btn-ghost" data-edit-report="${report.id}">Editar</button><button class="btn btn-ghost" data-delete-report="${report.id}">Excluir</button></div></div>`).join('')
+  element.innerHTML = `${sectionTitle('Relatórios mensais')}<form id="reportForm" class="form-panel"><input type="hidden" name="recordId" value="${esc(current?.id)}"><div class="module-form-grid"><label class="form-field"><span>Publicador</span><select name="publisherId" required><option value="">Selecionar...</option>${publisherOptions(currentPublisher)}</select></label><label class="form-field"><span>Competência</span><input name="competencia" type="month" value="${current?.competencia ?? reportMonth}" required></label><label class="form-field"><span>Participou no ministério</span><select name="participou"><option value="true" ${current?.participou !== false ? 'selected' : ''}>Sim</option><option value="false" ${current?.participou === false ? 'selected' : ''}>Não</option></select></label><label class="form-field"><span>Estudos bíblicos</span><input name="estudos" type="number" min="0" value="${current?.estudos ?? 0}"></label><label class="form-field"><span>Horas no campo</span><input name="horasCampo" type="number" min="0" step="0.1" value="${current?.horasCampo ?? 0}"></label><label class="form-field"><span>Atividade aprovada</span><input name="horasAtividadeAprovada" type="number" min="0" step="0.1" value="${current?.horasAtividadeAprovada ?? 0}"></label><label class="form-field"><span>Crédito de horas</span><input name="creditoHoras" type="number" min="0" step="0.1" value="${current?.creditoHoras ?? 0}"></label><label class="form-field"><span>Pioneiro auxiliar</span><select name="pioneiroAuxiliar"><option value="false" ${!current?.pioneiroAuxiliar ? 'selected' : ''}>Não</option><option value="true" ${current?.pioneiroAuxiliar ? 'selected' : ''}>Sim</option></select></label><label class="form-field"><span>Recebido em</span><input name="recebidoEm" type="date" value="${current?.recebidoEm?.slice(0, 10) || today()}"></label><label class="form-field"><span>Após o fechamento</span><select name="atrasado"><option value="false" ${!current?.atrasado ? 'selected' : ''}>Não</option><option value="true" ${current?.atrasado ? 'selected' : ''}>Sim, contar no mês seguinte</option></select></label></div><label class="form-field"><span>Observações</span><textarea name="observacoes" maxlength="250" rows="3">${esc(current?.observacoes)}</textarea></label><div class="secretary-actions"><button class="btn btn-primary" type="submit">Salvar relatório</button>${current ? '<button class="btn btn-ghost" id="cancelReport" type="button">Cancelar</button>' : ''}</div></form><div class="module-option-list">${rows || '<p class="empty-state">Nenhum relatório registrado.</p>'}</div>`
+  element.querySelector<HTMLFormElement>('#reportForm')?.addEventListener('submit', event => { event.preventDefault(); void submitReport(event.currentTarget as HTMLFormElement) }); element.querySelector('#cancelReport')?.addEventListener('click', () => { editingReport = ''; render() }); element.querySelectorAll<HTMLButtonElement>('[data-edit-report]').forEach(button => button.addEventListener('click', () => { editingReport = button.dataset.editReport!; render() })); element.querySelectorAll<HTMLButtonElement>('[data-delete-report]').forEach(button => button.addEventListener('click', () => void deleteRecord('relatorios', button.dataset.deleteReport!, 'Excluir este relatório?')))
 }
-
-function filesView(data: unknown): string {
-  const rows = Object.entries(records(data)).sort(([a], [b]) => b.localeCompare(a)).slice(0, 12)
-    .map(([key, value]) => `<div style="display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)"><strong>${escapeHtml(key)}</strong><span style="font-size:.8rem;color:var(--ink-3)">${escapeHtml(summaryValue(value))}</span></div>`).join('')
-  return section('Arquivo da congregação', `${count(data)} item${count(data) === 1 ? '' : 's'} no arquivo`, editor('arquivos', 'Nome do arquivo', '', 'Link ou observação', '') + (rows || '<p class="empty-state">Nenhum arquivo registrado no banco de dados.</p>'))
+async function submitReport(form: HTMLFormElement): Promise<void> {
+  const data = new FormData(form), publisher = publishers()[String(data.get('publisherId'))]; if (!publisher) { toast('Selecione um publicador'); return }
+  const number = (name: string) => Math.max(0, Number(data.get(name) ?? 0) || 0), recordId = String(data.get('recordId') ?? '') || newId('rel')
+  const competencia = String(data.get('competencia')), recebidoEm = String(data.get('recebidoEm'))
+  const item: SecretaryReport = { id: recordId, masterId: publisher.masterId, competencia, categoria: publisher.categoria, participou: String(data.get('participou')) === 'true', estudos: number('estudos'), horasCampo: number('horasCampo'), horasAtividadeAprovada: number('horasAtividadeAprovada'), creditoHoras: number('creditoHoras'), pioneiroAuxiliar: String(data.get('pioneiroAuxiliar')) === 'true', observacoes: String(data.get('observacoes') ?? '').trim(), atrasado: isReportLate(competencia, recebidoEm) || String(data.get('atrasado')) === 'true', recebidoEm, atualizadoEm: new Date().toISOString() }
+  try { await save(`relatorios/${recordId}`, item, 'Relatório salvo'); reportMonth = item.competencia; editingReport = ''; render() } catch { toast('Não foi possível salvar') }
 }
-
-function editor(kind: 'relatorios' | 'assistencia' | 'arquivos', keyLabel: string, keyValue: string, valueLabel: string, valueValue: string): string {
-  return `<form class="form-panel" data-secretario-form data-secretario-kind="${kind}" style="margin-bottom:12px"><div class="module-form-grid"><label class="form-field"><span>${keyLabel}</span><input name="recordKey" value="${escapeHtml(keyValue)}" required></label><label class="form-field"><span>${valueLabel}</span><input name="recordValue" value="${escapeHtml(valueValue)}" required></label></div><button class="secondary-btn" type="submit" style="margin-top:10px">Salvar registro</button></form>`
+async function deleteRecord(collection: string, recordId: string, question: string): Promise<void> { if (!window.confirm(question)) return; try { await update(secretarioRef, { [`${collection}/${recordId}`]: null }); const current = records(root[collection]); delete current[recordId]; root[collection] = current; toast('Registro excluído'); render() } catch { toast('Não foi possível excluir') } }
+function renderConference(element: HTMLElement): void {
+  const sent = records<{ enviadoEm?: string }>(root['fechamentos'])[reportMonth]?.enviadoEm ?? '', summary = summarizeCongregation(reportMonth, reports(), attendance(), sent)
+  const metric = (label: string, value: number) => `<div class="secretary-metric"><strong>${value}</strong><span>${label}</span></div>`
+  element.innerHTML = `${sectionTitle('Relatório JW.org')}<div class="form-group"><label class="form-label">Competência</label><input id="conferenceMonth" class="form-input" type="month" value="${reportMonth}"></div><div class="secretary-metrics">${metric('Publicadores', summary.publicadores)}${metric('Estudos', summary.estudos)}${metric('Pioneiros auxiliares', summary.auxiliares)}${metric('Horas auxiliares', summary.horasAuxiliares)}${metric('Pioneiros regulares', summary.regulares)}${metric('Horas regulares', summary.horasRegulares)}${metric('Relatórios atrasados', summary.atrasadosIncluidos)}${metric('Média fim de semana', summary.mediaFimSemana)}</div><button id="markReportSent" class="btn btn-primary">${sent ? `Enviado em ${esc(sent.slice(0, 10))}` : 'Registrar envio'}</button>`
+  element.querySelector<HTMLInputElement>('#conferenceMonth')?.addEventListener('change', event => { reportMonth = (event.currentTarget as HTMLInputElement).value; render() }); element.querySelector('#markReportSent')?.addEventListener('click', () => void markSent())
 }
-
-async function saveSecretaryRecord(form: HTMLFormElement): Promise<void> {
-  const kind = form.dataset.secretarioKind
-  const key = String(new FormData(form).get('recordKey') ?? '').trim()
-  const value = String(new FormData(form).get('recordValue') ?? '').trim()
-  if (!kind || !key || !value) return
+async function markSent(): Promise<void> { try { await save(`fechamentos/${reportMonth}`, { enviadoEm: new Date().toISOString() }, 'Envio registrado'); render() } catch { toast('Não foi possível registrar') } }
+function renderAttendance(element: HTMLElement): void {
+  const current = attendance()[editingAttendance], rows = Object.values(attendance()).sort((a, b) => b.data.localeCompare(a.data)).slice(0, 80).map(item => `<div class="secretary-row"><div><strong>${item.data.split('-').reverse().join('/')}: ${item.quantidade}</strong><small>${item.tipo === 'meio_semana' ? 'Meio de semana' : 'Fim de semana'}</small></div><div class="secretary-actions"><button class="btn btn-ghost" data-edit-attendance="${item.id}">Editar</button><button class="btn btn-ghost" data-delete-attendance="${item.id}">Excluir</button></div></div>`).join('')
+  element.innerHTML = `${sectionTitle('Assistência')}<form id="attendanceForm" class="form-panel"><input type="hidden" name="recordId" value="${esc(current?.id)}"><div class="module-form-grid"><label class="form-field"><span>Data</span><input name="data" type="date" value="${current?.data ?? today()}" required></label><label class="form-field"><span>Reunião</span><select name="tipo"><option value="meio_semana" ${current?.tipo !== 'fim_semana' ? 'selected' : ''}>Meio de semana</option><option value="fim_semana" ${current?.tipo === 'fim_semana' ? 'selected' : ''}>Fim de semana</option></select></label><label class="form-field"><span>Assistência</span><input name="quantidade" type="number" min="0" value="${current?.quantidade ?? 0}" required></label></div><div class="secretary-actions"><button class="btn btn-primary" type="submit">Salvar assistência</button>${current ? '<button class="btn btn-ghost" id="cancelAttendance" type="button">Cancelar</button>' : ''}</div></form><div class="module-option-list">${rows || '<p class="empty-state">Nenhuma assistência registrada.</p>'}</div>`
+  element.querySelector<HTMLFormElement>('#attendanceForm')?.addEventListener('submit', event => { event.preventDefault(); void submitAttendance(event.currentTarget as HTMLFormElement) }); element.querySelector('#cancelAttendance')?.addEventListener('click', () => { editingAttendance = ''; render() }); element.querySelectorAll<HTMLButtonElement>('[data-edit-attendance]').forEach(button => button.addEventListener('click', () => { editingAttendance = button.dataset.editAttendance!; render() })); element.querySelectorAll<HTMLButtonElement>('[data-delete-attendance]').forEach(button => button.addEventListener('click', () => void deleteRecord('assistencia', button.dataset.deleteAttendance!, 'Excluir este registro de assistência?')))
+}
+async function submitAttendance(form: HTMLFormElement): Promise<void> { const data = new FormData(form), recordId = String(data.get('recordId') ?? '') || newId('ass'); const item: SecretaryAttendance = { id: recordId, data: String(data.get('data')), tipo: String(data.get('tipo')) as SecretaryAttendance['tipo'], quantidade: Math.max(0, Number(data.get('quantidade')) || 0), atualizadoEm: new Date().toISOString() }; try { await save(`assistencia/${recordId}`, item, 'Assistência salva'); editingAttendance = ''; render() } catch { toast('Não foi possível salvar') } }
+function fileInput(inputId: string, label: string): string { return `<label class="form-field"><span>${label}</span><input id="${inputId}" type="file" accept="application/pdf"></label>` }
+function renderDocuments(element: HTMLElement): void {
+  const year = serviceYearStart(reportMonth)
+  element.innerHTML = `${sectionTitle('Documentos oficiais')}<div class="form-panel"><div class="module-form-grid"><label class="form-field"><span>Ano de serviço</span><input id="documentServiceYear" type="number" min="2020" max="2100" value="${year}"></label><label class="form-field"><span>Competência</span><input id="documentMonth" type="month" value="${reportMonth}"></label></div></div><div class="form-panel"><h3>S-21</h3><div class="module-form-grid">${fileInput('templateS21', 'Template S-21')}<label class="form-field"><span>Publicador</span><select id="documentPublisher"><option value="">Selecionar...</option>${publisherOptions()}</select></label><label class="form-field"><span>Data de nascimento</span><input id="documentBirth" type="date"></label><label class="form-field"><span>Data de batismo</span><input id="documentBaptism" type="date"></label><label class="form-field"><span>Ungido</span><select id="documentAnointed"><option value="false">Não</option><option value="true">Sim</option></select></label></div><button class="btn btn-primary" data-document="s21">Gerar S-21</button></div><div class="form-panel"><h3>S-1</h3>${fileInput('templateS1', 'Template S-1')}<button class="btn btn-primary" data-document="s1">Gerar S-1</button></div><div class="form-panel"><h3>S-88</h3>${fileInput('templateS88', 'Template S-88')}<button class="btn btn-primary" data-document="s88">Gerar S-88</button></div><div class="form-panel"><h3>S-3</h3>${fileInput('templateS3', 'Template S-3')}<button class="btn btn-primary" data-document="s3">Gerar S-3</button></div>`
+  element.querySelectorAll<HTMLButtonElement>('[data-document]').forEach(button => button.addEventListener('click', () => void generateDocument(button.dataset.document!)))
+}
+async function fileBytes(inputId: string): Promise<ArrayBuffer> { const file = (document.getElementById(inputId) as HTMLInputElement | null)?.files?.[0]; if (!file) throw new Error('Selecione o template oficial em PDF.'); return file.arrayBuffer() }
+async function generateDocument(kind: string): Promise<void> {
   try {
-    await update(secretarioRef, { [`${kind}/${key}`]: { valor: value, atualizadoEm: new Date().toISOString() } })
-    secretario[kind] = { ...records(secretario[kind]), [key]: { valor: value, atualizadoEm: new Date().toISOString() } }
-    toast('Registro salvo')
-    render()
-  } catch {
-    toast('Não foi possível salvar o registro')
-  }
+    const docs = await import('./secretario-documents'), year = Number((document.getElementById('documentServiceYear') as HTMLInputElement).value), month = (document.getElementById('documentMonth') as HTMLInputElement).value; let bytes: Uint8Array, filename: string
+    if (kind === 's21') { const publisher = publishers()[(document.getElementById('documentPublisher') as HTMLSelectElement).value]; if (!publisher) throw new Error('Selecione o publicador.'); const sensitive = { [publisher.masterId]: { nascimento: (document.getElementById('documentBirth') as HTMLInputElement).value, batismo: (document.getElementById('documentBaptism') as HTMLInputElement).value, ungido: (document.getElementById('documentAnointed') as HTMLSelectElement).value === 'true' } }; bytes = await docs.createS21(await fileBytes('templateS21'), [publisher], people, reports(), year, sensitive); filename = `S-21-${publisher.masterId}-${year}.pdf` }
+    else if (kind === 's1') { bytes = await docs.createS1(await fileBytes('templateS1'), congregation, summarizeCongregation(month, reports(), attendance()), 'Secretário'); filename = `S-1-${month}.pdf` }
+    else if (kind === 's88') { bytes = await docs.createS88(await fileBytes('templateS88'), attendance(), year); filename = `S-88-${year}.pdf` }
+    else { bytes = await docs.createS3(await fileBytes('templateS3'), congregation.nome, month, attendance()); filename = `S-3-${month}.pdf` }
+    docs.downloadSecretaryPdf(bytes, filename); toast(`${kind.toUpperCase()} gerado`)
+  } catch (error) { toast(error instanceof Error ? error.message : 'Não foi possível gerar o documento') }
 }
-
-function summaryValue(value: unknown): string {
-  if (value === null || value === undefined) return ''
-  if (typeof value !== 'object') return String(value)
-  const row = records(value)
-  const interesting = ['status', 'total', 'quantidade', 'mes', 'data', 'nome']
-    .map(key => row[key] === undefined ? '' : `${key}: ${row[key]}`)
-    .filter(Boolean)
-  return interesting.join(' · ') || `${Object.keys(row).length} campos`
+function renderArchives(element: HTMLElement): void {
+  const rows = Object.values(archives()).sort((a, b) => b.criadoEm.localeCompare(a.criadoEm)).map(item => `<div class="secretary-row"><div><strong>${esc(item.nome)}</strong><small>${esc(item.tipo)} · ${esc(item.referencia)}</small></div><button class="btn btn-ghost" data-delete-archive="${item.id}" ${archiveCanBeDeleted(item.id, archives()) ? '' : 'disabled'}>Excluir</button></div>`).join('')
+  element.innerHTML = `${sectionTitle('Arquivo da congregação')}<form id="archiveForm" class="form-panel"><div class="module-form-grid"><label class="form-field"><span>Nome</span><input name="nome" required maxlength="80"></label><label class="form-field"><span>Tipo</span><select name="tipo"><option>S-21</option><option>S-1</option><option>S-88</option><option>S-3</option><option>Relatório</option><option>Outro</option></select></label><label class="form-field"><span>Referência</span><input name="referencia" maxlength="120"></label></div><div class="secretary-actions"><button class="btn btn-primary" type="submit">Registrar arquivo</button><button class="btn btn-ghost" id="downloadCongregationArchive" type="button">Baixar arquivo da congregação</button></div></form><div class="module-option-list">${rows || '<p class="empty-state">Nenhum item registrado.</p>'}</div>`
+  element.querySelector<HTMLFormElement>('#archiveForm')?.addEventListener('submit', event => { event.preventDefault(); void submitArchive(event.currentTarget as HTMLFormElement) }); element.querySelector('#downloadCongregationArchive')?.addEventListener('click', downloadCongregationArchive); element.querySelectorAll<HTMLButtonElement>('[data-delete-archive]').forEach(button => button.addEventListener('click', () => void deleteArchive(button.dataset.deleteArchive!)))
 }
-
-function section(title: string, subtitle: string, body: string): string {
-  return `<div style="margin-top:14px"><h3 style="font-size:.95rem;color:#5C6062;margin-bottom:2px">${title}</h3><p style="font-size:.75rem;color:var(--ink-3);margin-bottom:10px">${subtitle}</p><div class="module-option-list">${body}</div></div>`
-}
+async function submitArchive(form: HTMLFormElement): Promise<void> { const data = new FormData(form), recordId = newId('arq'), item: ArchiveRecord = { id: recordId, nome: String(data.get('nome') ?? '').trim(), tipo: String(data.get('tipo') ?? ''), referencia: String(data.get('referencia') ?? '').trim(), criadoEm: new Date().toISOString() }; try { await save(`arquivos/${recordId}`, item, 'Arquivo registrado'); render() } catch { toast('Não foi possível registrar') } }
+async function deleteArchive(recordId: string): Promise<void> { if (!archiveCanBeDeleted(recordId, archives())) { toast('O único S-21 não pode ser excluído'); return } await deleteRecord('arquivos', recordId, 'Excluir este item do arquivo?') }
+function downloadCongregationArchive(): void { const payload = { geradoEm: new Date().toISOString(), congregacao: congregation, publicadores: publishers(), grupos: groups(), relatorios: reports(), assistencia: attendance(), arquivos: archives() }, url = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })), link = document.createElement('a'); link.href = url; link.download = `arquivo-congregacao-${today()}.json`; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000) }
