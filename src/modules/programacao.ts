@@ -1,421 +1,317 @@
-import type { AppContext, MasterPessoa, RawPessoas } from '../types'
-import { get, pessoasRef, programacaoRef, update } from '../firebase'
+import type { AppContext, RawPessoas } from '../types'
+import { configCongregacaoRef, configReunioesRef, get, pessoasRef, programacaoRef, update } from '../firebase'
 import { renderMenuCards, type ItemMenu } from '../ui/menu-cards'
 import { moduleBackButton } from '../ui/module-header'
+import {
+  ASSIGNMENT_PERMISSIONS, assignmentConflicts, assistantNeedsSameSex, bimesters, candidates,
+  eligible, filterPrograms, isOfficialJwUrl, mergeImportedProgram, parseOfficialProgram,
+  permissionForPart, programPendings, reminderMessage, suggestAssignments,
+  type AssignmentPermission, type AssignmentStatus, type MeetingProgram, type ProgramPart, type ProgramPerson, type WeekType,
+} from './programacao-domain'
+type Tab = 'indice' | 'programa' | 'apostilas' | 'pessoas' | 'arquivos' | 'lembretes' | 'pendencias' | 'config'
+type PeriodMode = 'week' | 'month' | 'bimester'
+interface StoredPerson { masterId?: string; active?: boolean; permissions?: AssignmentPermission[] }
+interface Settings { meetingTime?: string; rooms?: Array<{ id: string; name: string }>; reminderTemplate?: string }
+interface ProgramData { programs?: Record<string, MeetingProgram>; semanas?: Record<string, MeetingProgram>; pessoas?: Record<string, StoredPerson>; settings?: Settings }
 
-type ProgramacaoTab = 'indice' | 'programa' | 'apostilas' | 'pessoas' | 'arquivos' | 'lembretes'
-type Row = Record<string, unknown>
 const API_IMPORT_URL = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
   ? '/api/import-jw-program'
   : 'https://southamerica-east1-reunioes-6c437.cloudfunctions.net/importJwProgram'
-
-let activeTab: ProgramacaoTab = 'indice'
-let programacao: Record<string, unknown> = {}
-let pessoas: RawPessoas = {}
-let editingWeekId: string | null = null
-
-function toast(msg: string, ms = 2600): void {
-  const el = document.getElementById('toast')
-  if (!el) return
-  el.textContent = msg
-  el.classList.add('show')
-  setTimeout(() => el.classList.remove('show'), ms)
+const permissionLabels: Record<AssignmentPermission, string> = {
+  presidente: 'Presidente', 'oracao-inicial': 'Oração inicial', discurso: 'Discurso', joias: 'Joias espirituais',
+  'leitura-biblia': 'Leitura da Bíblia', 'iniciando-conversas': 'Iniciando conversas', 'cultivando-interesse': 'Cultivando o interesse',
+  'fazendo-discipulos': 'Fazendo discípulos', 'explicando-crencas': 'Explicando crenças', 'o-que-voce-diria': 'O que você diria',
+  ajudante: 'Ajudante', 'necessidades-locais': 'Necessidades locais', consideracao: 'Consideração', 'estudo-biblico': 'Estudo bíblico',
+  leitor: 'Leitor', 'conselheiro-assistente': 'Conselheiro assistente', 'oracao-final': 'Oração final',
 }
+const typeLabels: Record<WeekType, string> = { normal: 'Normal', visita: 'Visita do superintendente', assembleia: 'Assembleia/Congresso', celebracao: 'Celebração' }
+const statusLabels: Record<AssignmentStatus, string> = { programado: 'Programado', substituido: 'Substituído', realizado: 'Realizado' }
 
-function escapeHtml(v: unknown): string {
-  return String(v ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;')
-}
+let tab: Tab = 'indice'
+let data: ProgramData = {}
+let masterPeople: RawPessoas = {}
+let programs: Record<string, MeetingProgram> = {}
+let profiles: Record<string, StoredPerson> = {}
+let settings: Settings = {}
+let congregation = 'Noroeste'
+let editingWeek = ''
+let periodMode: PeriodMode = 'bimester'
+let periodAnchor = today()
 
-function records(value: unknown): Record<string, unknown> {
-  return value && typeof value === 'object' ? value as Record<string, unknown> : {}
-}
+const root = () => document.getElementById('programacaoContent')!
+const now = () => new Date().toISOString()
+function today(): string { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` }
+function esc(value: unknown): string { return String(value ?? '').replace(/[&<>'"]/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[char]!) }
+function toast(message: string): void { const el = document.getElementById('toast'); if (!el) return; el.textContent = message; el.classList.add('show'); setTimeout(() => el.classList.remove('show'), 3200) }
+function formatDate(value: string): string { const [y, m, d] = value.split('-'); return y && m && d ? `${d}/${m}/${y}` : value }
+function programList(): MeetingProgram[] { return Object.values(programs).filter(item => item?.meetingDate).sort((a, b) => a.meetingDate.localeCompare(b.meetingDate)) }
+function filtered(): MeetingProgram[] { return filterPrograms(programList(), periodMode, periodAnchor) }
+function meetingTime(): string { return settings.meetingTime || '19:00' }
+function rooms(): Array<{ id: string; name: string }> { return settings.rooms?.length ? settings.rooms : [{ id: 'main', name: 'Salão principal' }] }
 
-function countPending(value: unknown): number {
-  return Object.values(records(value)).filter(item => {
-    const row = records(item)
-    return row.status === 'pendente' || row.status === 'por_definir' || row.status === 'por_confirmar'
-  }).length
-}
-
-function roleLabel(role: string | null): string {
-  const labels: Record<string, string> = {
-    anciao: 'Ancião',
-    'servo-ministerial': 'Servo ministerial',
-    pioneiro: 'Pioneiro',
-    batizado: 'Batizado',
-    publicador: 'Publicador',
-  }
-  return role ? (labels[role] ?? role) : 'Sem condição'
-}
-
-export default function mount(_ctx: AppContext): void {
-  activeTab = 'indice'
-  const el = document.getElementById('appContent')
-  if (!el) return
-
-  el.innerHTML = `
-    <div id="programacaoRoot">
-      <div id="programacaoContent">
-        <p style="padding:24px;color:var(--ink-3);text-align:center">Carregando...</p>
-      </div>
-    </div>`
-
-  void loadProgramacao()
-}
-
-async function loadProgramacao(): Promise<void> {
-  try {
-    const [programacaoSnap, pessoasSnap] = await Promise.all([get(programacaoRef), get(pessoasRef)])
-    programacao = programacaoSnap.exists() ? (programacaoSnap.val() as Record<string, unknown>) : {}
-    pessoas = pessoasSnap.exists() ? pessoasSnap.val() as RawPessoas : {}
-  } catch {
-    toast('Erro ao carregar Programação')
-  }
-  renderContent()
-}
-
-function renderContent(): void {
-  if (activeTab === 'indice') {
-    renderIndex()
-    return
-  }
-  if (activeTab === 'programa') renderPrograma()
-  else if (activeTab === 'apostilas') renderApostilas()
-  else if (activeTab === 'pessoas') renderPessoas()
-  else if (activeTab === 'arquivos') renderArquivos()
-  else renderLembretes()
-}
-
-function renderIndex(): void {
-  const content = document.getElementById('programacaoContent')
-  if (!content) return
-  content.innerHTML = `<div style="margin-bottom:14px"><h2 style="font-size:1.05rem;color:var(--blue-deep);margin-bottom:2px">Programação</h2></div><div id="programacaoMenu"></div>`
-  const items: ItemMenu[] = [
-    { id: 'programa', titulo: 'Programa', subtitulo: 'Semanas, partes e designações', icone: '▦', corFundo: '#003F72' },
-    { id: 'apostilas', titulo: 'Apostilas', subtitulo: 'Importação dos programas oficiais', icone: '▤', corFundo: '#7E3AF2' },
-    { id: 'pessoas', titulo: 'Pessoas', subtitulo: 'Participantes disponíveis para designações', icone: '♙', corFundo: '#006EB6' },
-    { id: 'arquivos', titulo: 'Arquivos', subtitulo: 'S-89 e programação para impressão', icone: '▣', corFundo: '#1A6B3C' },
-    { id: 'lembretes', titulo: 'Lembretes', subtitulo: 'Mensagens após revisar as designações', icone: '✉', corFundo: '#B3261E' },
-  ]
-  renderMenuCards(content.querySelector<HTMLElement>('#programacaoMenu')!, items, id => { activeTab = id as ProgramacaoTab; renderContent() })
-}
-
-function renderPrograma(): void {
-  const el = document.getElementById('programacaoContent')
-  if (!el) return
-
-  const semanasNode = programacao['programs'] ?? programacao['semanas'] ?? programacao
-  const semanaEntries = Object.entries(records(semanasNode))
-    .map(([id, value]) => [id, records(value)] as const)
-    .sort(([, a], [, b]) => String(a.meetingDate ?? a.data ?? a.date ?? '').localeCompare(String(b.meetingDate ?? b.data ?? b.date ?? '')))
-  const semanas = semanaEntries.length
-  const pendencias = countPending(semanasNode)
-  el.innerHTML = `
-    ${sectionTitle('Programa', 'Revise as semanas importadas e complete as designações antes dos lembretes.')}
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
-      ${metricCard('Semanas', String(semanas), '#003F72')}
-      ${metricCard('Pendências', String(pendencias), pendencias ? '#B3261E' : '#1A6B3C')}
-    </div>
-    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:0 12px">
-      ${semanaEntries.length ? semanaEntries.map(([id, week]) => programWeekRow(id, week)).join('') : '<p style="padding:18px 0;color:var(--ink-3);font-size:.82rem;text-align:center">Nenhuma semana importada ainda. Use Apostilas para iniciar o bimestre.</p>'}
-    </div>
-    <div id="programacaoEditor" style="margin-top:12px"></div>`
-  if (editingWeekId) renderWeekEditor(editingWeekId)
-  el.querySelectorAll<HTMLButtonElement>('[data-edit-week]').forEach(button => {
-    button.addEventListener('click', () => {
-      editingWeekId = button.dataset.editWeek ?? null
-      renderPrograma()
-    })
-  })
-}
-
-function programWeekRow(id: string, week: Record<string, unknown>): string {
-  const date = String(week.meetingDate ?? week.data ?? week.date ?? id)
-  const parts = Array.isArray(week.parts) ? week.parts as unknown[] : Object.values(records(week.parts))
-  const pending = parts.filter(part => {
-    const item = records(part)
-    return !item.assignedPersonId && !item.pessoaId && !item.assigned
-  }).length
-  const bible = String(week.bibleReading ?? week.leituraBiblica ?? week.leitura ?? '')
-  return `<div style="padding:11px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;gap:12px;align-items:center">
-    <div style="min-width:0"><strong>${escapeHtml(formatDate(date))}</strong><div style="font-size:.75rem;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(bible || `${parts.length} partes cadastradas`)}</div></div>
-    <div style="display:flex;align-items:center;gap:10px"><span style="font-size:.72rem;font-weight:700;color:${pending ? '#B3261E' : '#1A6B3C'};white-space:nowrap">${pending ? `${pending} pendente${pending > 1 ? 's' : ''}` : 'Completa'}</span><button class="secondary-btn" type="button" data-edit-week="${escapeHtml(id)}">Editar</button></div>
-  </div>`
-}
-
-function renderWeekEditor(id: string): void {
-  const host = document.getElementById('programacaoEditor')
-  const weeks = records(programacao['programs'] ?? programacao['semanas'] ?? programacao)
-  const week = records(weeks[id])
-  if (!host || !Object.keys(week).length) return
-  const parts = Array.isArray(week.parts) ? week.parts as unknown[] : Object.values(records(week.parts))
-  host.innerHTML = `<div class="form-panel"><div style="display:flex;justify-content:space-between;gap:10px;align-items:center"><div><strong>Editar designações de ${escapeHtml(formatDate(String(week.meetingDate ?? week.data ?? week.date ?? id)))}</strong><div class="form-help">As alterações ficam gravadas no programa desta semana.</div></div><button class="secondary-btn" type="button" data-close-editor>Fechar</button></div><div class="module-form-grid" style="margin-top:12px">${parts.map((part, index) => {
-    const item = records(part)
-    const selected = String(item.assignedPersonId ?? item.pessoaId ?? item.assigned ?? '')
-    const options = [`<option value="">Sem designação</option>`, ...Object.entries(pessoas).filter(([, person]) => person.active).sort(([, a], [, b]) => a.name.localeCompare(b.name, 'pt-BR')).map(([personId, person]) => `<option value="${escapeHtml(personId)}" ${personId === selected ? 'selected' : ''}>${escapeHtml(person.name)}</option>`)]
-    return `<label class="form-field"><span>${escapeHtml(String(item.title ?? `Parte ${index + 1}`))}</span><select data-program-part="${escapeHtml(String(item.id ?? index))}">${options.join('')}</select></label>`
-  }).join('')}</div><button class="primary-btn" type="button" data-save-week="${escapeHtml(id)}" style="margin-top:12px">Salvar designações</button></div>`
-  host.querySelector('[data-close-editor]')?.addEventListener('click', () => { editingWeekId = null; renderPrograma() })
-  host.querySelector<HTMLButtonElement>('[data-save-week]')?.addEventListener('click', () => { void saveWeekAssignments(id, parts) })
-}
-
-async function saveWeekAssignments(id: string, parts: unknown[]): Promise<void> {
-  const host = document.getElementById('programacaoEditor')
-  if (!host) return
-  const values = new Map(Array.from(host.querySelectorAll<HTMLSelectElement>('[data-program-part]')).map(select => [select.dataset.programPart ?? '', select.value]))
-  const nextParts = parts.map((part, index) => {
-    const item = { ...records(part) }
-    const key = String(item.id ?? index)
-    const personId = values.get(key) ?? ''
-    if (personId) item.assignedPersonId = personId
-    else {
-      delete item.assignedPersonId
-      delete item.pessoaId
-      delete item.assigned
+function joinedPeople(): ProgramPerson[] {
+  return Object.entries(profiles).map(([id, profile]) => {
+    const masterId = profile.masterId || id
+    const person = masterPeople[masterId]
+    const sex: ProgramPerson['sex'] = person?.sex === 'M' ? 'masculino' : person?.sex === 'F' ? 'feminino' : ''
+    return {
+      id, masterId, name: person?.name || `Cadastro ${masterId}`, whatsapp: String(person?.whatsapp ?? '').replace(/\D/g, ''),
+      sex, role: person?.role || 'publicador',
+      active: profile.active !== false && person?.active !== false, permissions: Array.isArray(profile.permissions) ? profile.permissions : [],
     }
-    return item
-  })
-  try {
-    await update(programacaoRef, { [`programs/${id}/parts`]: nextParts })
-    const current = records(programacao.programs ?? programacao.semanas ?? programacao)
-    if (current[id]) current[id] = { ...records(current[id]), parts: nextParts }
-    editingWeekId = null
-    toast('Designações salvas')
-    renderPrograma()
-  } catch {
-    toast('Não foi possível salvar as designações')
-  }
+  }).sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
 }
 
-function formatDate(value: string): string {
-  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/)
-  return match ? `${match[3]}/${match[2]}/${match[1]}` : value
-}
-
-function renderApostilas(): void {
-  const el = document.getElementById('programacaoContent')
-  if (!el) return
-  el.innerHTML = `
-    ${sectionTitle('Apostilas', 'Baixe o bimestre oficial e salve apenas semanas novas.')}
-    <form id="programacaoImportForm" class="form-panel" style="margin-bottom:10px">
-      <label class="form-field"><span>URL oficial do programa</span><input name="url" type="url" placeholder="https://www.jw.org/pt/..." required></label>
-      <button class="primary-btn" type="submit">Importar programa</button>
-      <div class="form-help">A importação consulta o endpoint oficial configurado no app. As semanas novas são adicionadas sem duplicar as existentes.</div>
-    </form>
-    <details class="form-panel"><summary>Importação pontual por JSON</summary><p class="form-help">Use para um ajuste manual ou para dados exportados de outra instalação.</p><textarea id="programacaoJson" rows="7" placeholder='{"id":"2026-09-02","meetingDate":"2026-09-02","bibleReading":"...","parts":[]}'></textarea><button class="secondary-btn" type="button" data-import-json style="margin-top:8px">Salvar JSON</button></details>`
-  document.getElementById('programacaoImportForm')?.addEventListener('submit', event => {
-    event.preventDefault()
-    const url = new FormData(event.currentTarget as HTMLFormElement).get('url')
-    void importOfficialProgram(String(url ?? ''))
-  })
-  document.querySelector<HTMLButtonElement>('[data-import-json]')?.addEventListener('click', () => { void importJsonProgram() })
-}
-
-async function importOfficialProgram(url: string): Promise<void> {
-  try {
-    if (!/^https:\/\/www\.jw\.org\/pt\//i.test(url)) throw new Error('Use uma URL oficial em https://www.jw.org/pt/.')
-    const response = await fetch(API_IMPORT_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url }) })
-    const payload = await response.json() as { html?: string; error?: string }
-    if (!response.ok || !payload.html) throw new Error(payload.error ?? 'A importação não retornou o conteúdo oficial.')
-    const program = parseOfficialText(payload.html, url)
-    await saveProgram(program)
-  } catch (error) {
-    toast(error instanceof Error ? error.message : 'Não foi possível importar o programa')
-  }
-}
-
-async function importJsonProgram(): Promise<void> {
-  try {
-    const raw = document.getElementById('programacaoJson') as HTMLTextAreaElement | null
-    const value = JSON.parse(raw?.value ?? '') as Record<string, unknown>
-    const program = normalizeProgram(value)
-    await saveProgram(program)
-  } catch {
-    toast('JSON inválido. Informe uma semana com data e partes.')
-  }
-}
-
-function normalizeProgram(value: Record<string, unknown>): Record<string, unknown> {
-  const date = String(value.meetingDate ?? value.data ?? value.date ?? value.id ?? '')
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('Data inválida')
-  const parts = Array.isArray(value.parts) ? value.parts : []
-  if (!parts.length) throw new Error('Informe ao menos uma parte')
-  return { ...value, id: String(value.id ?? date), meetingDate: date, parts }
-}
-
-function parseOfficialText(html: string, sourceUrl: string): Record<string, unknown> {
-  const text = html.replace(/<br\s*\/?\s*>/gi, '\n').replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&#(\d+);/g, (_match, code) => String.fromCodePoint(Number(code)))
-  const dateMatch = text.match(/(\d{1,2})\s*(?:-|–)\s*\d{1,2}\s+de\s+([a-zç]+)\s+de\s+(\d{4})/i)
-  const months: Record<string, string> = { janeiro: '01', fevereiro: '02', março: '03', abril: '04', maio: '05', junho: '06', julho: '07', agosto: '08', setembro: '09', outubro: '10', novembro: '11', dezembro: '12' }
-  if (!dateMatch || !months[dateMatch[2].toLowerCase()]) throw new Error('Não foi possível identificar a data da semana')
-  const meetingDate = `${dateMatch[3]}-${months[dateMatch[2].toLowerCase()]}-${dateMatch[1].padStart(2, '0')}`
-  const lines = text.split(/\r?\n/).map(line => line.trim()).filter(Boolean)
-  const bibleReading = lines.find(line => /^[A-ZÁÉÍÓÚÂÊÔÃÕÇ ]+\s+\d/.test(line)) ?? 'Leitura bíblica não informada'
-  const parts: Record<string, unknown>[] = []
-  let section = 'vida-crista'
-  lines.forEach((line, index) => {
-    if (/TESOUROS DA PALAVRA/i.test(line)) section = 'tesouros'
-    else if (/FAÇA SEU MELHOR/i.test(line)) section = 'ministerio'
-    else if (/NOSSA VIDA CRISTÃ/i.test(line)) section = 'vida-crista'
-    const match = line.match(/^(\d+)\.\s+(.+)$/)
-    const duration = lines[index + 1]?.match(/^\((\d+)\s+min\)\s*(.*)$/i)
-    if (match && duration) parts.push({ id: `${meetingDate}-${match[1]}`, section, title: match[2], durationMinutes: Number(duration[1]), ...(duration[2] ? { reference: duration[2] } : {}) })
-  })
-  if (!parts.length) throw new Error('Não foi possível encontrar as partes da reunião')
-  return { id: meetingDate, meetingDate, bibleReading, sourceUrl, parts }
-}
-
-async function saveProgram(value: Record<string, unknown>): Promise<void> {
-  const program = normalizeProgram(value)
-  const id = String(program.id)
-  await update(programacaoRef, { [`programs/${id}`]: program })
-  const root = programacao.programs ? 'programs' : programacao.semanas ? 'semanas' : 'programs'
-  programacao[root] = { ...records(programacao[root]), [id]: program }
-  activeTab = 'programa'
-  editingWeekId = null
-  toast('Programa salvo')
-  renderContent()
-}
-
-function renderPessoas(): void {
-  const el = document.getElementById('programacaoContent')
-  if (!el) return
-  const list = Object.values(pessoas)
-    .filter(person => person.active)
-    .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
-    .map(person => `<div style="display:flex;justify-content:space-between;gap:12px;align-items:center;padding:10px 0;border-bottom:1px solid var(--border)"><div><strong>${escapeHtml(person.name)}</strong><div style="font-size:.75rem;color:var(--ink-3)">${escapeHtml(roleLabel(person.role))}</div></div><span style="font-size:.72rem;color:var(--ink-3)">${person.sex === 'F' ? 'Feminino' : person.sex === 'M' ? 'Masculino' : 'Sexo não informado'}</span></div>`)
-    .join('')
-  el.innerHTML = `
-    ${sectionTitle('Pessoas', 'Use o cadastro Admin como fonte única para as designações.')}
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
-      ${metricCard('Ativas', String(Object.values(pessoas).filter(person => person.active).length), '#1A6B3C')}
-      ${metricCard('Com WhatsApp', String(Object.values(pessoas).filter(person => person.active && person.whatsapp).length), '#003F72')}
-    </div>
-    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:0 12px">
-      ${list || '<p style="padding:16px 0;color:var(--ink-3);font-size:.82rem;text-align:center">Nenhuma pessoa ativa cadastrada.</p>'}
-    </div>`
-}
-
-function renderArquivos(): void {
-  const el = document.getElementById('programacaoContent')
-  if (!el) return
-  const weeks = programEntries()
-  el.innerHTML = `
-    ${sectionTitle('Arquivos', 'Gere arquivos depois de revisar o programa da semana.')}
-    <div class="form-panel">
-      <label class="form-field"><span>Semana</span><select id="arquivoSemana">${weeks.map(([id, week]) => `<option value="${escapeHtml(id)}">${escapeHtml(formatDate(String(week.meetingDate ?? id)))} - ${escapeHtml(String(week.bibleReading ?? 'Programa'))}</option>`).join('')}</select></label>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
-        <button class="primary-btn" type="button" data-generate-file="s89">Gerar S-89</button>
-        <button class="secondary-btn" type="button" data-generate-file="s140">Gerar S-140 PDF</button>
-        <button class="secondary-btn" type="button" data-generate-file="docx">Baixar S-140 DOCX</button>
-      </div>
-      <div class="form-help">PDF abre a impressão do navegador para escolher impressora ou “Salvar como PDF”. DOCX baixa um documento editável compatível com Word.</div>
-    </div>`
-  el.querySelectorAll<HTMLButtonElement>('[data-generate-file]').forEach(button => button.addEventListener('click', () => {
-    const id = (document.getElementById('arquivoSemana') as HTMLSelectElement | null)?.value
-    const week = programEntries().find(([weekId]) => weekId === id)?.[1]
-    if (!week) { toast('Importe uma semana antes de gerar o arquivo'); return }
-    generateProgramFile(button.dataset.generateFile ?? 's140', id ?? '', week)
+function normalizePrograms(value: Record<string, MeetingProgram>): Record<string, MeetingProgram> {
+  return Object.fromEntries(Object.entries(value).map(([id, raw]) => {
+    const parts = Array.isArray(raw?.parts) ? raw.parts : Object.values((raw?.parts ?? {}) as Record<string, ProgramPart>)
+    const meetingDate = String(raw?.meetingDate ?? (raw as unknown as Record<string, unknown>)?.['data'] ?? id)
+    return [id, { ...raw, id: raw?.id || id, meetingDate, bibleReading: raw?.bibleReading || '', type: raw?.type || 'normal', parts }]
   }))
 }
 
-function renderLembretes(): void {
-  const el = document.getElementById('programacaoContent')
-  if (!el) return
-  const people = peopleWithAssignments()
-  el.innerHTML = `
-    ${sectionTitle('Lembretes', 'Envie somente depois de conferir WhatsApp, data, horário e designação.')}
-    <div class="form-panel">
-      <label class="form-field"><span>Participante</span><select id="lembretePessoa">${people.map(([id, person]) => `<option value="${escapeHtml(id)}">${escapeHtml(person.name)}</option>`).join('')}</select></label>
-      <label class="form-field" style="margin-top:10px"><span>Semana</span><select id="lembreteSemana">${programEntries().map(([id, week]) => `<option value="${escapeHtml(id)}">${escapeHtml(formatDate(String(week.meetingDate ?? id)))}</option>`).join('')}</select></label>
-      <textarea id="lembretePreview" rows="7" readonly style="margin-top:10px"></textarea>
-      <button class="primary-btn" type="button" id="btnAbrirLembrete" style="margin-top:10px">Abrir WhatsApp</button>
-      <div class="form-help">A mensagem fica aberta para revisão. O app não envia nada automaticamente.</div>
-    </div>`
-  const refresh = () => {
-    const personId = (document.getElementById('lembretePessoa') as HTMLSelectElement | null)?.value ?? ''
-    const weekId = (document.getElementById('lembreteSemana') as HTMLSelectElement | null)?.value ?? ''
-    const week = programEntries().find(([id]) => id === weekId)?.[1]
-    const person = pessoas[personId]
-    const text = week && person ? reminderText(person, week, personId) : 'Nenhuma designação encontrada.'
-    const preview = document.getElementById('lembretePreview') as HTMLTextAreaElement | null
-    if (preview) preview.value = text
+export default function mount(_context: AppContext): void {
+  tab = 'indice'; editingWeek = ''
+  document.getElementById('appContent')!.innerHTML = '<div id="programacaoRoot"><div id="programacaoContent"><p class="empty-state">Carregando...</p></div></div>'
+  void load()
+}
+
+async function load(): Promise<void> {
+  try {
+    const [programSnap, peopleSnap, congregationSnap, meetingsSnap] = await Promise.all([get(programacaoRef), get(pessoasRef), get(configCongregacaoRef), get(configReunioesRef)])
+    data = programSnap.exists() ? programSnap.val() as ProgramData : {}
+    programs = normalizePrograms(data.programs ?? data.semanas ?? {})
+    profiles = data.pessoas ?? {}
+    settings = data.settings ?? {}
+    masterPeople = peopleSnap.exists() ? peopleSnap.val() as RawPessoas : {}
+    const congregationData = congregationSnap.exists() ? congregationSnap.val() as { nome?: string } : {}
+    congregation = congregationData.nome?.trim() || 'Noroeste'
+    const meetingData = meetingsSnap.exists() ? meetingsSnap.val() as { meiaDeSemana?: { horario?: string } } : {}
+    if (!settings.meetingTime && meetingData.meiaDeSemana?.horario) settings.meetingTime = meetingData.meiaDeSemana.horario
+  } catch (error) { console.error(error); toast('Não foi possível carregar Programação') }
+  render()
+}
+
+function render(): void {
+  if (tab === 'indice') renderIndex()
+  else if (tab === 'programa') renderPrograms()
+  else if (tab === 'apostilas') renderImports()
+  else if (tab === 'pessoas') renderPeople()
+  else if (tab === 'arquivos') renderFiles()
+  else if (tab === 'lembretes') renderReminders()
+  else if (tab === 'pendencias') renderPending()
+  else renderSettings()
+}
+
+function renderIndex(): void {
+  root().innerHTML = '<div style="margin-bottom:14px"><h2 style="font-size:1.05rem;color:var(--blue-deep)">Programação</h2></div><div id="programacaoMenu"></div>'
+  const items: ItemMenu[] = [
+    { id: 'programa', titulo: 'Programa', subtitulo: 'Semanas, partes e designações', icone: '▦', corFundo: '#003F72' },
+    { id: 'apostilas', titulo: 'Apostilas', subtitulo: 'Importação oficial por semana ou bimestre', icone: '▤', corFundo: '#7E3AF2' },
+    { id: 'pessoas', titulo: 'Pessoas', subtitulo: 'Vínculos e permissões de designação', icone: '♙', corFundo: '#006EB6' },
+    { id: 'arquivos', titulo: 'Arquivos', subtitulo: 'S-89, S-140 PDF e DOCX', icone: '▣', corFundo: '#1A6B3C' },
+    { id: 'lembretes', titulo: 'Lembretes', subtitulo: 'Mensagens editáveis e confirmações', icone: '✉', corFundo: '#A54B00' },
+    { id: 'pendencias', titulo: 'Pendências', subtitulo: 'Designações, conflitos e entregas', icone: '!', corFundo: '#B3261E' },
+    { id: 'config', titulo: 'Configuração', subtitulo: 'Horário, salas e texto de lembrete', icone: '⚙', corFundo: '#5C6062' },
+  ]
+  renderMenuCards(root().querySelector<HTMLElement>('#programacaoMenu')!, items, id => { tab = id as Tab; render() })
+}
+
+function title(text: string): string { return `<div style="margin-bottom:14px">${moduleBackButton()}<h2 style="font-size:1.05rem;color:var(--blue-deep)">${esc(text)}</h2></div>` }
+function periodControls(): string {
+  return `<div class="module-form-grid" style="margin-bottom:12px"><div class="form-group"><label class="form-label">Visualização</label><select id="programPeriodMode" class="form-select"><option value="week" ${periodMode === 'week' ? 'selected' : ''}>Semana</option><option value="month" ${periodMode === 'month' ? 'selected' : ''}>Mês</option><option value="bimester" ${periodMode === 'bimester' ? 'selected' : ''}>Bimestre</option></select></div><div class="form-group"><label class="form-label">Período</label><input id="programPeriodAnchor" class="form-input" type="date" value="${periodAnchor}"></div></div>`
+}
+function bindPeriod(callback: () => void): void {
+  document.getElementById('programPeriodMode')?.addEventListener('change', event => { periodMode = (event.target as HTMLSelectElement).value as PeriodMode; callback() })
+  document.getElementById('programPeriodAnchor')?.addEventListener('change', event => { periodAnchor = (event.target as HTMLInputElement).value || today(); callback() })
+}
+
+function renderPrograms(): void {
+  const list = filtered()
+  root().innerHTML = `${title('Programa')}${periodControls()}<div class="module-option-list">${list.length ? list.map(program => weekRow(program)).join('') : '<p class="empty-state">Nenhuma semana neste período.</p>'}</div><div id="weekEditor" style="margin-top:12px"></div>`
+  bindPeriod(renderPrograms)
+  document.querySelectorAll<HTMLButtonElement>('[data-week]').forEach(button => button.addEventListener('click', () => { editingWeek = button.dataset['week']!; renderPrograms() }))
+  if (editingWeek) renderEditor(editingWeek)
+}
+
+function weekRow(program: MeetingProgram): string {
+  const pending = program.parts.filter(part => !part.assignedPersonId).length
+  return `<button class="module-menu-btn" type="button" data-week="${esc(program.id)}"><div class="mod-icon" style="background:#003F7220;color:#003F72">${esc(program.meetingDate.slice(8, 10))}</div><div style="flex:1;min-width:0"><div class="mod-label">${esc(formatDate(program.meetingDate))} · ${esc(typeLabels[program.type ?? 'normal'])}</div><div class="mod-desc">${esc(program.bibleReading)} · ${pending ? `${pending} pendente(s)` : 'Completa'}</div></div></button>`
+}
+
+function optionsFor(part: ProgramPart, selected: string, assistant = false): string {
+  let people = candidates(part, joinedPeople(), assistant)
+  if (assistant && assistantNeedsSameSex(part) && part.assignedPersonId) {
+    const sex = joinedPeople().find(person => person.id === part.assignedPersonId)?.sex
+    if (sex) people = people.filter(person => person.sex === sex)
   }
-  document.getElementById('lembretePessoa')?.addEventListener('change', refresh)
-  document.getElementById('lembreteSemana')?.addEventListener('change', refresh)
-  document.getElementById('btnAbrirLembrete')?.addEventListener('click', () => {
-    const personId = (document.getElementById('lembretePessoa') as HTMLSelectElement | null)?.value ?? ''
-    const person = pessoas[personId]
-    if (!person) return
-    const text = (document.getElementById('lembretePreview') as HTMLTextAreaElement | null)?.value ?? ''
-    const phone = String(person.whatsapp ?? '').replace(/\D/g, '')
-    if (!phone) { toast('Cadastre o WhatsApp desta pessoa no Admin'); return }
-    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(text)}`, '_blank', 'noopener,noreferrer')
-    toast('WhatsApp aberto. Revise e envie a mensagem.')
+  const selectedPerson = joinedPeople().find(person => person.id === selected)
+  if (selectedPerson && !people.some(person => person.id === selected)) people = [selectedPerson, ...people]
+  return `<option value="">Sem designação</option>${people.map(person => `<option value="${esc(person.id)}" ${person.id === selected ? 'selected' : ''}>${esc(person.name)}</option>`).join('')}`
+}
+
+function permissionOptions(permission: AssignmentPermission, selected: string): string {
+  return `<option value="">Sem designação</option>${joinedPeople().filter(person => eligible(person, permission)).map(person => `<option value="${esc(person.id)}" ${person.id === selected ? 'selected' : ''}>${esc(person.name)}</option>`).join('')}`
+}
+
+function renderEditor(id: string): void {
+  const host = document.getElementById('weekEditor'), program = programs[id]
+  if (!host || !program) return
+  host.innerHTML = `<div class="form-panel"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><strong>${esc(formatDate(program.meetingDate))}</strong><button id="closeWeek" class="btn btn-ghost">Fechar</button></div><div class="module-form-grid" style="margin-top:10px"><div class="form-group"><label class="form-label">Tipo da semana</label><select id="weekType" class="form-select">${Object.entries(typeLabels).map(([value, label]) => `<option value="${value}" ${value === (program.type ?? 'normal') ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select></div><div class="form-group"><label class="form-label">Leitura bíblica</label><input id="weekBible" class="form-input" value="${esc(program.bibleReading)}"></div><div class="form-group"><label class="form-label">Conselheiro assistente</label><select id="weekCounselor" class="form-select">${permissionOptions('conselheiro-assistente', program.counselorPersonId ?? '')}</select></div></div><div id="partsEditor">${program.parts.map(partEditor).join('')}</div><div style="display:flex;gap:8px;flex-wrap:wrap"><button id="suggestProgram" class="btn btn-primary" type="button">Sugerir pendentes</button><button id="addProgramPart" class="btn btn-ghost" type="button">Adicionar parte</button></div><div class="form-help" style="margin-top:6px">Sugestões consideram elegibilidade, histórico e conflitos. Só são gravadas ao salvar.</div><div class="form-group" style="margin-top:10px"><label class="form-label">Observações</label><textarea id="weekNotes" class="form-input">${esc(program.notes ?? '')}</textarea></div><button id="saveWeek" class="btn btn-primary btn-full">Salvar programa</button></div>`
+  document.getElementById('closeWeek')!.addEventListener('click', () => { editingWeek = ''; renderPrograms() })
+  document.getElementById('addProgramPart')!.addEventListener('click', () => addPart(id))
+  document.getElementById('suggestProgram')!.addEventListener('click', () => { programs[id] = suggestAssignments(program, joinedPeople(), programList().filter(item => item.id !== id)); toast('Sugestões preparadas para revisão'); renderEditor(id) })
+  document.querySelectorAll<HTMLButtonElement>('[data-delete-part]').forEach(button => button.addEventListener('click', () => { program.parts = program.parts.filter(part => part.id !== button.dataset['deletePart']); renderEditor(id) }))
+  document.getElementById('saveWeek')!.addEventListener('click', () => void saveWeek(id))
+}
+
+function partEditor(part: ProgramPart): string {
+  const conflicts = assignmentConflicts(programs[editingWeek], part)
+  return `<div class="form-panel" data-part="${esc(part.id)}" style="margin:10px 0;padding:10px"><div style="display:flex;justify-content:space-between;gap:8px"><strong>${esc(part.title)}</strong><button class="btn btn-ghost" type="button" data-delete-part="${esc(part.id)}">Excluir</button></div><div class="module-form-grid"><div class="form-group"><label class="form-label">Título</label><input class="form-input" data-field="title" value="${esc(part.title)}"></div><div class="form-group"><label class="form-label">Seção</label><select class="form-select" data-field="section"><option value="tesouros" ${part.section === 'tesouros' ? 'selected' : ''}>Tesouros</option><option value="ministerio" ${part.section === 'ministerio' ? 'selected' : ''}>Ministério</option><option value="vida-crista" ${part.section === 'vida-crista' ? 'selected' : ''}>Vida cristã</option></select></div>${part.section === 'ministerio' ? `<div class="form-group"><label class="form-label">Formato didático</label><select class="form-select" data-field="teachingType"><option value="conteudo" ${part.teachingType === 'conteudo' ? 'selected' : ''}>Conteúdo</option><option value="cenas" ${part.teachingType === 'cenas' ? 'selected' : ''}>Cenas</option><option value="videos" ${part.teachingType === 'videos' ? 'selected' : ''}>Uso de vídeos</option></select></div>` : ''}<div class="form-group"><label class="form-label">Duração</label><input class="form-input" data-field="durationMinutes" type="number" min="1" max="90" value="${part.durationMinutes}"></div><div class="form-group"><label class="form-label">Principal · ${esc(permissionLabels[permissionForPart(part)])}</label><select class="form-select" data-field="assignedPersonId">${optionsFor(part, part.assignedPersonId ?? '')}</select></div>${part.section === 'ministerio' ? `<div class="form-group"><label class="form-label">Ajudante</label><select class="form-select" data-field="assistantPersonId">${optionsFor(part, part.assistantPersonId ?? '', true)}</select></div>` : ''}<div class="form-group"><label class="form-label">Sala</label><select class="form-select" data-field="roomId">${rooms().map(room => `<option value="${esc(room.id)}" ${room.id === (part.roomId ?? 'main') ? 'selected' : ''}>${esc(room.name)}</option>`).join('')}</select></div><div class="form-group"><label class="form-label">Substituto</label><select class="form-select" data-field="substitutePersonId"><option value="">Sem substituição</option>${joinedPeople().filter(person => person.active).map(person => `<option value="${esc(person.id)}" ${person.id === part.substitutePersonId ? 'selected' : ''}>${esc(person.name)}</option>`).join('')}</select></div><div class="form-group"><label class="form-label">Quem realizou</label><select class="form-select" data-field="realizedPersonId"><option value="">Ainda não informado</option>${joinedPeople().map(person => `<option value="${esc(person.id)}" ${person.id === part.realizedPersonId ? 'selected' : ''}>${esc(person.name)}</option>`).join('')}</select></div><div class="form-group"><label class="form-label">Situação</label><select class="form-select" data-field="status">${Object.entries(statusLabels).map(([value, label]) => `<option value="${value}" ${value === (part.status ?? 'programado') ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select></div></div>${conflicts.length ? `<div class="notice warning">${esc(conflicts.join(' '))}</div>` : ''}</div>`
+}
+
+function addPart(id: string): void {
+  const program = programs[id], number = program.parts.length + 1
+  program.parts.push({ id: `${id}-manual-${Date.now()}`, section: 'vida-crista', title: `Parte ${number}`, durationMinutes: 10 })
+  renderEditor(id)
+}
+
+async function saveWeek(id: string): Promise<void> {
+  const program = programs[id]
+  const parts = Array.from(document.querySelectorAll<HTMLElement>('[data-part]')).map((element): ProgramPart => {
+    const value = (field: string) => (element.querySelector(`[data-field="${field}"]`) as HTMLInputElement | HTMLSelectElement | null)?.value ?? ''
+    const previous = program.parts.find(part => part.id === element.dataset['part'])!
+    return { ...previous, title: value('title').trim(), section: value('section') as ProgramPart['section'], teachingType: (value('teachingType') || undefined) as ProgramPart['teachingType'], durationMinutes: Math.max(1, Number(value('durationMinutes')) || 1), assignedPersonId: value('assignedPersonId') || undefined, assistantPersonId: value('assistantPersonId') || undefined, substitutePersonId: value('substitutePersonId') || undefined, realizedPersonId: value('realizedPersonId') || undefined, status: value('status') as AssignmentStatus, roomId: value('roomId') || 'main', updatedAt: now() }
   })
+  if (parts.some(part => !part.title)) { toast('Todas as partes precisam de título'); return }
+  const next: MeetingProgram = { ...program, type: (document.getElementById('weekType') as HTMLSelectElement).value as WeekType, counselorPersonId: (document.getElementById('weekCounselor') as HTMLSelectElement).value || undefined, bibleReading: (document.getElementById('weekBible') as HTMLInputElement).value.trim(), notes: (document.getElementById('weekNotes') as HTMLTextAreaElement).value.trim(), parts, updatedAt: now() }
+  try { await update(programacaoRef, { [`programs/${id}`]: next }); programs[id] = next; editingWeek = ''; toast('Programa salvo'); renderPrograms() } catch { toast('Não foi possível salvar o programa') }
+}
+
+function renderImports(): void {
+  const year = Number(periodAnchor.slice(0, 4)) || new Date().getFullYear()
+  const currentBi = Math.floor((Number(periodAnchor.slice(5, 7)) - 1) / 2) * 2
+  root().innerHTML = `${title('Apostilas')}<div class="form-panel"><label class="form-label">Bimestre oficial</label><select id="bimester" class="form-select">${bimesters(year).map(item => `<option value="${item.startMonth}" ${item.startMonth === currentBi ? 'selected' : ''}>${esc(item.label)}</option>`).join('')}</select><button id="importBimester" class="btn btn-primary btn-full" style="margin-top:10px">Importar bimestre</button><div id="importResult" class="form-help" style="margin-top:8px"></div></div><form id="singleImport" class="form-panel" style="margin-top:10px"><label class="form-label">Página semanal oficial</label><input name="url" class="form-input" type="url" placeholder="https://www.jw.org/pt/..." required><button class="btn btn-ghost btn-full" style="margin-top:10px">Importar uma semana</button></form><details class="form-panel" style="margin-top:10px"><summary>Importação pontual por JSON</summary><textarea id="programJson" class="form-input" rows="7" style="margin-top:8px"></textarea><button id="importJson" class="btn btn-ghost btn-full" style="margin-top:8px">Salvar JSON</button></details>`
+  document.getElementById('importBimester')!.addEventListener('click', () => void importBimester(year, Number((document.getElementById('bimester') as HTMLSelectElement).value)))
+  document.getElementById('singleImport')!.addEventListener('submit', event => { event.preventDefault(); void importSingle(String(new FormData(event.currentTarget as HTMLFormElement).get('url') ?? '')) })
+  document.getElementById('importJson')!.addEventListener('click', () => void importJson())
+}
+
+async function requestJson(body: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const response = await fetch(API_IMPORT_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+  const payload = await response.json() as Record<string, unknown>
+  if (!response.ok) throw new Error(String(payload['error'] ?? 'Não foi possível acessar a programação oficial.'))
+  return payload
+}
+
+async function importBimester(year: number, startMonth: number): Promise<void> {
+  const button = document.getElementById('importBimester') as HTMLButtonElement; button.disabled = true
+  try {
+    const payload = await requestJson({ operation: 'bimonthly', year, startMonth })
+    const pages = Array.isArray(payload['pages']) ? payload['pages'] as Array<{ sourceUrl: string; html: string }> : []
+    const failures = Array.isArray(payload['failures']) ? [...payload['failures'] as string[]] : []
+    const parsed: MeetingProgram[] = []
+    pages.forEach(page => { try { parsed.push(parseOfficialProgram(page.sourceUrl, page.html)) } catch (error) { failures.push(error instanceof Error ? error.message : String(error)) } })
+    await saveImported(parsed)
+    const result = document.getElementById('importResult'); if (result) result.textContent = `${parsed.length} semana(s) processada(s). ${failures.length} falha(s). Semanas existentes foram preservadas.`
+    toast('Importação bimestral concluída')
+  } catch (error) { toast(error instanceof Error ? error.message : 'Falha na importação') } finally { button.disabled = false }
+}
+
+async function importSingle(url: string): Promise<void> {
+  try {
+    if (!isOfficialJwUrl(url)) throw new Error('Use uma URL oficial em https://www.jw.org/pt/.')
+    const payload = await requestJson({ url })
+    const html = String(payload['html'] ?? '')
+    if (!html) throw new Error('A página não retornou conteúdo.')
+    await saveImported([parseOfficialProgram(url, html)])
+    toast('Semana importada'); tab = 'programa'; render()
+  } catch (error) { toast(error instanceof Error ? error.message : 'Falha na importação') }
+}
+
+async function importJson(): Promise<void> {
+  try {
+    const raw = JSON.parse((document.getElementById('programJson') as HTMLTextAreaElement).value) as MeetingProgram
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(raw.meetingDate) || !Array.isArray(raw.parts)) throw new Error()
+    await saveImported([{ ...raw, id: raw.id || raw.meetingDate }]); toast('Semana salva'); tab = 'programa'; render()
+  } catch { toast('JSON inválido. Informe data e partes.') }
+}
+
+async function saveImported(incoming: MeetingProgram[]): Promise<void> {
+  const stamp = now(), patch: Record<string, unknown> = {}
+  incoming.forEach(program => { const merged = mergeImportedProgram(programs[program.id], program, stamp); patch[`programs/${program.id}`] = merged; programs[program.id] = merged })
+  if (Object.keys(patch).length) await update(programacaoRef, patch)
+}
+
+function renderPeople(): void {
+  const people = joinedPeople()
+  root().innerHTML = `${title('Pessoas')}<div style="display:flex;justify-content:flex-end;margin-bottom:10px"><button id="linkPerson" class="btn btn-primary">Vincular pessoa do Admin</button></div><div class="module-option-list">${people.length ? people.map(person => `<button class="module-menu-btn" data-profile="${esc(person.id)}"><div class="mod-icon" style="background:#006EB620;color:#006EB6">${esc(person.name.charAt(0))}</div><div><div class="mod-label">${esc(person.name)}</div><div class="mod-desc">${person.active ? 'Ativo' : 'Inativo'} · ${person.permissions.length} permissão(ões)</div></div></button>`).join('') : '<p class="empty-state">Nenhuma pessoa vinculada à Programação.</p>'}</div>`
+  document.getElementById('linkPerson')!.addEventListener('click', linkPersonModal)
+  document.querySelectorAll<HTMLButtonElement>('[data-profile]').forEach(button => button.addEventListener('click', () => profileModal(button.dataset['profile']!)))
+}
+
+function linkPersonModal(): void {
+  const used = new Set(Object.values(profiles).map(profile => profile.masterId))
+  const available = Object.entries(masterPeople).filter(([id, person]) => person.active && !used.has(id)).sort(([, a], [, b]) => a.name.localeCompare(b.name, 'pt-BR'))
+  const overlay = document.createElement('div'); overlay.className = 'modal-overlay'
+  overlay.innerHTML = `<div class="modal"><h2>Vincular pessoa</h2><div class="form-group"><label class="form-label">Pessoa cadastrada no Admin</label><select id="masterToLink" class="form-select">${available.map(([id, person]) => `<option value="${esc(id)}">${esc(person.name)}</option>`).join('')}</select></div><div style="display:flex;gap:8px"><button id="cancelLink" class="btn btn-ghost" style="flex:1">Cancelar</button><button id="saveLink" class="btn btn-primary" style="flex:1" ${available.length ? '' : 'disabled'}>Vincular</button></div></div>`
+  document.body.appendChild(overlay)
+  document.getElementById('cancelLink')!.addEventListener('click', () => overlay.remove())
+  document.getElementById('saveLink')!.addEventListener('click', async () => { const id = (document.getElementById('masterToLink') as HTMLSelectElement).value; if (!id) return; await update(programacaoRef, { [`pessoas/${id}`]: { masterId: id, active: true, permissions: [] } }); profiles[id] = { masterId: id, active: true, permissions: [] }; overlay.remove(); toast('Pessoa vinculada'); renderPeople() })
+}
+
+function profileModal(id: string): void {
+  const person = joinedPeople().find(item => item.id === id)!, profile = profiles[id]
+  const overlay = document.createElement('div'); overlay.className = 'modal-overlay'
+  overlay.innerHTML = `<div class="modal"><h2>${esc(person.name)}</h2><div class="form-help" style="margin-bottom:10px">Nome, sexo, privilégio e WhatsApp são editados no Admin.</div><label style="display:flex;gap:7px;margin-bottom:12px"><input id="profileActive" type="checkbox" ${profile.active !== false ? 'checked' : ''}> Participa da Programação</label><div class="form-label" style="margin-bottom:6px">Permissões específicas</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:7px">${ASSIGNMENT_PERMISSIONS.map(permission => `<label style="font-size:.76rem"><input type="checkbox" data-permission="${permission}" ${profile.permissions?.includes(permission) ? 'checked' : ''}> ${esc(permissionLabels[permission])}</label>`).join('')}</div><div style="display:flex;gap:8px;margin-top:14px"><button id="unlinkProfile" class="btn btn-danger">Desvincular</button><span style="flex:1"></span><button id="cancelProfile" class="btn btn-ghost">Cancelar</button><button id="saveProfile" class="btn btn-primary">Salvar</button></div></div>`
+  document.body.appendChild(overlay)
+  document.getElementById('cancelProfile')!.addEventListener('click', () => overlay.remove())
+  document.getElementById('saveProfile')!.addEventListener('click', async () => { const permissions = Array.from(document.querySelectorAll<HTMLInputElement>('[data-permission]:checked')).map(box => box.dataset['permission'] as AssignmentPermission); const next = { ...profile, active: (document.getElementById('profileActive') as HTMLInputElement).checked, permissions }; await update(programacaoRef, { [`pessoas/${id}`]: next }); profiles[id] = next; overlay.remove(); toast('Permissões salvas'); renderPeople() })
+  document.getElementById('unlinkProfile')!.addEventListener('click', async () => { if (programList().some(program => program.parts.some(part => [part.assignedPersonId, part.assistantPersonId, part.substitutePersonId].includes(id)))) { toast('Pessoa usada no histórico; desative em vez de desvincular'); return } if (!confirm(`Desvincular ${person.name}?`)) return; await update(programacaoRef, { [`pessoas/${id}`]: null }); delete profiles[id]; overlay.remove(); renderPeople() })
+}
+
+function renderFiles(): void {
+  const list = filtered()
+  root().innerHTML = `${title('Arquivos')}${periodControls()}<div class="form-panel"><label class="form-label">Semana para S-89</label><select id="fileWeek" class="form-select">${list.map(program => `<option value="${esc(program.id)}">${esc(formatDate(program.meetingDate))}</option>`).join('')}</select><label class="form-label" style="margin-top:8px">Cartão individual</label><select id="filePart" class="form-select"></select><div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"><button id="fileS89One" class="btn btn-primary" ${list.length ? '' : 'disabled'}>S-89 selecionado</button><button id="fileS89" class="btn btn-ghost" ${list.length ? '' : 'disabled'}>S-89 da semana</button><button id="filePdf" class="btn btn-ghost" ${list.length ? '' : 'disabled'}>S-140 PDF</button><button id="fileDocx" class="btn btn-ghost" ${list.length ? '' : 'disabled'}>S-140 DOCX</button><a class="btn btn-ghost" href="https://www.jw.org/pt/biblioteca/orientacoes/" target="_blank" rel="noopener noreferrer">Abrir S-38 oficial</a></div><div class="form-help" style="margin-top:8px">Os documentos usam o período selecionado. Gerar arquivos não altera a programação.</div></div>`
+  bindPeriod(renderFiles)
+  const refreshParts = () => { const program = programs[(document.getElementById('fileWeek') as HTMLSelectElement).value]; const parts = program?.parts.filter(part => part.section === 'ministerio' && part.assignedPersonId) ?? []; (document.getElementById('filePart') as HTMLSelectElement).innerHTML = parts.map(part => `<option value="${esc(part.id)}">${esc(part.title)}</option>`).join('') }
+  document.getElementById('fileWeek')?.addEventListener('change', refreshParts)
+  document.getElementById('fileS89One')?.addEventListener('click', async () => { const { downloadS89 } = await import('./programacao-documents'); const program = programs[(document.getElementById('fileWeek') as HTMLSelectElement).value]; const partId = (document.getElementById('filePart') as HTMLSelectElement).value; const count = await downloadS89({ ...program, parts: program.parts.filter(part => part.id === partId) }, joinedPeople()); toast(count ? 'Cartão S-89 gerado' : 'Selecione uma designação do ministério') })
+  document.getElementById('fileS89')?.addEventListener('click', async () => { const { downloadS89 } = await import('./programacao-documents'); const program = programs[(document.getElementById('fileWeek') as HTMLSelectElement).value]; const count = await downloadS89(program, joinedPeople()); toast(count ? `${count} cartão(ões) S-89 gerado(s)` : 'Não há partes do ministério designadas') })
+  document.getElementById('filePdf')?.addEventListener('click', async () => { const { downloadS140Pdf } = await import('./programacao-documents'); await downloadS140Pdf(list, congregation, joinedPeople()); toast('S-140 PDF gerado') })
+  document.getElementById('fileDocx')?.addEventListener('click', async () => { const { downloadS140Docx } = await import('./programacao-documents'); await downloadS140Docx(list, congregation, joinedPeople()); toast('S-140 DOCX gerado') })
+  refreshParts()
+}
+
+function reminderEntries(): Array<{ program: MeetingProgram; part: ProgramPart; person: ProgramPerson }> {
+  const people = new Map(joinedPeople().map(person => [person.id, person]))
+  return filtered().flatMap(program => program.parts.flatMap(part => { const person = people.get(part.substitutePersonId ?? part.assignedPersonId ?? ''); return person ? [{ program, part, person }] : [] }))
+}
+
+function renderReminders(): void {
+  const entries = reminderEntries()
+  root().innerHTML = `${title('Lembretes')}${periodControls()}<div class="form-panel"><label class="form-label">Designação</label><select id="reminderEntry" class="form-select">${entries.map((entry, index) => `<option value="${index}">${esc(formatDate(entry.program.meetingDate))} · ${esc(entry.person.name)} · ${esc(entry.part.title)}</option>`).join('')}</select><textarea id="reminderText" class="form-input" rows="8" style="margin-top:10px"></textarea><div style="display:flex;gap:8px;margin-top:10px"><button id="openReminder" class="btn btn-primary" ${entries.length ? '' : 'disabled'}>Abrir WhatsApp</button><button id="confirmReminder" class="btn btn-ghost" ${entries.length ? '' : 'disabled'}>Marcar confirmado</button></div></div>`
+  bindPeriod(renderReminders)
+  const refresh = () => { const entry = entries[Number((document.getElementById('reminderEntry') as HTMLSelectElement).value)]; (document.getElementById('reminderText') as HTMLTextAreaElement).value = entry ? reminderMessage(entry.person, entry.program, entry.part, meetingTime(), settings.reminderTemplate) : '' }
+  document.getElementById('reminderEntry')?.addEventListener('change', refresh)
+  document.getElementById('openReminder')?.addEventListener('click', async () => { const entry = entries[Number((document.getElementById('reminderEntry') as HTMLSelectElement).value)]; if (!entry?.person.whatsapp) { toast('Cadastre o WhatsApp no Admin'); return } const popup = window.open(`https://wa.me/${entry.person.whatsapp}?text=${encodeURIComponent((document.getElementById('reminderText') as HTMLTextAreaElement).value)}`, '_blank', 'noopener,noreferrer'); if (!popup) { toast('Permita pop-ups para abrir o WhatsApp'); return } const stamp = now(); await update(programacaoRef, { [`programs/${entry.program.id}/parts/${entry.program.parts.indexOf(entry.part)}/remindedAt`]: stamp }); entry.part.remindedAt = stamp; toast('WhatsApp aberto; revise antes de enviar') })
+  document.getElementById('confirmReminder')?.addEventListener('click', async () => { const entry = entries[Number((document.getElementById('reminderEntry') as HTMLSelectElement).value)]; if (!entry) return; const stamp = now(); await update(programacaoRef, { [`programs/${entry.program.id}/parts/${entry.program.parts.indexOf(entry.part)}/confirmedAt`]: stamp }); entry.part.confirmedAt = stamp; toast('Confirmação registrada') })
   refresh()
 }
 
-function programEntries(): Array<[string, Row]> {
-  const source = records(programacao.programs ?? programacao.semanas ?? programacao)
-  return Object.entries(source).map(([id, value]): [string, Row] => [id, records(value)]).sort(([, a], [, b]) => String(a.meetingDate ?? '').localeCompare(String(b.meetingDate ?? '')))
+function renderPending(): void {
+  const pending = programPendings(filtered(), joinedPeople())
+  root().innerHTML = `${title('Pendências')}${periodControls()}<div class="module-option-list">${pending.length ? pending.map(item => `<button class="module-menu-btn" data-pending-date="${item.date}"><div class="mod-icon" style="background:#B3261E20;color:#B3261E">!</div><div><div class="mod-label">${esc(formatDate(item.date))}</div><div class="mod-desc">${esc(item.message)}</div></div></button>`).join('') : '<div class="notice success">Nenhuma pendência no período.</div>'}</div>`
+  bindPeriod(renderPending)
+  document.querySelectorAll<HTMLButtonElement>('[data-pending-date]').forEach(button => button.addEventListener('click', () => { periodAnchor = button.dataset['pendingDate']!; editingWeek = programList().find(program => program.meetingDate === periodAnchor)?.id ?? ''; tab = 'programa'; render() }))
 }
 
-function peopleWithAssignments(): Array<[string, MasterPessoa]> {
-  const ids = new Set<string>()
-  programEntries().forEach(([, week]) => {
-    const parts = Array.isArray(week.parts) ? week.parts : Object.values(records(week.parts))
-    parts.forEach(part => {
-      const item = records(part)
-      const id = String(item.assignedPersonId ?? item.pessoaId ?? '')
-      if (id) ids.add(id)
-    })
+function renderSettings(): void {
+  root().innerHTML = `${title('Configuração')}<div class="form-panel"><div class="form-group"><label class="form-label">Horário da reunião</label><input id="settingTime" class="form-input" type="time" value="${esc(meetingTime())}"></div><div class="form-group"><label class="form-label">Salas</label><textarea id="settingRooms" class="form-input" rows="3">${esc(rooms().map(room => room.name).join('\n'))}</textarea><div class="form-help">Uma sala por linha. A primeira é o salão principal.</div></div><div class="form-group"><label class="form-label">Modelo de lembrete</label><textarea id="settingTemplate" class="form-input" rows="7">${esc(settings.reminderTemplate || 'Olá, {nome}!\n\nLembrando sua designação na reunião de {data}, às {horario}:\n\nParte: {parte}\n\nPor favor, confirme o recebimento.')}</textarea><div class="form-help">Marcadores: {nome}, {data}, {horario} e {parte}.</div></div><button id="saveProgramSettings" class="btn btn-primary btn-full">Salvar configuração</button></div>`
+  document.getElementById('saveProgramSettings')!.addEventListener('click', async () => {
+    const names = (document.getElementById('settingRooms') as HTMLTextAreaElement).value.split('\n').map(value => value.trim()).filter(Boolean)
+    if (!names.length) { toast('Informe ao menos uma sala'); return }
+    const next: Settings = { meetingTime: (document.getElementById('settingTime') as HTMLInputElement).value || '19:00', rooms: names.map((name, index) => ({ id: index ? `room-${index + 1}` : 'main', name })), reminderTemplate: (document.getElementById('settingTemplate') as HTMLTextAreaElement).value.trim() }
+    try { await update(programacaoRef, { settings: next }); settings = next; toast('Configuração salva') } catch { toast('Não foi possível salvar a configuração') }
   })
-  return [...ids].map(id => pessoas[id] ? [id, pessoas[id]] as [string, MasterPessoa] : null).filter((entry): entry is [string, MasterPessoa] => Boolean(entry)).sort(([, a], [, b]) => a.name.localeCompare(b.name, 'pt-BR'))
-}
-
-function reminderText(person: { name: string }, week: Row, personId: string): string {
-  const date = formatDate(String(week.meetingDate ?? ''))
-  const parts = (Array.isArray(week.parts) ? week.parts : Object.values(records(week.parts))).map(records).filter(part => String(part.assignedPersonId ?? part.pessoaId ?? '') === personId)
-  return `Olá, ${person.name}!\n\nSua designação para a reunião de ${date} é:\n${parts.map(part => `• ${String(part.title ?? 'Parte')} (${String(part.durationMinutes ?? '?')} min)`).join('\n') || 'Confira a programação no app.'}\n\nPor favor, confirme a leitura e avise se precisar de ajuda.`
-}
-
-function generateProgramFile(kind: string, id: string, week: Row): void {
-  const date = formatDate(String(week.meetingDate ?? id))
-  const parts = (Array.isArray(week.parts) ? week.parts : Object.values(records(week.parts))).map(records)
-  const rows = parts.map(part => `<tr><td>${escapeHtml(String(part.id ?? ''))}</td><td>${escapeHtml(String(part.title ?? ''))}</td><td>${escapeHtml(String(part.durationMinutes ?? ''))} min</td><td>${escapeHtml(String(pessoas[String(part.assignedPersonId ?? part.pessoaId ?? '')]?.name ?? 'Sem designação'))}</td></tr>`).join('')
-  const title = kind === 's89' ? 'S-89 - Designações individuais' : 'S-140 - Programação da reunião'
-  const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${title}</title><style>body{font-family:Arial,sans-serif;margin:28px;color:#222}h1{font-size:20px;color:#003f72}table{width:100%;border-collapse:collapse}th,td{border:1px solid #bbb;padding:7px;text-align:left}th{background:#e8f1f7}@media print{button{display:none}}</style></head><body><h1>${title}</h1><p><strong>Data:</strong> ${date} &nbsp; <strong>Leitura:</strong> ${escapeHtml(String(week.bibleReading ?? ''))}</p><table><thead><tr><th>Nº</th><th>Parte</th><th>Duração</th><th>Designado</th></tr></thead><tbody>${rows}</tbody></table><button onclick="window.print()">Imprimir / Salvar PDF</button></body></html>`
-  if (kind === 'docx') {
-    const blob = new Blob([html], { type: 'application/msword' })
-    const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = `programacao-${id}.doc`; link.click(); URL.revokeObjectURL(link.href); toast('Documento baixado')
-    return
-  }
-  const popup = window.open('', '_blank')
-  if (!popup) { toast('Permita pop-ups para gerar o arquivo'); return }
-  popup.document.write(html); popup.document.close(); popup.focus(); if (kind === 's140') popup.print()
-}
-
-function sectionTitle(title: string, desc: string): string {
-  return `
-    <div style="margin-bottom:14px">
-      ${moduleBackButton()}
-      <h2 style="font-size:1.05rem;color:var(--blue-deep);margin-bottom:2px">${escapeHtml(title)}</h2>
-      <p style="font-size:.8rem;color:var(--ink-3)">${escapeHtml(desc)}</p>
-    </div>`
-}
-
-function metricCard(label: string, value: string, color: string): string {
-  return `
-    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 12px">
-      <div style="font-size:1.15rem;font-weight:800;color:${color};line-height:1"><span data-kpi-value="${escapeHtml(value)}">0</span></div>
-      <div style="font-size:.72rem;color:var(--ink-3);margin-top:4px;text-transform:uppercase;font-weight:700">
-        ${escapeHtml(label)}
-      </div>
-    </div>`
 }
