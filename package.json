@@ -11,7 +11,8 @@
     "test:escala": "node --test tests/escala-domain.test.mjs",
     "test:programacao": "node --test tests/programacao-domain.test.mjs tests/programacao-documents.test.mjs",
     "test:limpeza": "node --test tests/limpeza-domain.test.mjs tests/limpeza-documents.test.mjs",
-    "test:secretario": "node --test tests/secretario-domain.test.mjs tests/secretario-documents.test.mjs"
+    "test:secretario": "node --test tests/secretario-domain.test.mjs tests/secretario-documents.test.mjs",
+    "test:individual": "node --test tests/individual-domain.test.mjs"
   },
   "dependencies": {
     "docx": "^9.7.1",
