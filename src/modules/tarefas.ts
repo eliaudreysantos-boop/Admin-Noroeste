@@ -471,9 +471,17 @@ function renderMensagens(): void {
     .sort(([, a], [, b]) => pessoaNome(a, '').localeCompare(pessoaNome(b, ''), 'pt-BR'))
 
   content.innerHTML = `
-    ${sectionTitle('Mensagens', 'Use depois de revisar a escala e confirmar que os participantes estão vinculados.')}
+    ${sectionTitle('Mensagens', 'Gere um rascunho, revise o texto e só depois copie ou abra o WhatsApp.')}
     <div class="module-form-grid">
       <div class="form-group">
+        <label class="form-label" for="messageType">Modelo</label>
+        <select id="messageType" class="form-select">
+          <option value="person">Para uma pessoa</option>
+          <option value="day">Da reunião</option>
+          <option value="confirm">Confirmar escala</option>
+        </select>
+      </div>
+      <div class="form-group" id="messagePersonGroup">
         <label class="form-label" for="messagePerson">Pessoa</label>
         <select id="messagePerson" class="form-select">
           <option value="">Selecione uma pessoa</option>
@@ -488,27 +496,43 @@ function renderMensagens(): void {
         </select>
       </div>
     </div>
-    <div id="messagePreview" class="message-preview">Selecione uma pessoa e uma reunião para montar a mensagem.</div>
+    <div class="form-group">
+      <label class="form-label" for="messageDraft">Mensagem para revisão</label>
+      <textarea id="messageDraft" class="form-input" rows="8" style="resize:vertical" placeholder="Selecione um modelo para gerar o rascunho."></textarea>
+      <div class="form-help">Este texto é um rascunho. Edite conforme a orientação aprovada antes de enviar.</div>
+    </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <button id="btnOpenPersonMessage" class="btn btn-primary" type="button">Abrir WhatsApp</button>
       <button id="btnCopyPersonMessage" class="btn btn-ghost" type="button">Copiar texto</button>
     </div>`
 
-  const updatePreview = () => {
+  const updateDraft = () => {
+    const type = (document.getElementById('messageType') as HTMLSelectElement).value
     const personId = (document.getElementById('messagePerson') as HTMLSelectElement).value
     const date = (document.getElementById('messageMeeting') as HTMLSelectElement).value
     const person = personId ? pessoas[personId] : undefined
     const meeting = meetings.find(item => item.date === date)
-    const text = buildPersonMessage(personId, person, meeting)
-    const preview = document.getElementById('messagePreview')
-    if (preview) preview.textContent = text || 'Selecione uma pessoa e uma reunião para montar a mensagem.'
+    const text = type === 'day'
+      ? buildDayMessage(meeting)
+      : type === 'confirm'
+        ? buildConfirmationMessage(personId, person, meeting)
+        : buildPersonMessage(personId, person, meeting)
+    const draft = document.getElementById('messageDraft') as HTMLTextAreaElement | null
+    if (draft) draft.value = text
     return text
   }
 
-  document.getElementById('messagePerson')?.addEventListener('change', updatePreview)
-  document.getElementById('messageMeeting')?.addEventListener('change', updatePreview)
+  const syncMessageFields = () => {
+    const type = (document.getElementById('messageType') as HTMLSelectElement).value
+    const personGroup = document.getElementById('messagePersonGroup')
+    if (personGroup) personGroup.style.display = type === 'day' ? 'none' : ''
+    updateDraft()
+  }
+  document.getElementById('messageType')?.addEventListener('change', syncMessageFields)
+  document.getElementById('messagePerson')?.addEventListener('change', updateDraft)
+  document.getElementById('messageMeeting')?.addEventListener('change', updateDraft)
   document.getElementById('btnOpenPersonMessage')?.addEventListener('click', () => {
-    const text = updatePreview()
+    const text = (document.getElementById('messageDraft') as HTMLTextAreaElement)?.value.trim()
     if (!text) { toast('Selecione a pessoa e a reunião'); return }
     const personId = (document.getElementById('messagePerson') as HTMLSelectElement).value
     const phone = String(pessoas[personId]?.whatsapp ?? pessoas[personId]?.telefone ?? '').replace(/\D/g, '')
@@ -517,10 +541,11 @@ function renderMensagens(): void {
     toast('WhatsApp aberto. Revise e envie a mensagem.')
   })
   document.getElementById('btnCopyPersonMessage')?.addEventListener('click', async () => {
-    const text = updatePreview()
+    const text = (document.getElementById('messageDraft') as HTMLTextAreaElement)?.value.trim()
     if (!text) { toast('Selecione a pessoa e a reunião'); return }
     try { await navigator.clipboard.writeText(text); toast('Texto copiado') } catch { toast('Não foi possível copiar o texto') }
   })
+  syncMessageFields()
 }
 
 function buildPersonMessage(id: string, person: TarefasPessoa | undefined, meeting: TarefasMeeting | undefined): string {
@@ -530,6 +555,37 @@ function buildPersonMessage(id: string, person: TarefasPessoa | undefined, meeti
     .map(([role]) => roleLabel(role))
   if (!roles.length) return ''
   return `Olá, ${pessoaNome(person, id)}! Você está designado(a) para ${roles.join(' e ')} na reunião de ${formatDate(meeting.date)}. Por favor, confirme sua disponibilidade.`
+}
+
+function buildDayMessage(meeting: TarefasMeeting | undefined): string {
+  if (!meeting) return ''
+  const linhas = Object.entries(meeting.assignments ?? {})
+    .map(([role, value]) => `${roleLabel(role)}: ${assignmentName(value)}`)
+    .filter(line => !line.endsWith(': '))
+  return [
+    `Olá, tudo bem? Segue a escala da reunião de ${formatDate(meeting.date)}:`,
+    '',
+    meeting.type ? `Tipo: ${meeting.type}` : '',
+    ...linhas,
+    '',
+    'Por favor, confira sua designação e avise se precisar de algum ajuste.',
+  ].filter(Boolean).join('\n')
+}
+
+function buildConfirmationMessage(id: string, person: TarefasPessoa | undefined, meeting: TarefasMeeting | undefined): string {
+  if (!id || !person || !meeting) return ''
+  const roles = Object.entries(meeting.assignments ?? {})
+    .filter(([, value]) => assignmentPersonId(value) === id)
+    .map(([role]) => roleLabel(role))
+  if (!roles.length) return ''
+  return [
+    `Olá, ${pessoaNome(person, id)}! Tudo bem?`,
+    '',
+    `Você está designado(a) para ${roles.join(' e ')} na reunião de ${formatDate(meeting.date)}.`,
+    'Pode confirmar se está tudo certo com sua participação?',
+    '',
+    'Se precisar de substituição ou tiver alguma dúvida, avise por favor.',
+  ].join('\n')
 }
 
 function sectionTitle(title: string, desc: string): string {
