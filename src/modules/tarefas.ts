@@ -2,12 +2,49 @@ import type { AppContext } from '../types'
 import {
   get,
   update,
+  tarefasRef,
   tarefasPeopleRef,
   tarefasPlanejamentoRef,
   tarefasScaleRef,
+  tarefasDiscursosRef,
+  tarefasEventosRef,
+  tarefasSettingsRef,
+  configCongregacaoRef,
+  pessoasRef,
 } from '../firebase'
 import { renderMenuCards, type ItemMenu } from '../ui/menu-cards'
 import { moduleBackButton } from '../ui/module-header'
+import {
+  TASK_ROLES,
+  TASK_ROLE_LABELS,
+  assignmentForRole,
+  canonicalMeetingType,
+  computeGeneration,
+  manualConflictReason,
+  meetingIsBlocked,
+  meetingEntries,
+  personIsActive,
+  personName,
+  personPhone,
+  roleApplies,
+  withCanonicalPeriod,
+  type TaskDomainContext,
+  type TaskEvent,
+  type TaskMeeting,
+  type TaskPeriod,
+  type TaskPerson,
+  type TaskRole,
+  type TaskSpeaker,
+  type TaskTalk,
+} from './tarefas-domain'
+import {
+  buildTaskConfirmationMessage,
+  buildTaskDayMessage,
+  buildTaskPersonMessage,
+  formatTaskDate,
+  paginateItems,
+  rowsPerPrintPage,
+} from './tarefas-output'
 
 type TarefasTab = 'indice' | 'resumo' | 'escala' | 'participantes' | 'mensagens' | 'pendencias'
 
@@ -18,38 +55,39 @@ const PRINT_DEFAULT_PT = 14
 const A4_LANDSCAPE_WIDTH_PX = ((297 - 16) / 25.4) * 96
 const A4_LANDSCAPE_HEIGHT_PX = ((210 - 16) / 25.4) * 96
 
-interface TarefasPessoa {
-  name?: string
-  nome?: string
-  whatsapp?: string
-  telefone?: string
-  active?: boolean
-  ativo?: boolean
-  masterId?: string
-  roles?: Record<string, boolean>
-  weight?: number
-  unavailableDates?: string[]
-}
-
-interface TarefasMeeting {
-  date?: string
-  type?: string
-  assignments?: Record<string, unknown>
-}
-
-interface TarefasPeriod {
-  meetings?: Record<string, TarefasMeeting>
-}
+type TarefasPessoa = TaskPerson
+type TarefasMeeting = TaskMeeting
+type TarefasPeriod = TaskPeriod
 
 interface TarefasPlanning {
   scaleStartDate?: string
   generatedAt?: string
+  periodMode?: 'month' | 'bimester'
+  meetingDays?: { midweekDow?: number; weekendDow?: number }
+  midweekDow?: number
+  weekendDow?: number
+  excludedDates?: string[] | Record<string, string>
+}
+
+interface TarefasSettings {
+  whatsappGroupLink?: string
+  messages?: {
+    tarefasPessoaPrefix?: string
+    tarefasDataPrefix?: string
+    tarefasConfirmacaoPrefix?: string
+  }
 }
 
 let activeTab: TarefasTab = 'indice'
 let pessoas: Record<string, TarefasPessoa> = {}
 let periods: Record<string, TarefasPeriod> = {}
 let planning: TarefasPlanning = {}
+let events: Record<string, TaskEvent> = {}
+let speakers: Record<string, TaskSpeaker> = {}
+let talks: Record<string, TaskTalk> = {}
+let settings: TarefasSettings = {}
+let congregationName = 'Noroeste'
+let masterPeople: Record<string, { name?: string; active?: boolean }> = {}
 
 function toast(msg: string, ms = 2600): void {
   const el = document.getElementById('toast')
@@ -73,17 +111,17 @@ function todayStr(): string {
 }
 
 function pessoaNome(p: TarefasPessoa, fallback: string): string {
-  return p.name || p.nome || fallback
+  return personName(p, fallback)
 }
 
 function isActive(p: TarefasPessoa): boolean {
-  return p.active !== false && p.ativo !== false
+  return personIsActive(p)
 }
 
 function allMeetings(): TarefasMeeting[] {
   return Object.values(periods)
     .flatMap(period => Object.values(period.meetings ?? {}))
-    .filter(meeting => meeting && typeof meeting === 'object')
+    .filter(meeting => meeting && typeof meeting === 'object' && canonicalMeetingType(meeting.type))
 }
 
 function futureMeetings(): TarefasMeeting[] {
@@ -94,31 +132,13 @@ function futureMeetings(): TarefasMeeting[] {
 }
 
 function assignmentCount(meeting: TarefasMeeting): number {
-  return Object.keys(meeting.assignments ?? {}).length
+  return TASK_ROLES.filter(role => assignmentForRole(meeting, role)).length
 }
 
-const GENERATED_ROLES = ['presidente', 'leitor', 'operador1', 'operador2', 'microfone1', 'microfone2', 'entrada', 'auditorio']
-
-function assignmentPersonId(value: unknown): string | null {
-  if (typeof value === 'string') return pessoas[value] ? value : null
-  if (!value || typeof value !== 'object') return null
-  const item = value as Record<string, unknown>
-  const id = item['personId'] ?? item['pessoaId'] ?? item['peopleId'] ?? item['id']
-  return typeof id === 'string' && pessoas[id] ? id : null
-}
+const GENERATED_ROLES: readonly TaskRole[] = TASK_ROLES
 
 function meetingAllowsRole(meeting: TarefasMeeting, role: string): boolean {
-  const type = String(meeting.type ?? '').toLowerCase()
-  if ((role === 'presidente' || role === 'leitor') && /meio|mid|ministerio/.test(type)) return false
-  return true
-}
-
-function roleIsAllowed(person: TarefasPessoa, role: string): boolean {
-  return person.roles?.[role] !== false
-}
-
-function isUnavailable(person: TarefasPessoa, date: string | undefined): boolean {
-  return Boolean(date && person.unavailableDates?.includes(date))
+  return TASK_ROLES.includes(role as TaskRole) && roleApplies(role as TaskRole, meeting)
 }
 
 function scaleMeetingEntries(): Array<{ periodId: string; meetingId: string; meeting: TarefasMeeting }> {
@@ -132,59 +152,12 @@ function meetingRefFor(meeting: TarefasMeeting): { periodId: string; meetingId: 
   return found ? { periodId: found.periodId, meetingId: found.meetingId } : null
 }
 
-function chooseCandidate(role: string, meeting: TarefasMeeting, used: Set<string>, history: Record<string, number>): string | null {
-  const candidates = Object.entries(pessoas)
-    .filter(([, person]) => isActive(person) && roleIsAllowed(person, role) && !isUnavailable(person, meeting.date))
-    .filter(([id]) => !used.has(id))
-    .sort(([idA, a], [idB, b]) => {
-      const scoreA = (history[idA] ?? 0) / Math.max(0.1, a.weight ?? 1)
-      const scoreB = (history[idB] ?? 0) / Math.max(0.1, b.weight ?? 1)
-      return scoreA - scoreB || pessoaNome(a, idA).localeCompare(pessoaNome(b, idB), 'pt-BR')
-    })
-  return candidates[0]?.[0] ?? null
-}
-
-async function generateAssignments(startDate: string): Promise<number> {
-  const entries = scaleMeetingEntries()
-    .filter(({ meeting }) => meeting.date && meeting.date >= startDate)
-    .sort((a, b) => String(a.meeting.date).localeCompare(String(b.meeting.date)))
-  if (entries.length === 0) return 0
-
-  const history: Record<string, number> = {}
-  scaleMeetingEntries()
-    .filter(({ meeting }) => meeting.date && meeting.date < startDate)
-    .forEach(({ meeting }) => Object.values(meeting.assignments ?? {}).forEach(value => {
-    const id = assignmentPersonId(value)
-    if (id) history[id] = (history[id] ?? 0) + 1
-    }))
-
-  const patch: Record<string, unknown> = {}
-  let generated = 0
-  entries.forEach(({ periodId, meetingId, meeting }) => {
-    const assignments = meeting.assignments ?? {}
-    const used = new Set(Object.values(assignments).map(assignmentPersonId).filter((id): id is string => Boolean(id)))
-    used.forEach(id => { history[id] = (history[id] ?? 0) + 1 })
-    const roles = Array.from(new Set([...Object.keys(assignments), ...GENERATED_ROLES]))
-    roles.forEach(role => {
-      if (assignments[role] !== undefined || !meetingAllowsRole(meeting, role)) return
-      const personId = chooseCandidate(role, meeting, used, history)
-      if (!personId) return
-      patch[`${periodId}/meetings/${meetingId}/assignments/${role}`] = personId
-      used.add(personId)
-      history[personId] = (history[personId] ?? 0) + 1
-      generated += 1
-    })
-  })
-
-  if (generated > 0) await update(tarefasScaleRef, patch)
-  return generated
+function domainContext(): TaskDomainContext {
+  return { people: pessoas, periods, events, speakers, talks }
 }
 
 function formatDate(value: string | undefined): string {
-  if (!value) return 'Sem data'
-  const [y, m, d] = value.split('-')
-  if (!y || !m || !d) return value
-  return `${d}/${m}/${y}`
+  return formatTaskDate(value)
 }
 
 function printFont(): number {
@@ -194,6 +167,7 @@ function printFont(): number {
 }
 
 function roleLabel(key: string): string {
+  if (TASK_ROLES.includes(key as TaskRole)) return TASK_ROLE_LABELS[key as TaskRole]
   const labels: Record<string, string> = {
     operador1: 'Operador',
     operador2: 'Operador',
@@ -242,15 +216,28 @@ export default function mount(_ctx: AppContext): void {
 
 async function loadTarefas(): Promise<void> {
   try {
-    const [peopleSnap, scaleSnap, planningSnap] = await Promise.all([
+    const [peopleSnap, scaleSnap, planningSnap, eventsSnap, discursosSnap, settingsSnap, congregacaoSnap, masterPeopleSnap] = await Promise.all([
       get(tarefasPeopleRef),
       get(tarefasScaleRef),
       get(tarefasPlanejamentoRef),
+      get(tarefasEventosRef),
+      get(tarefasDiscursosRef),
+      get(tarefasSettingsRef),
+      get(configCongregacaoRef),
+      get(pessoasRef),
     ])
 
     pessoas = peopleSnap.exists() ? (peopleSnap.val() as Record<string, TarefasPessoa>) : {}
     periods = scaleSnap.exists() ? (scaleSnap.val() as Record<string, TarefasPeriod>) : {}
     planning = planningSnap.exists() ? (planningSnap.val() as TarefasPlanning) : {}
+    events = eventsSnap.exists() ? (eventsSnap.val() as Record<string, TaskEvent>) : {}
+    const discursos = discursosSnap.exists() ? (discursosSnap.val() as Record<string, unknown>) : {}
+    speakers = (discursos['oradores'] ?? {}) as Record<string, TaskSpeaker>
+    talks = (discursos['programacao'] ?? {}) as Record<string, TaskTalk>
+    settings = settingsSnap.exists() ? (settingsSnap.val() as TarefasSettings) : {}
+    const congregacao = congregacaoSnap.exists() ? (congregacaoSnap.val() as { nome?: string }) : {}
+    congregationName = congregacao.nome?.trim() || 'Noroeste'
+    masterPeople = masterPeopleSnap.exists() ? (masterPeopleSnap.val() as Record<string, { name?: string; active?: boolean }>) : {}
   } catch {
     toast('Erro ao carregar Tarefas')
   }
@@ -325,11 +312,16 @@ function renderEscala(): void {
     ${sectionTitle('Escala de tarefas', 'Confira as próximas reuniões antes de enviar mensagens.')}
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:12px">
       <label class="form-label" for="tarefasScaleStart">Início da escala</label>
-      <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
+      <div class="module-form-grid" style="margin-top:6px">
         <input id="tarefasScaleStart" class="form-input" type="date" value="${escapeHtml(startDate)}">
+        <select id="tarefasGenerateRole" class="form-select">
+          <option value="">Todas as funções</option>
+          ${TASK_ROLES.map(role => `<option value="${role}">${escapeHtml(TASK_ROLE_LABELS[role])}</option>`).join('')}
+        </select>
+      </div>
+      <div style="margin-top:8px">
         <button id="btnGenerateScale" class="btn btn-primary" type="button" style="white-space:nowrap">Gerar escala</button>
       </div>
-      <p style="font-size:.75rem;color:var(--ink-3);margin-top:6px">A geração usa o planejamento e os participantes carregados.</p>
     </div>
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;
       padding:12px;margin-bottom:12px">
@@ -369,30 +361,54 @@ function renderEscala(): void {
       toast('Informe o início da escala')
       return
     }
-    void generateScale(input.value)
+    const roleValue = (document.getElementById('tarefasGenerateRole') as HTMLSelectElement | null)?.value ?? ''
+    void generateScale(input.value, roleValue ? roleValue as TaskRole : null)
   })
 
   bindAssignmentEditors()
 }
 
-async function generateScale(startDate: string): Promise<void> {
+async function generateScale(startDate: string, role: TaskRole | null): Promise<void> {
   const button = document.getElementById('btnGenerateScale') as HTMLButtonElement | null
   if (button) button.disabled = true
   try {
     const generatedAt = new Date().toISOString()
-    const generated = await generateAssignments(startDate)
-    planning = { ...planning, scaleStartDate: startDate, generatedAt }
-    await update(tarefasPlanejamentoRef, {
-      scaleStartDate: startDate,
-      generatedAt,
+    const canonical = withCanonicalPeriod(periods, planning, startDate)
+    if (!canonical) {
+      showGenerationErrors(['Os dias das reuniões não estão configurados no planejamento.'])
+      return
+    }
+    const context = { ...domainContext(), periods: canonical.periods }
+    const result = computeGeneration(context, startDate, role, generatedAt, canonical.periodId)
+    if (result.aborted) {
+      showGenerationErrors(result.errors)
+      return
+    }
+    const patch: Record<string, unknown> = {
+      'planning/scaleStartDate': startDate,
+      'planning/generatedAt': generatedAt,
+    }
+    Object.entries(result.patch).forEach(([path, value]) => {
+      patch[`scale/periods/${path}`] = value
     })
-    toast(generated ? `${generated} designações geradas a partir de ${formatDate(startDate)}` : 'Nenhuma função nova disponível para gerar')
-    if (generated) await loadTarefas()
-    renderEscala()
+    await update(tarefasRef, patch)
+    planning = { ...planning, scaleStartDate: startDate, generatedAt }
+    toast(`${result.generated} designações geradas a partir de ${formatDate(startDate)}`)
+    await loadTarefas()
   } catch {
     toast('Não foi possível gerar a escala')
-    if (button) button.disabled = false
+  } finally {
+    if (button?.isConnected) button.disabled = false
   }
+}
+
+function showGenerationErrors(errors: string[]): void {
+  const overlay = document.createElement('div')
+  overlay.className = 'modal-overlay'
+  overlay.innerHTML = `<div class="modal"><h2>Escala não gerada</h2><div style="display:flex;flex-direction:column;gap:8px">${errors.slice(0, 20).map(error => `<div style="font-size:.8rem;padding:8px 10px;border-left:3px solid #B3261E;background:var(--surface-2)">${escapeHtml(error)}</div>`).join('')}</div>${errors.length > 20 ? `<p class="form-help">Mais ${errors.length - 20} conflito(s).</p>` : ''}<button id="closeGenerationErrors" class="btn btn-primary btn-full" type="button" style="margin-top:14px">Voltar para a escala</button></div>`
+  document.body.appendChild(overlay)
+  document.getElementById('closeGenerationErrors')?.addEventListener('click', () => overlay.remove())
+  overlay.addEventListener('click', event => { if (event.target === overlay) overlay.remove() })
 }
 
 function renderParticipantes(): void {
@@ -404,11 +420,16 @@ function renderParticipantes(): void {
 
   content.innerHTML = `
     ${sectionTitle('Participantes', 'Mantenha o vínculo com Admin em dia para evitar nomes duplicados.')}
+    <div style="display:flex;justify-content:flex-end;margin-bottom:10px"><button id="btnAddTaskPerson" class="btn btn-primary" type="button">Adicionar</button></div>
     <div style="display:flex;flex-direction:column;gap:6px">
       ${rows.length
         ? rows.map(([id, p]) => pessoaRow(id, p)).join('')
         : emptyState('Nenhum participante cadastrado.')}
     </div>`
+  document.getElementById('btnAddTaskPerson')?.addEventListener('click', () => openTaskPersonModal(null))
+  content.querySelectorAll<HTMLButtonElement>('[data-edit-task-person]').forEach(button => {
+    button.addEventListener('click', () => openTaskPersonModal(button.dataset['editTaskPerson'] ?? null))
+  })
 }
 
 function renderPendencias(): void {
@@ -416,23 +437,55 @@ function renderPendencias(): void {
   if (!content) return
 
   const items: Array<{ title: string; detail: string; tab: TarefasTab }> = []
-  futureMeetings().forEach(meeting => {
+  const futureEntries = scaleMeetingEntries()
+    .filter(entry => entry.meeting.date && entry.meeting.date >= todayStr() && canonicalMeetingType(entry.meeting.type) && !meetingIsBlocked(domainContext(), entry.meeting))
+  if (!futureEntries.length) {
+    items.push({
+      title: 'Escala futura ainda não gerada',
+      detail: 'Abra a Escala, informe a data inicial e gere as designações.',
+      tab: 'escala',
+    })
+  }
+
+  futureEntries.forEach(entry => {
+    const { meeting } = entry
     const missing = GENERATED_ROLES
-      .filter(role => meetingAllowsRole(meeting, role) && !meeting.assignments?.[role])
+      .filter(role => meetingAllowsRole(meeting, role) && !assignmentForRole(meeting, role))
       .map(role => roleLabel(role))
     if (missing.length) {
       items.push({
-        title: `Reunião de ${formatDate(meeting.date)}`,
+        title: missing.length === GENERATED_ROLES.filter(role => meetingAllowsRole(meeting, role)).length
+          ? `Escala de ${formatDate(meeting.date)} por gerar`
+          : `Reunião de ${formatDate(meeting.date)} incompleta`,
         detail: `Funções sem pessoa: ${missing.join(', ')}`,
         tab: 'escala',
       })
     }
-    Object.entries(meeting.assignments ?? {}).forEach(([role, value]) => {
-      if (typeof value === 'string' && !pessoas[value]) {
+    GENERATED_ROLES.forEach(role => {
+      const personId = assignmentForRole(meeting, role)
+      if (!personId) return
+      const person = pessoas[personId]
+      if (!person) {
         items.push({
-          title: `${roleLabel(role)} sem vínculo`,
-          detail: `A designação de ${formatDate(meeting.date)} aponta para uma pessoa que não está cadastrada.`,
+          title: `${roleLabel(role)} aponta para pessoa inexistente`,
+          detail: `${formatDate(meeting.date)} · ID ${personId}.`,
           tab: 'participantes',
+        })
+        return
+      }
+      const conflict = manualConflictReason(domainContext(), entry, role, personId)
+      if (conflict) {
+        items.push({
+          title: `${roleLabel(role)} com conflito`,
+          detail: `${formatDate(meeting.date)} · ${pessoaNome(person, personId)}: ${conflict}.`,
+          tab: 'escala',
+        })
+      }
+      if (!meeting.avisados?.[role]) {
+        items.push({
+          title: 'Mensagem ainda não aberta',
+          detail: `${formatDate(meeting.date)} · ${roleLabel(role)} · ${pessoaNome(person, personId)}.`,
+          tab: 'mensagens',
         })
       }
     })
@@ -446,6 +499,22 @@ function renderPendencias(): void {
       tab: 'participantes',
     })
   }
+
+  const assignedPeople = new Map<string, string>()
+  futureEntries.forEach(({ meeting }) => GENERATED_ROLES.forEach(role => {
+    const id = assignmentForRole(meeting, role)
+    if (id && !assignedPeople.has(id)) assignedPeople.set(id, meeting.date ?? '')
+  }))
+  assignedPeople.forEach((date, id) => {
+    const person = pessoas[id]
+    if (person && !personPhone(person)) {
+      items.push({
+        title: 'Participante escalado sem telefone',
+        detail: `${pessoaNome(person, id)} tem designação em ${formatDate(date)} e só poderá receber o texto por cópia.`,
+        tab: 'participantes',
+      })
+    }
+  })
 
   content.innerHTML = `
     ${sectionTitle('Pendências', items.length ? 'Resolva estes itens antes de confirmar a escala.' : 'A escala atual não tem pendências identificadas.')}
@@ -465,10 +534,15 @@ function renderMensagens(): void {
   const content = document.getElementById('tarefasContent')
   if (!content) return
 
-  const meetings = futureMeetings().filter(meeting => Object.keys(meeting.assignments ?? {}).length > 0)
+  const entries = scaleMeetingEntries()
+    .filter(entry => entry.meeting.date && entry.meeting.date >= todayStr() && canonicalMeetingType(entry.meeting.type) && assignmentCount(entry.meeting) > 0)
+    .sort((a, b) => String(a.meeting.date).localeCompare(String(b.meeting.date)))
   const peopleWithAssignments = Object.entries(pessoas)
-    .filter(([id, person]) => isActive(person) && meetings.some(meeting => Object.values(meeting.assignments ?? {}).some(value => assignmentPersonId(value) === id)))
+    .filter(([id, person]) => isActive(person) && entries.some(({ meeting }) => GENERATED_ROLES.some(role => assignmentForRole(meeting, role) === id)))
     .sort(([, a], [, b]) => pessoaNome(a, '').localeCompare(pessoaNome(b, ''), 'pt-BR'))
+  const pessoaPrefix = settings.messages?.tarefasPessoaPrefix ?? 'Segue abaixo suas próximas designações.'
+  const dataPrefix = settings.messages?.tarefasDataPrefix ?? 'Segue a escala da reunião.'
+  const confirmPrefix = settings.messages?.tarefasConfirmacaoPrefix ?? 'Pode confirmar se está tudo certo com sua participação?'
 
   content.innerHTML = `
     ${sectionTitle('Mensagens', 'Gere um rascunho, revise o texto e só depois copie ou abra o WhatsApp.')}
@@ -492,7 +566,7 @@ function renderMensagens(): void {
         <label class="form-label" for="messageMeeting">Reunião</label>
         <select id="messageMeeting" class="form-select">
           <option value="">Selecione uma reunião</option>
-          ${meetings.map(meeting => `<option value="${escapeHtml(meeting.date ?? '')}">${escapeHtml(formatDate(meeting.date))} · ${escapeHtml(meeting.type ?? 'Reunião')}</option>`).join('')}
+          ${entries.map(entry => `<option value="${escapeHtml(`${entry.periodId}::${entry.meetingId}`)}">${escapeHtml(formatDate(entry.meeting.date))} · ${canonicalMeetingType(entry.meeting.type) === 'midweek' ? 'Meio de semana' : 'Fim de semana'}</option>`).join('')}
         </select>
       </div>
     </div>
@@ -504,19 +578,26 @@ function renderMensagens(): void {
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <button id="btnOpenPersonMessage" class="btn btn-primary" type="button">Abrir WhatsApp</button>
       <button id="btnCopyPersonMessage" class="btn btn-ghost" type="button">Copiar texto</button>
+    </div>
+    <div style="border-top:1px solid var(--border);margin-top:18px;padding-top:14px">
+      <div class="form-group"><label class="form-label" for="tarefasPessoaPrefix">Início da mensagem individual</label><input id="tarefasPessoaPrefix" class="form-input" value="${escapeHtml(pessoaPrefix)}"></div>
+      <div class="form-group"><label class="form-label" for="tarefasDataPrefix">Início da mensagem da reunião</label><input id="tarefasDataPrefix" class="form-input" value="${escapeHtml(dataPrefix)}"></div>
+      <div class="form-group"><label class="form-label" for="tarefasConfirmPrefix">Pedido de confirmação</label><input id="tarefasConfirmPrefix" class="form-input" value="${escapeHtml(confirmPrefix)}"></div>
+      <div class="form-group"><label class="form-label" for="tarefasGroupLink">Link do grupo do WhatsApp</label><input id="tarefasGroupLink" class="form-input" type="url" value="${escapeHtml(settings.whatsappGroupLink)}" placeholder="https://chat.whatsapp.com/..."></div>
+      <button id="btnSaveMessageSettings" class="btn btn-ghost" type="button">Salvar textos</button>
     </div>`
 
   const updateDraft = () => {
     const type = (document.getElementById('messageType') as HTMLSelectElement).value
     const personId = (document.getElementById('messagePerson') as HTMLSelectElement).value
-    const date = (document.getElementById('messageMeeting') as HTMLSelectElement).value
+    const meetingKey = (document.getElementById('messageMeeting') as HTMLSelectElement).value
     const person = personId ? pessoas[personId] : undefined
-    const meeting = meetings.find(item => item.date === date)
+    const entry = entries.find(item => `${item.periodId}::${item.meetingId}` === meetingKey)
     const text = type === 'day'
-      ? buildDayMessage(meeting)
+      ? buildDayMessage(entry?.meeting.date, entries)
       : type === 'confirm'
-        ? buildConfirmationMessage(personId, person, meeting)
-        : buildPersonMessage(personId, person, meeting)
+        ? buildConfirmationMessage(personId, person, entry?.meeting)
+        : buildPersonMessage(personId, person, entries)
     const draft = document.getElementById('messageDraft') as HTMLTextAreaElement | null
     if (draft) draft.value = text
     return text
@@ -526,6 +607,8 @@ function renderMensagens(): void {
     const type = (document.getElementById('messageType') as HTMLSelectElement).value
     const personGroup = document.getElementById('messagePersonGroup')
     if (personGroup) personGroup.style.display = type === 'day' ? 'none' : ''
+    const meetingGroup = document.getElementById('messageMeeting')?.closest('.form-group') as HTMLElement | null
+    if (meetingGroup) meetingGroup.style.display = type === 'person' ? 'none' : ''
     updateDraft()
   }
   document.getElementById('messageType')?.addEventListener('change', syncMessageFields)
@@ -533,59 +616,139 @@ function renderMensagens(): void {
   document.getElementById('messageMeeting')?.addEventListener('change', updateDraft)
   document.getElementById('btnOpenPersonMessage')?.addEventListener('click', () => {
     const text = (document.getElementById('messageDraft') as HTMLTextAreaElement)?.value.trim()
-    if (!text) { toast('Selecione a pessoa e a reunião'); return }
+    if (!text) { toast('Selecione os dados da mensagem'); return }
+    const type = (document.getElementById('messageType') as HTMLSelectElement).value
     const personId = (document.getElementById('messagePerson') as HTMLSelectElement).value
-    const phone = String(pessoas[personId]?.whatsapp ?? pessoas[personId]?.telefone ?? '').replace(/\D/g, '')
-    const target = phone ? `https://wa.me/${phone.startsWith('55') ? phone : `55${phone}`}?text=${encodeURIComponent(text)}` : `https://wa.me/?text=${encodeURIComponent(text)}`
-    window.open(target, '_blank', 'noopener,noreferrer')
+    const meetingKey = (document.getElementById('messageMeeting') as HTMLSelectElement).value
+    const entry = entries.find(item => `${item.periodId}::${item.meetingId}` === meetingKey)
+    if (type === 'day') {
+      const link = settings.whatsappGroupLink?.trim() ?? ''
+      if (!/^https:\/\/chat\.whatsapp\.com\//i.test(link)) {
+        void copyMessage(text)
+        toast('Link do grupo não configurado; o texto foi copiado', 4000)
+        return
+      }
+      const copyPromise = copyMessage(text)
+      const opened = window.open(link, '_blank')
+      if (!opened) { toast('O navegador bloqueou a abertura do WhatsApp'); return }
+      opened.opener = null
+      void copyPromise
+      void markAssignmentsOpened(entries.filter(item => item.meeting.date === entry?.meeting.date))
+      toast('WhatsApp aberto e texto copiado. Revise antes de enviar.')
+      return
+    }
+    const phone = personPhone(pessoas[personId])
+    if (!phone) { void copyMessage(text); toast('Telefone ausente; o texto foi copiado', 4000); return }
+    const normalized = phone.startsWith('55') ? phone : `55${phone}`
+    const opened = window.open(`https://wa.me/${normalized}?text=${encodeURIComponent(text)}`, '_blank')
+    if (!opened) { toast('O navegador bloqueou a abertura do WhatsApp'); return }
+    opened.opener = null
+    const affected = type === 'person'
+      ? entries.filter(item => GENERATED_ROLES.some(role => assignmentForRole(item.meeting, role) === personId))
+      : entry ? [entry] : []
+    void markAssignmentsOpened(affected, personId)
     toast('WhatsApp aberto. Revise e envie a mensagem.')
   })
   document.getElementById('btnCopyPersonMessage')?.addEventListener('click', async () => {
     const text = (document.getElementById('messageDraft') as HTMLTextAreaElement)?.value.trim()
-    if (!text) { toast('Selecione a pessoa e a reunião'); return }
-    try { await navigator.clipboard.writeText(text); toast('Texto copiado') } catch { toast('Não foi possível copiar o texto') }
+    if (!text) { toast('Selecione os dados da mensagem'); return }
+    await copyMessage(text, true)
   })
+  document.getElementById('btnSaveMessageSettings')?.addEventListener('click', () => void saveMessageSettings())
   syncMessageFields()
 }
 
-function buildPersonMessage(id: string, person: TarefasPessoa | undefined, meeting: TarefasMeeting | undefined): string {
-  if (!id || !person || !meeting) return ''
-  const roles = Object.entries(meeting.assignments ?? {})
-    .filter(([, value]) => assignmentPersonId(value) === id)
-    .map(([role]) => roleLabel(role))
-  if (!roles.length) return ''
-  return `Olá, ${pessoaNome(person, id)}! Você está designado(a) para ${roles.join(' e ')} na reunião de ${formatDate(meeting.date)}. Por favor, confirme sua disponibilidade.`
+function buildPersonMessage(id: string, person: TarefasPessoa | undefined, entries: ReturnType<typeof scaleMeetingEntries>): string {
+  if (!id || !person) return ''
+  const designations = entries.flatMap(({ meeting }) => {
+    const roles = GENERATED_ROLES.filter(role => assignmentForRole(meeting, role) === id)
+    const type = canonicalMeetingType(meeting.type)
+    return roles.length && meeting.date && type ? [{ date: meeting.date, type, roles }] : []
+  })
+  const prefix = settings.messages?.tarefasPessoaPrefix?.trim() || 'Segue abaixo suas próximas designações.'
+  return buildTaskPersonMessage(pessoaNome(person, id), prefix, designations)
 }
 
-function buildDayMessage(meeting: TarefasMeeting | undefined): string {
-  if (!meeting) return ''
-  const linhas = Object.entries(meeting.assignments ?? {})
-    .map(([role, value]) => `${roleLabel(role)}: ${assignmentName(value)}`)
-    .filter(line => !line.endsWith(': '))
-  return [
-    `Olá, tudo bem? Segue a escala da reunião de ${formatDate(meeting.date)}:`,
-    '',
-    meeting.type ? `Tipo: ${meeting.type}` : '',
-    ...linhas,
-    '',
-    'Por favor, confira sua designação e avise se precisar de algum ajuste.',
-  ].filter(Boolean).join('\n')
+function buildDayMessage(date: string | undefined, entries: ReturnType<typeof scaleMeetingEntries>): string {
+  if (!date) return ''
+  const meetings = entries.filter(entry => entry.meeting.date === date)
+  const messageMeetings = meetings.flatMap(({ meeting }) => {
+    const type = canonicalMeetingType(meeting.type)
+    if (!type) return []
+    const assignments: Partial<Record<TaskRole, string>> = {}
+    GENERATED_ROLES.forEach(role => {
+      const id = assignmentForRole(meeting, role)
+      if (id) assignments[role] = pessoaNome(pessoas[id]!, id)
+    })
+    return [{ type, assignments }]
+  })
+  const prefix = settings.messages?.tarefasDataPrefix?.trim() || 'Segue a escala da reunião.'
+  return buildTaskDayMessage(prefix, date, messageMeetings)
 }
 
 function buildConfirmationMessage(id: string, person: TarefasPessoa | undefined, meeting: TarefasMeeting | undefined): string {
   if (!id || !person || !meeting) return ''
-  const roles = Object.entries(meeting.assignments ?? {})
-    .filter(([, value]) => assignmentPersonId(value) === id)
-    .map(([role]) => roleLabel(role))
+  const roles = GENERATED_ROLES.filter(role => assignmentForRole(meeting, role) === id)
   if (!roles.length) return ''
-  return [
-    `Olá, ${pessoaNome(person, id)}! Tudo bem?`,
-    '',
-    `Você está designado(a) para ${roles.join(' e ')} na reunião de ${formatDate(meeting.date)}.`,
-    'Pode confirmar se está tudo certo com sua participação?',
-    '',
-    'Se precisar de substituição ou tiver alguma dúvida, avise por favor.',
-  ].join('\n')
+  return buildTaskConfirmationMessage(
+    pessoaNome(person, id),
+    meeting.date ?? '',
+    roles,
+    settings.messages?.tarefasConfirmacaoPrefix?.trim() || 'Pode confirmar se está tudo certo com sua participação?',
+  )
+}
+
+async function copyMessage(text: string, notify = false): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(text)
+    if (notify) toast('Texto copiado')
+  } catch {
+    toast('Não foi possível copiar o texto')
+  }
+}
+
+async function markAssignmentsOpened(entries: ReturnType<typeof scaleMeetingEntries>, personId?: string): Promise<void> {
+  const stamp = new Date().toISOString()
+  const patch: Record<string, string> = {}
+  entries.forEach(entry => GENERATED_ROLES.forEach(role => {
+    const assigned = assignmentForRole(entry.meeting, role)
+    if (assigned && (!personId || assigned === personId)) {
+      patch[`${entry.periodId}/meetings/${entry.meetingId}/avisados/${role}`] = stamp
+      entry.meeting.avisados = { ...(entry.meeting.avisados ?? {}), [role]: stamp }
+    }
+  }))
+  if (!Object.keys(patch).length) return
+  try {
+    await update(tarefasScaleRef, patch)
+  } catch {
+    toast('WhatsApp abriu, mas não foi possível registrar a abertura', 4000)
+  }
+}
+
+async function saveMessageSettings(): Promise<void> {
+  const value = (id: string) => (document.getElementById(id) as HTMLInputElement).value.trim()
+  const next: TarefasSettings = {
+    ...settings,
+    whatsappGroupLink: value('tarefasGroupLink'),
+    messages: {
+      ...(settings.messages ?? {}),
+      tarefasPessoaPrefix: value('tarefasPessoaPrefix'),
+      tarefasDataPrefix: value('tarefasDataPrefix'),
+      tarefasConfirmacaoPrefix: value('tarefasConfirmPrefix'),
+    },
+  }
+  try {
+    await update(tarefasSettingsRef, {
+      whatsappGroupLink: next.whatsappGroupLink,
+      'messages/tarefasPessoaPrefix': next.messages?.tarefasPessoaPrefix,
+      'messages/tarefasDataPrefix': next.messages?.tarefasDataPrefix,
+      'messages/tarefasConfirmacaoPrefix': next.messages?.tarefasConfirmacaoPrefix,
+    })
+    settings = next
+    toast('Textos salvos')
+  } catch {
+    toast('Não foi possível salvar os textos')
+  }
 }
 
 function sectionTitle(title: string, desc: string): string {
@@ -630,12 +793,12 @@ function bindFlowCards(): void {
 
 function meetingCard(meeting: TarefasMeeting): string {
   const count = assignmentCount(meeting)
-  const type = meeting.type || 'Reunião'
+  const type = canonicalMeetingType(meeting.type) === 'midweek' ? 'Meio de semana' : 'Fim de semana'
   const ref = meetingRefFor(meeting)
+  const locked = ref ? periods[ref.periodId]?.locked === true : false
   const editors = ref
-    ? Array.from(new Set([...Object.keys(meeting.assignments ?? {}), ...GENERATED_ROLES]))
-      .filter(role => meetingAllowsRole(meeting, role))
-      .map(role => assignmentEditor(ref.periodId, ref.meetingId, meeting, role))
+    ? GENERATED_ROLES.filter(role => meetingAllowsRole(meeting, role))
+      .map(role => assignmentEditor(ref.periodId, ref.meetingId, meeting, role, locked))
       .join('')
     : ''
 
@@ -646,8 +809,8 @@ function meetingCard(meeting: TarefasMeeting): string {
           <div style="font-size:.9rem;font-weight:700;color:var(--ink)">${formatDate(meeting.date)}</div>
           <div style="font-size:.76rem;color:var(--ink-3)">${escapeHtml(type)}</div>
         </div>
-        <span style="font-size:.75rem;font-weight:700;color:#7E3AF2">
-          ${count} função${count === 1 ? '' : 'ões'}
+        <span style="font-size:.75rem;font-weight:700;color:${locked ? '#B3261E' : '#7E3AF2'}">
+          ${locked ? 'Travada' : `${count} função${count === 1 ? '' : 'ões'}`}
         </span>
       </div>
       <div style="display:flex;flex-direction:column;gap:6px;margin-top:10px">
@@ -656,23 +819,36 @@ function meetingCard(meeting: TarefasMeeting): string {
     </div>`
 }
 
-function assignmentEditor(periodId: string, meetingId: string, meeting: TarefasMeeting, role: string): string {
-  const selected = assignmentPersonId(meeting.assignments?.[role]) ?? ''
+function assignmentEditor(periodId: string, meetingId: string, meeting: TarefasMeeting, role: TaskRole, locked: boolean): string {
+  const selected = assignmentForRole(meeting, role) ?? ''
+  const entry = { periodId, meetingId, meeting }
   const options = Object.entries(pessoas)
-    .filter(([, person]) => isActive(person))
     .sort(([, a], [, b]) => pessoaNome(a, '').localeCompare(pessoaNome(b, ''), 'pt-BR'))
-    .map(([id, person]) => `<option value="${escapeHtml(id)}" ${id === selected ? 'selected' : ''}>${escapeHtml(pessoaNome(person, id))}</option>`)
+    .map(([id, person]) => {
+      const reason = manualConflictReason(domainContext(), entry, role, id)
+      const suffix = reason ? ` [Conflito: ${reason}]` : ''
+      return `<option value="${escapeHtml(id)}" ${id === selected ? 'selected' : ''}>${escapeHtml(pessoaNome(person, id) + suffix)}</option>`
+    })
     .join('')
-  return `<label style="display:flex;align-items:center;gap:8px;font-size:.76rem;color:var(--ink-2)"><span style="min-width:86px;font-weight:700">${escapeHtml(roleLabel(role))}</span><select class="form-select tarefas-assignment-select" data-period="${escapeHtml(periodId)}" data-meeting="${escapeHtml(meetingId)}" data-role="${escapeHtml(role)}" style="padding:6px 28px 6px 8px;font-size:.78rem"><option value="">Deixar vazio</option>${options}</select></label>`
+  return `<label style="display:flex;align-items:center;gap:8px;font-size:.76rem;color:var(--ink-2)"><span style="min-width:86px;font-weight:700">${escapeHtml(roleLabel(role))}</span><select class="form-select tarefas-assignment-select" data-period="${escapeHtml(periodId)}" data-meeting="${escapeHtml(meetingId)}" data-role="${escapeHtml(role)}" data-original="${escapeHtml(selected)}" style="padding:6px 28px 6px 8px;font-size:.78rem" ${locked ? 'disabled' : ''}><option value="">Deixar vazio</option>${options}</select></label>`
 }
 
 function bindAssignmentEditors(): void {
   document.querySelectorAll<HTMLSelectElement>('.tarefas-assignment-select').forEach(select => {
     select.addEventListener('change', () => {
+      const periodId = select.dataset['period'] ?? ''
+      const meetingId = select.dataset['meeting'] ?? ''
+      const role = select.dataset['role'] as TaskRole
+      const entry = meetingEntries(periods).find(item => item.periodId === periodId && item.meetingId === meetingId)
+      const reason = entry && select.value ? manualConflictReason(domainContext(), entry, role, select.value) : null
+      if (reason && !confirm(`${pessoaNome(pessoas[select.value]!, select.value)} tem conflito: ${reason}. Manter esta escolha manual mesmo assim?`)) {
+        select.value = select.dataset['original'] ?? ''
+        return
+      }
       void saveAssignment(
-        select.dataset['period'] ?? '',
-        select.dataset['meeting'] ?? '',
-        select.dataset['role'] ?? '',
+        periodId,
+        meetingId,
+        role,
         select.value,
       )
     })
@@ -681,14 +857,21 @@ function bindAssignmentEditors(): void {
 
 async function saveAssignment(periodId: string, meetingId: string, role: string, personId: string): Promise<void> {
   if (!periodId || !meetingId || !role) return
-  const path = `${periodId}/meetings/${meetingId}/assignments/${role}`
+  if (periods[periodId]?.locked) { toast('Esta escala está travada'); return }
+  const path = `${periodId}/meetings/${meetingId}`
   try {
-    await update(tarefasScaleRef, { [path]: personId || null })
+    await update(tarefasScaleRef, {
+      [`${path}/assignments/${role}`]: personId || null,
+      [`${path}/manualEdits/${role}`]: personId ? true : null,
+    })
     const meeting = periods[periodId]?.meetings?.[meetingId]
     if (meeting) {
       meeting.assignments = { ...(meeting.assignments ?? {}) }
+      meeting.manualEdits = { ...(meeting.manualEdits ?? {}) }
       if (personId) meeting.assignments[role] = personId
       else delete meeting.assignments[role]
+      if (personId) meeting.manualEdits[role] = true
+      else delete meeting.manualEdits[role]
     }
     toast('Designação atualizada')
     renderEscala()
@@ -713,7 +896,75 @@ function pessoaRow(id: string, p: TarefasPessoa): string {
         </div>
       </div>
       <span style="width:9px;height:9px;border-radius:50%;background:${linked ? '#1A6B3C' : '#B3261E'}"></span>
+      <button class="btn btn-ghost" type="button" data-edit-task-person="${escapeHtml(id)}" style="padding:4px 9px;font-size:.76rem">Editar</button>
     </div>`
+}
+
+function taskRoleCheck(role: keyof NonNullable<TarefasPessoa['roles']>, label: string, checked: boolean): string {
+  return `<label style="display:flex;align-items:center;gap:6px;font-size:.8rem"><input class="task-person-role" type="checkbox" value="${escapeHtml(role)}" ${checked ? 'checked' : ''}>${escapeHtml(label)}</label>`
+}
+
+function openTaskPersonModal(id: string | null): void {
+  const person = id ? pessoas[id] : undefined
+  const unavailable = Array.isArray(person?.unavailableDates)
+    ? person.unavailableDates
+    : Object.entries(person?.unavailableDates ?? {}).filter(([, blocked]) => blocked).map(([date]) => date)
+  const masterOptions = Object.entries(masterPeople)
+    .filter(([, item]) => item.active !== false)
+    .sort(([, a], [, b]) => String(a.name ?? '').localeCompare(String(b.name ?? ''), 'pt-BR'))
+    .map(([mid, item]) => `<option value="${escapeHtml(mid)}" ${person?.masterId === mid ? 'selected' : ''}>${escapeHtml(item.name || mid)}</option>`)
+    .join('')
+  const roles = person?.roles ?? {}
+  const overlay = document.createElement('div')
+  overlay.className = 'modal-overlay'
+  overlay.innerHTML = `<div class="modal">
+    <h2>${id ? 'Editar participante' : 'Novo participante'}</h2>
+    <div class="form-group"><label class="form-label" for="taskPersonName">Nome</label><input id="taskPersonName" class="form-input" value="${escapeHtml(personName(person, ''))}"></div>
+    <div class="form-group"><label class="form-label" for="taskPersonPhone">WhatsApp</label><input id="taskPersonPhone" class="form-input" inputmode="numeric" value="${escapeHtml(personPhone(person))}"></div>
+    <div class="form-group"><label class="form-label" for="taskPersonMaster">Vínculo com Admin</label><select id="taskPersonMaster" class="form-select"><option value="">Sem vínculo</option>${masterOptions}</select></div>
+    <div class="module-form-grid">
+      <div class="form-group"><label class="form-label" for="taskPersonRule">Reuniões</label><select id="taskPersonRule" class="form-select"><option value="both" ${(person?.rule ?? 'both') === 'both' ? 'selected' : ''}>Todas</option><option value="midweek" ${person?.rule === 'midweek' ? 'selected' : ''}>Meio de semana</option><option value="weekend" ${person?.rule === 'weekend' ? 'selected' : ''}>Fim de semana</option><option value="none" ${person?.rule === 'none' ? 'selected' : ''}>Fora da escala</option></select></div>
+      <div class="form-group"><label class="form-label" for="taskPersonRest">Referência da folga</label><input id="taskPersonRest" class="form-input" type="date" value="${escapeHtml(person?.refFolgaDate)}"></div>
+    </div>
+    <div class="form-group"><span class="form-label" style="display:block;margin-bottom:6px">Funções</span><div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">${taskRoleCheck('presidente', 'Presidente', roles.presidente === true)}${taskRoleCheck('operador', 'Operador', roles.operador === true)}${taskRoleCheck('leitor', 'Leitor', roles.leitor === true)}${taskRoleCheck('entrada', 'Entrada', roles.entrada === true)}${taskRoleCheck('auditorio', 'Auditório', roles.auditorio === true)}${taskRoleCheck('microfone', 'Microfone', roles.microfone === true)}</div></div>
+    <div class="form-group"><label class="form-label" for="taskPersonUnavailable">Datas indisponíveis</label><textarea id="taskPersonUnavailable" class="form-input" rows="3" placeholder="AAAA-MM-DD, uma por linha">${escapeHtml(unavailable.join('\n'))}</textarea></div>
+    <div style="display:flex;gap:14px;margin-bottom:14px"><label style="display:flex;align-items:center;gap:6px;font-size:.82rem"><input id="taskPersonActive" type="checkbox" ${personIsActive(person ?? {}) ? 'checked' : ''}>Ativo</label><label style="display:flex;align-items:center;gap:6px;font-size:.82rem"><input id="taskPersonYoung" type="checkbox" ${person?.jovem ? 'checked' : ''}>Jovem</label></div>
+    <div style="display:flex;gap:8px"><button id="cancelTaskPerson" class="btn btn-ghost" type="button" style="flex:1">Cancelar</button><button id="saveTaskPerson" class="btn btn-primary" type="button" style="flex:1">Salvar</button></div>
+  </div>`
+  document.body.appendChild(overlay)
+  document.getElementById('cancelTaskPerson')?.addEventListener('click', () => overlay.remove())
+  overlay.addEventListener('click', event => { if (event.target === overlay) overlay.remove() })
+  document.getElementById('saveTaskPerson')?.addEventListener('click', () => void saveTaskPerson(id, overlay))
+}
+
+async function saveTaskPerson(id: string | null, overlay: HTMLElement): Promise<void> {
+  const input = (elementId: string) => (document.getElementById(elementId) as HTMLInputElement).value.trim()
+  const name = input('taskPersonName')
+  if (!name) { toast('Preencha o nome'); return }
+  const unavailableDates = input('taskPersonUnavailable').split(/[\s,;]+/).filter(Boolean)
+  if (unavailableDates.some(date => !/^\d{4}-\d{2}-\d{2}$/.test(date))) { toast('Revise as datas indisponíveis'); return }
+  const roles: Record<string, boolean> = {}
+  document.querySelectorAll<HTMLInputElement>('.task-person-role').forEach(checkbox => { roles[checkbox.value] = checkbox.checked })
+  const finalId = id ?? `p_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`
+  const patch: Record<string, unknown> = {
+    [`${finalId}/name`]: name,
+    [`${finalId}/phone`]: input('taskPersonPhone').replace(/\D/g, ''),
+    [`${finalId}/masterId`]: input('taskPersonMaster') || null,
+    [`${finalId}/rule`]: input('taskPersonRule'),
+    [`${finalId}/refFolgaDate`]: input('taskPersonRest'),
+    [`${finalId}/unavailableDates`]: unavailableDates.length ? unavailableDates : null,
+    [`${finalId}/active`]: (document.getElementById('taskPersonActive') as HTMLInputElement).checked,
+    [`${finalId}/jovem`]: (document.getElementById('taskPersonYoung') as HTMLInputElement).checked,
+  }
+  Object.entries(roles).forEach(([role, enabled]) => { patch[`${finalId}/roles/${role}`] = enabled })
+  try {
+    await update(tarefasPeopleRef, patch)
+    overlay.remove()
+    toast(id ? 'Participante atualizado' : 'Participante adicionado')
+    await loadTarefas()
+  } catch {
+    toast('Não foi possível salvar o participante')
+  }
 }
 
 function emptyState(text: string): string {
@@ -736,14 +987,24 @@ function gerarPdfTarefas(preferredFontPt: number): void {
   document.body.appendChild(doc)
 
   let chosen = Math.min(PRINT_MAX_PT, Math.max(PRINT_MIN_PT, Math.round(preferredFontPt)))
+  let fitsHeight = false
   doc.dataset['measuring'] = 'true'
 
   for (let size = chosen; size >= PRINT_MIN_PT; size -= 1) {
     doc.style.fontSize = `${size}pt`
     chosen = size
     const fitsWidth = doc.scrollWidth <= A4_LANDSCAPE_WIDTH_PX
-    const fitsHeight = doc.scrollHeight <= A4_LANDSCAPE_HEIGHT_PX
+    fitsHeight = doc.scrollHeight <= A4_LANDSCAPE_HEIGHT_PX
     if (fitsWidth && fitsHeight) break
+  }
+
+  if (!fitsHeight) {
+    const headerHeight = doc.querySelector<HTMLElement>('.tarefas-print-header')?.offsetHeight ?? 0
+    const tableHeaderHeight = doc.querySelector<HTMLElement>('thead')?.offsetHeight ?? 0
+    const rows = [...doc.querySelectorAll<HTMLElement>('tbody tr')]
+    const rowHeight = Math.max(1, ...rows.map(row => row.offsetHeight))
+    const pageSize = rowsPerPrintPage(A4_LANDSCAPE_HEIGHT_PX, headerHeight, tableHeaderHeight, rowHeight)
+    doc.innerHTML = printDocumentHtml(meetings, pageSize)
   }
 
   delete doc.dataset['measuring']
@@ -760,20 +1021,19 @@ function gerarPdfTarefas(preferredFontPt: number): void {
   setTimeout(cleanup, 2000)
 }
 
-function printDocumentHtml(meetings: TarefasMeeting[]): string {
-  const roles = Array.from(new Set(
-    meetings.flatMap(meeting => Object.keys(meeting.assignments ?? {})),
-  ))
+function printDocumentHtml(meetings: TarefasMeeting[], pageSize = meetings.length): string {
+  const roles = TASK_ROLES.filter(role => meetings.some(meeting => roleApplies(role, meeting)))
   const lastMeeting = meetings[meetings.length - 1]
+  const pages = paginateItems(meetings, pageSize)
 
-  return `
+  return pages.map((page, pageIndex) => `
     <div class="tarefas-print-page">
       <header class="tarefas-print-header">
         <div>
           <div class="tarefas-print-title">Escala de Tarefas</div>
-          <div class="tarefas-print-subtitle">Congregação Noroeste</div>
+          <div class="tarefas-print-subtitle">${escapeHtml(congregationName)}</div>
         </div>
-        <div class="tarefas-print-period">${formatDate(meetings[0]?.date)} - ${formatDate(lastMeeting?.date)}</div>
+        <div class="tarefas-print-period">${formatDate(meetings[0]?.date)} - ${formatDate(lastMeeting?.date)}${pages.length > 1 ? ` · ${pageIndex + 1}/${pages.length}` : ''}</div>
       </header>
       <table class="tarefas-print-table">
         <thead>
@@ -783,13 +1043,13 @@ function printDocumentHtml(meetings: TarefasMeeting[]): string {
           </tr>
         </thead>
         <tbody>
-          ${meetings.map(meeting => `
+          ${page.map(meeting => `
             <tr>
               <td>${formatDate(meeting.date)}</td>
-              ${roles.map(role => `<td>${escapeHtml(assignmentName(meeting.assignments?.[role]))}</td>`).join('')}
+              ${roles.map(role => `<td>${escapeHtml(assignmentName(assignmentForRole(meeting, role as TaskRole)))}</td>`).join('')}
             </tr>
           `).join('')}
         </tbody>
       </table>
-    </div>`
+    </div>`).join('')
 }

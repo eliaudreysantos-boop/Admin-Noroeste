@@ -85,6 +85,15 @@ export const tarefasDiscursosRef: DatabaseReference =
 export const tarefasPlanejamentoRef: DatabaseReference =
   ref(db, 'tarefas/planning')
 
+export const tarefasRef: DatabaseReference =
+  ref(db, 'tarefas')
+
+export const tarefasEventosRef: DatabaseReference =
+  ref(db, 'tarefas/events')
+
+export const tarefasSettingsRef: DatabaseReference =
+  ref(db, 'tarefas/settings')
+
 export const escalaParticipantsRef: DatabaseReference =
   ref(db, 'escala/participants')
 

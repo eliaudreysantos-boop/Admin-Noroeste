@@ -597,6 +597,11 @@ textarea.form-input {
   padding-bottom: 2mm;
 }
 
+.tarefas-print-page + .tarefas-print-page {
+  break-before: page;
+  page-break-before: always;
+}
+
 .tarefas-print-title {
   font-size: 1.25em;
   font-weight: 800;
