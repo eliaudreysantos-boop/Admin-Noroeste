@@ -211,10 +211,10 @@ async function saveParticipant(id: string, overlay: HTMLElement): Promise<void> 
   const value = (target: string) => (document.getElementById(target) as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value
   const mid = id ? centralId(id) : (document.getElementById('pmMaster') as HTMLSelectElement).value
   if (!mid || !pessoas[mid]) { toast('Selecione uma pessoa do cadastro Admin'); return }
-  const target = id || `esc_${mid}`
+  const target = id || mid
   const activeNow = (document.getElementById('pmActive') as HTMLInputElement).checked
   const onlyWithId = value('pmOnly') || undefined
-  const profile = { masterId: mid, capPerMonth: Math.min(99, Math.max(0, Number(value('pmCap')) || 0)), startFromDate: value('pmStart'), refFolgaDate: value('pmFolga'), onlyWithId: onlyWithId ?? null, active: activeNow, pioneer: (document.getElementById('pmPioneer') as HTMLInputElement).checked, withChild: (document.getElementById('pmChild') as HTMLInputElement).checked, sameSexOnly: (document.getElementById('pmSame') as HTMLInputElement).checked, obs: value('pmObs').trim(), updatedAt: now() }
+  const profile = { ...(target === mid ? {} : { masterId: mid }), capPerMonth: Math.min(99, Math.max(0, Number(value('pmCap')) || 0)), startFromDate: value('pmStart'), refFolgaDate: value('pmFolga'), onlyWithId: onlyWithId ?? null, active: activeNow, pioneer: (document.getElementById('pmPioneer') as HTMLInputElement).checked, withChild: (document.getElementById('pmChild') as HTMLInputElement).checked, sameSexOnly: (document.getElementById('pmSame') as HTMLInputElement).checked, obs: value('pmObs').trim(), updatedAt: now() }
   try {
     const dependentIds = activeNow ? [] : participantReferencesTo(target)
     const patch = Object.fromEntries(Object.entries(profile).map(([key, field]) => [`participants/${target}/${key}`, field]))
