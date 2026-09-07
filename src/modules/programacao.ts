@@ -267,7 +267,7 @@ function profileModal(id: string): void {
   document.body.appendChild(overlay)
   document.getElementById('cancelProfile')!.addEventListener('click', () => overlay.remove())
   document.getElementById('saveProfile')!.addEventListener('click', async () => { const permissions = Array.from(document.querySelectorAll<HTMLInputElement>('[data-permission]:checked')).map(box => box.dataset['permission'] as AssignmentPermission); const next = { ...profile, active: (document.getElementById('profileActive') as HTMLInputElement).checked, permissions }; await update(programacaoRef, { [`pessoas/${id}`]: next }); profiles[id] = next; overlay.remove(); toast('Permissões salvas'); renderPeople() })
-  document.getElementById('unlinkProfile')!.addEventListener('click', async () => { if (programList().some(program => program.parts.some(part => [part.assignedPersonId, part.assistantPersonId, part.substitutePersonId].includes(id)))) { toast('Pessoa usada no histórico; desative em vez de desvincular'); return } if (!confirm(`Desvincular ${person.name}?`)) return; await update(programacaoRef, { [`pessoas/${id}`]: null }); delete profiles[id]; overlay.remove(); renderPeople() })
+  document.getElementById('unlinkProfile')!.addEventListener('click', async () => { if (programList().some(program => program.parts.some(part => [part.assignedPersonId, part.assistantPersonId, part.substitutePersonId, part.realizedPersonId].includes(id)))) { toast('Pessoa usada no histórico; desative em vez de desvincular'); return } if (!confirm(`Desvincular ${person.name}?`)) return; await update(programacaoRef, { [`pessoas/${id}`]: null }); delete profiles[id]; overlay.remove(); renderPeople() })
 }
 
 function renderFiles(): void {

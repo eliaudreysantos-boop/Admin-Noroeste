@@ -1,5 +1,7 @@
 import { AlignmentType, Document, Footer, Packer, PageBreak, Paragraph, TextRun } from 'docx'
+// O entrypoint ESM do pdf-lib 1.17.1 referencia "./text" sem extensao e falha no Vite 5.
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib/cjs/index.js'
+import type { PDFFont } from 'pdf-lib'
 import type { MeetingProgram, ProgramPart, ProgramPerson, ProgramSection } from './programacao-domain'
 
 const sectionLabels: Record<ProgramSection, string> = {
@@ -10,6 +12,7 @@ const sectionLabels: Record<ProgramSection, string> = {
 const sectionColors: Record<ProgramSection, [number, number, number]> = {
   tesouros: [0.36, 0.38, 0.39], ministerio: [0.78, 0.56, 0], 'vida-crista': [0.61, 0, 0.2],
 }
+export const S140_REVISION = '11/23'
 
 function formatDate(value: string): string {
   const [year, month, day] = value.split('-')
@@ -28,7 +31,12 @@ const partNumber = (part: ProgramPart): string => {
   return pieces[pieces.length - 1] ?? ''
 }
 const personName = (id: string | undefined, people: Map<string, ProgramPerson>): string => id ? people.get(id)?.name ?? 'Cadastro não encontrado' : 'Sem designação'
-const clipped = (value: string, max: number): string => value.length > max ? `${value.slice(0, max - 1)}…` : value
+function clippedToWidth(value: string, maxWidth: number, font: PDFFont, size: number): string {
+  if (font.widthOfTextAtSize(value, size) <= maxWidth) return value
+  let output = value
+  while (output && font.widthOfTextAtSize(`${output}...`, size) > maxWidth) output = output.slice(0, -1)
+  return `${output}...`
+}
 
 export async function createS89(program: MeetingProgram, peopleList: ProgramPerson[]): Promise<{ bytes: Uint8Array; count: number }> {
   const people = new Map(peopleList.map(person => [person.id, person]))
@@ -44,13 +52,13 @@ export async function createS89(program: MeetingProgram, peopleList: ProgramPers
     draw('DESIGNAÇÃO PARA A REUNIÃO', 57, 405, 13, true)
     draw('NOSSA VIDA E MINISTÉRIO CRISTÃO', 48, 386, 11, true)
     page.drawLine({ start: { x: 30, y: 373 }, end: { x: 310, y: 373 }, thickness: 1 })
-    draw('Nome:', 31, 345, 9, true); draw(clipped(personName(part.assignedPersonId, people), 42), 75, 345, 10)
-    draw('Ajudante:', 31, 315, 9, true); draw(clipped(personName(part.assistantPersonId, people).replace('Sem designação', ''), 38), 88, 315, 10)
+    draw('Nome:', 31, 345, 9, true); draw(clippedToWidth(personName(part.assignedPersonId, people), 230, regular, 10), 75, 345, 10)
+    draw('Ajudante:', 31, 315, 9, true); draw(clippedToWidth(personName(part.assistantPersonId, people).replace('Sem designação', ''), 215, regular, 10), 88, 315, 10)
     draw('Data:', 31, 285, 9, true); draw(formatDate(program.meetingDate), 70, 285, 10)
-    draw('Parte:', 31, 255, 9, true); draw(clipped(`${partNumber(part)}. ${part.title}`, 45), 72, 255, 10)
-    draw('Local:', 31, 225, 9, true); draw(part.roomId ? clipped(part.roomId, 32) : 'Salão principal', 70, 225, 10)
+    draw('Parte:', 31, 255, 9, true); draw(clippedToWidth(`${partNumber(part)}. ${part.title}`, 235, regular, 10), 72, 255, 10)
     page.drawRectangle({ x: 31, y: 180, width: 11, height: 11, borderWidth: 1 }); draw('Salão principal', 50, 181, 9)
     page.drawRectangle({ x: 31, y: 153, width: 11, height: 11, borderWidth: 1 }); draw('Sala auxiliar', 50, 154, 9)
+    draw('X', 33, part.roomId && part.roomId !== 'main' ? 154 : 181, 9, true)
     draw('Observação:', 31, 117, 9, true)
     page.drawLine({ start: { x: 31, y: 100 }, end: { x: 308, y: 100 }, thickness: .5 })
     page.drawLine({ start: { x: 31, y: 78 }, end: { x: 308, y: 78 }, thickness: .5 })
@@ -81,9 +89,9 @@ export async function createS140Pdf(programs: MeetingProgram[], congregation: st
     const draw = (text: string, x: number, y: number, size: number, isBold = false, color = rgb(0, 0, 0)) => page.drawText(text, { x, y, size, font: isBold ? bold : regular, color })
     meetings.forEach((program, meetingIndex) => {
       let y = meetingIndex ? 398 : 790
-      draw(clipped(congregation, 30), 38, y, 9, true); draw('Programação da reunião do meio de semana', 220, y, 13, true)
+      draw(clippedToWidth(congregation, 165, bold, 9), 38, y, 9, true); draw('Programação da reunião do meio de semana', 220, y, 13, true)
       y -= 18; page.drawLine({ start: { x: 38, y }, end: { x: 557, y }, thickness: 1 }); y -= 16
-      draw(`${formatDate(program.meetingDate)} | ${clipped(program.bibleReading, 48)}`, 38, y, 9, true)
+      draw(`${formatDate(program.meetingDate)} | ${clippedToWidth(program.bibleReading, 430, bold, 9)}`, 38, y, 9, true)
       ;(Object.keys(sectionLabels) as ProgramSection[]).forEach(section => {
         const parts = program.parts.filter(part => part.section === section)
         if (!parts.length) return
@@ -92,14 +100,14 @@ export async function createS140Pdf(programs: MeetingProgram[], congregation: st
         page.drawRectangle({ x: 38, y, width: 519, height: 14, color: rgb(...color) })
         draw(sectionLabels[section], 43, y + 3, 8, true, rgb(1, 1, 1)); y -= 14
         parts.forEach(part => {
-          draw(`${partNumber(part)}. ${clipped(part.title, 45)} (${part.durationMinutes} min.)`, 48, y, 8)
-          draw(clipped(personName(part.realizedPersonId ?? part.substitutePersonId ?? part.assignedPersonId, people), 27), 388, y, 8)
+          draw(`${partNumber(part)}. ${clippedToWidth(part.title, 275, regular, 8)} (${part.durationMinutes} min.)`, 48, y, 8)
+          draw(clippedToWidth(personName(part.realizedPersonId ?? part.substitutePersonId ?? part.assignedPersonId, people), 165, regular, 8), 388, y, 8)
           y -= 12
         })
       })
       if (!meetingIndex && meetings.length === 2) page.drawLine({ start: { x: 38, y: 420 }, end: { x: 557, y: 420 }, thickness: .5, color: rgb(.65, .65, .65) })
     })
-    draw('S-140-T  11/23', 38, 24, 8)
+    draw(`S-140-T  ${S140_REVISION}`, 38, 24, 8)
   })
   return pdf.save()
 }
@@ -134,7 +142,7 @@ export async function createS140Docx(programs: MeetingProgram[], congregation: s
     })
     if (pageIndex < paginate(programs).length - 1) children.push(new Paragraph({ children: [new PageBreak()] }))
   })
-  const documentFile = new Document({ sections: [{ properties: { page: { size: { width: 11906, height: 16838 }, margin: { top: 480, right: 560, bottom: 520, left: 560 } } }, footers: { default: new Footer({ children: [new Paragraph({ children: [new TextRun({ text: 'S-140-T  11/23', size: 14 })] })] }) }, children }] })
+  const documentFile = new Document({ sections: [{ properties: { page: { size: { width: 11906, height: 16838 }, margin: { top: 480, right: 560, bottom: 520, left: 560 } } }, footers: { default: new Footer({ children: [new Paragraph({ children: [new TextRun({ text: `S-140-T  ${S140_REVISION}`, size: 14 })] })] }) }, children }] })
   return Packer.toBlob(documentFile)
 }
 
