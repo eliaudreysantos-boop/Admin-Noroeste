@@ -36,6 +36,7 @@ const orderedLocals = () => Object.entries(locals).sort((a, b) => Number(a[1].so
 const orderedPeople = (active = false) => Object.entries(participants).filter(([, p]) => !active || p.active !== false).sort((a, b) => name(a[0]).localeCompare(name(b[0]), 'pt-BR'))
 const name = (id: string) => participantName(participants[id], id)
 const now = () => new Date().toISOString()
+const isAdmin = () => context.usuario.apps.mestre === true
 
 function monthNow(): string {
   const date = new Date()
@@ -108,7 +109,7 @@ function bindPeriod(rerender: () => void): void {
 
 function renderParticipants(): void {
   const unlinked = orderedPeople().filter(([, p]) => !p.masterId).length
-  root().innerHTML = `${unlinked ? `<div class="notice warning">${unlinked} participante(s) sem vínculo com o cadastro do Admin.</div>` : ''}<div style="display:flex;gap:8px;margin-bottom:12px"><input id="pSearch" class="form-input" type="search" placeholder="Buscar participante" style="flex:1"><button id="pNew" class="btn btn-primary" type="button">Adicionar</button></div><div id="pList" class="module-option-list"></div>`
+  root().innerHTML = `${unlinked ? `<div class="notice warning">${unlinked} participante(s) legado(s) sem vínculo com o cadastro do Admin.</div>` : ''}<div style="display:flex;gap:8px;margin-bottom:12px"><input id="pSearch" class="form-input" type="search" placeholder="Buscar participante" style="flex:1">${isAdmin() ? '<button id="pNew" class="btn btn-primary" type="button">Vincular pessoa</button>' : ''}</div><div id="pList" class="module-option-list"></div>`
   const list = () => {
     const term = (document.getElementById('pSearch') as HTMLInputElement).value.trim().toLocaleLowerCase('pt-BR')
     document.getElementById('pList')!.innerHTML = orderedPeople().filter(([id]) => name(id).toLocaleLowerCase('pt-BR').includes(term)).map(([id, p]) => {
@@ -116,35 +117,37 @@ function renderParticipants(): void {
       const details = [p.active === false ? 'Inativo' : 'Ativo', p.pioneer ? 'Pioneiro' : '', p.capPerMonth ? `Máx. ${p.capPerMonth}/mês` : '', p.onlyWithId ? `Só com ${name(p.onlyWithId)}` : '', `${count} horários`].filter(Boolean).join(' · ')
       return `<button class="module-menu-btn" type="button" data-person="${esc(id)}"><div class="mod-icon" style="background:#1A6B3C20;color:#1A6B3C">${esc(name(id).charAt(0).toUpperCase())}</div><div><div class="mod-label">${esc(name(id))}</div><div class="mod-desc">${esc(details)}</div></div></button>`
     }).join('') || '<p class="empty-state">Nenhum participante encontrado.</p>'
-    document.querySelectorAll<HTMLButtonElement>('[data-person]').forEach(button => button.addEventListener('click', () => participantModal(button.dataset['person']!)))
+    document.querySelectorAll<HTMLButtonElement>('[data-person]').forEach(button => button.addEventListener('click', () => {
+      if (!isAdmin()) { toast('Somente o Admin pode editar participantes'); return }
+      participantModal(button.dataset['person']!)
+    }))
   }
-  list(); document.getElementById('pSearch')!.addEventListener('input', list); document.getElementById('pNew')!.addEventListener('click', () => participantModal(''))
+  list(); document.getElementById('pSearch')!.addEventListener('input', list); document.getElementById('pNew')?.addEventListener('click', () => participantModal(''))
 }
 function participantModal(id: string): void {
+  if (!isAdmin()) { toast('Somente o Admin pode editar participantes'); return }
   const p = participants[id] ?? { active: true, sex: 'M' }
+  const availablePeople = Object.entries(pessoas)
+    .filter(([mid, person]) => person.active && (p.masterId === mid || !Object.values(participants).some(item => item.masterId === mid)))
+    .sort((a, b) => a[1].name.localeCompare(b[1].name, 'pt-BR'))
+  const masterOptions = availablePeople.map(([mid, person]) => `<option value="${esc(mid)}" ${p.masterId === mid ? 'selected' : ''}>${esc(person.name)}</option>`).join('')
+  const canonical = p.masterId ? pessoas[p.masterId] : undefined
   const overlay = document.createElement('div'); overlay.className = 'modal-overlay'
-  overlay.innerHTML = `<div class="modal"><h2>${id ? 'Editar participante' : 'Novo participante'}</h2><div class="form-group"><label class="form-label">Nome</label><input id="pmName" class="form-input" maxlength="80" value="${esc(p.name ?? '')}"></div><div class="module-form-grid"><div class="form-group"><label class="form-label">Sexo</label><select id="pmSex" class="form-select"><option value="M">Masculino</option><option value="F" ${p.sex === 'F' ? 'selected' : ''}>Feminino</option></select></div><div class="form-group"><label class="form-label">WhatsApp</label><input id="pmPhone" class="form-input" value="${esc(p.phone ?? '')}"></div><div class="form-group"><label class="form-label">Máximo/mês (0 sem limite)</label><input id="pmCap" class="form-input" type="number" min="0" max="99" value="${Number(p.capPerMonth ?? 0)}"></div><div class="form-group"><label class="form-label">Participa a partir de</label><input id="pmStart" class="form-input" type="date" value="${esc(p.startFromDate ?? '')}"></div><div class="form-group"><label class="form-label">Referência da folga</label><input id="pmFolga" class="form-input" type="date" value="${esc(p.refFolgaDate ?? '')}"></div><div class="form-group"><label class="form-label">Só participa com</label><select id="pmOnly" class="form-select"><option value="">Sem restrição</option>${orderedPeople(true).filter(([other]) => other !== id).map(([other]) => `<option value="${esc(other)}" ${p.onlyWithId === other ? 'selected' : ''}>${esc(name(other))}</option>`).join('')}</select></div></div><div class="form-group"><label class="form-label">Vínculo com cadastro Admin</label><select id="pmMaster" class="form-select"><option value="">Sem vínculo</option>${Object.entries(pessoas).filter(([, m]) => m.active).sort((a, b) => a[1].name.localeCompare(b[1].name, 'pt-BR')).map(([mid, m]) => `<option value="${esc(mid)}" ${p.masterId === mid ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}</select></div><div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px"><label><input id="pmActive" type="checkbox" ${p.active !== false ? 'checked' : ''}> Ativo</label><label><input id="pmPioneer" type="checkbox" ${p.pioneer ? 'checked' : ''}> Pioneiro</label><label><input id="pmChild" type="checkbox" ${p.withChild ? 'checked' : ''}> Acompanha criança</label><label><input id="pmSame" type="checkbox" ${p.sameSexOnly ? 'checked' : ''}> Mesmo sexo</label></div><div class="form-group"><label class="form-label">Observação</label><textarea id="pmObs" class="form-input">${esc(p.obs ?? '')}</textarea></div><div style="display:flex;gap:8px">${id ? '<button id="pmDelete" class="btn btn-danger">Excluir</button>' : ''}<span style="flex:1"></span><button id="pmCancel" class="btn btn-ghost">Cancelar</button><button id="pmSave" class="btn btn-primary">Salvar</button></div></div>`
+  overlay.innerHTML = `<div class="modal"><h2>${id ? 'Editar participante' : 'Vincular pessoa'}</h2><div class="form-group"><label class="form-label">Pessoa do cadastro Admin</label><select id="pmMaster" class="form-select" ${id && p.masterId ? 'disabled' : ''}><option value="">Selecionar...</option>${masterOptions}</select></div>${id ? `<div class="form-help" style="margin-bottom:12px">Nome e WhatsApp: ${esc(canonical?.name ?? p.name ?? id)}${canonical?.whatsapp || p.phone ? ` · ${esc(canonical?.whatsapp ?? p.phone)}` : ''}. Edite esses dados no Admin.</div>` : ''}<div class="module-form-grid"><div class="form-group"><label class="form-label">Máximo/mês (0 sem limite)</label><input id="pmCap" class="form-input" type="number" min="0" max="99" value="${Number(p.capPerMonth ?? 0)}"></div><div class="form-group"><label class="form-label">Participa a partir de</label><input id="pmStart" class="form-input" type="date" value="${esc(p.startFromDate ?? '')}"></div><div class="form-group"><label class="form-label">Referência da folga</label><input id="pmFolga" class="form-input" type="date" value="${esc(p.refFolgaDate ?? '')}"></div><div class="form-group"><label class="form-label">Só participa com</label><select id="pmOnly" class="form-select"><option value="">Sem restrição</option>${orderedPeople(true).filter(([other]) => other !== id).map(([other]) => `<option value="${esc(other)}" ${p.onlyWithId === other ? 'selected' : ''}>${esc(name(other))}</option>`).join('')}</select></div></div><div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px"><label><input id="pmActive" type="checkbox" ${p.active !== false ? 'checked' : ''}> Ativo na Escala</label><label><input id="pmPioneer" type="checkbox" ${p.pioneer ? 'checked' : ''}> Pioneiro</label><label><input id="pmChild" type="checkbox" ${p.withChild ? 'checked' : ''}> Acompanha criança</label><label><input id="pmSame" type="checkbox" ${p.sameSexOnly ? 'checked' : ''}> Mesmo sexo</label></div><div class="form-group"><label class="form-label">Observação da Escala</label><textarea id="pmObs" class="form-input">${esc(p.obs ?? '')}</textarea></div><div style="display:flex;gap:8px"><span style="flex:1"></span><button id="pmCancel" class="btn btn-ghost">Cancelar</button><button id="pmSave" class="btn btn-primary">Salvar</button></div></div>`
   document.body.appendChild(overlay)
   document.getElementById('pmCancel')!.addEventListener('click', () => overlay.remove())
   document.getElementById('pmSave')!.addEventListener('click', () => void saveParticipant(id, overlay))
-  document.getElementById('pmDelete')?.addEventListener('click', () => void deleteParticipant(id, overlay))
 }
 async function saveParticipant(id: string, overlay: HTMLElement): Promise<void> {
+  if (!isAdmin()) { toast('Somente o Admin pode editar participantes'); return }
   const value = (target: string) => (document.getElementById(target) as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value
-  if (!value('pmName').trim()) { toast('Informe o nome'); return }
-  const target = id || `esc_pub_${Date.now()}`
-  const p: EscalaParticipant = { ...(participants[id] ?? {}), name: value('pmName').trim(), sex: value('pmSex'), phone: value('pmPhone').trim(), capPerMonth: Math.min(99, Math.max(0, Number(value('pmCap')) || 0)), startFromDate: value('pmStart'), refFolgaDate: value('pmFolga'), onlyWithId: value('pmOnly'), masterId: value('pmMaster'), active: (document.getElementById('pmActive') as HTMLInputElement).checked, pioneer: (document.getElementById('pmPioneer') as HTMLInputElement).checked, withChild: (document.getElementById('pmChild') as HTMLInputElement).checked, sameSexOnly: (document.getElementById('pmSame') as HTMLInputElement).checked, obs: value('pmObs').trim(), updatedAt: now() }
+  const masterId = (document.getElementById('pmMaster') as HTMLSelectElement).value || participants[id]?.masterId || ''
+  if (!masterId || !pessoas[masterId]) { toast('Selecione uma pessoa do cadastro Admin'); return }
+  const target = id || `esc_${masterId}`
+  const central = pessoas[masterId]
+  const p: EscalaParticipant = { ...(participants[id] ?? {}), name: central.name, sex: central.sex ?? '', phone: central.whatsapp, capPerMonth: Math.min(99, Math.max(0, Number(value('pmCap')) || 0)), startFromDate: value('pmStart'), refFolgaDate: value('pmFolga'), onlyWithId: value('pmOnly'), masterId, active: (document.getElementById('pmActive') as HTMLInputElement).checked, pioneer: (document.getElementById('pmPioneer') as HTMLInputElement).checked, withChild: (document.getElementById('pmChild') as HTMLInputElement).checked, sameSexOnly: (document.getElementById('pmSame') as HTMLInputElement).checked, obs: value('pmObs').trim(), updatedAt: now() }
   try { await update(child(escalaRef, `participants/${target}`), p); participants[target] = p; overlay.remove(); toast('Participante salvo'); renderParticipants() } catch { toast('Não foi possível salvar') }
 }
-async function deleteParticipant(id: string, overlay: HTMLElement): Promise<void> {
-  const used = Object.values(tables).some(byMonth => Object.values(byMonth).some(t => Object.values(t.rows ?? {}).some(row => Object.values(row.slots ?? {}).some(cell => cell.p1 === id || cell.p2 === id))))
-  if (used) { toast('O participante aparece em uma escala e não pode ser excluído'); return }
-  if (!confirm(`Excluir ${name(id)}?`)) return
-  const patch: Record<string, null> = { [`participants/${id}`]: null }
-  Object.keys(availability).forEach(localId => { patch[`availability/${localId}/${id}`] = null })
-  try { await update(escalaRef, patch); delete participants[id]; Object.values(availability).forEach(byPerson => delete byPerson[id]); overlay.remove(); toast('Participante excluído'); renderParticipants() } catch { toast('Não foi possível excluir') }
-}
-
 function renderAvailability(): void {
   const people = orderedPeople(true), local = locals[selectedLocalId]
   if (!selectedParticipantId || participants[selectedParticipantId]?.active === false) selectedParticipantId = people[0]?.[0] ?? ''

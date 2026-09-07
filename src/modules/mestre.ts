@@ -8,8 +8,6 @@ import type {
   Sex,
   TipoDesignacao,
   Usuario,
-  ConfigLimpeza,
-  ConfigLimpezaGrupo,
 } from '../types'
 import {
   get, set, update, remove,
@@ -18,7 +16,6 @@ import {
   configRef,
   configCongregacaoRef,
   configReunioesRef,
-  configLimpezaRef,
   configDesignacoesRef,
   rootRef,
 } from '../firebase'
@@ -37,7 +34,7 @@ let restoreFileName = ''
 
 type AdminTab = 'indice' | 'pessoas' | 'usuarios' | 'config' | 'vinculos' | 'dados'
 let activeTab: AdminTab = 'indice'
-let activeConfigSection: 'congregacao' | 'limpeza' | 'designacoes' = 'congregacao'
+let activeConfigSection: 'congregacao' | 'designacoes' = 'congregacao'
 
 let pessoaFilter = { nome: '', role: '', ativo: 'true', sex: '' }
 
@@ -166,12 +163,6 @@ function formatDate(d: string): string {
   if (!d) return '—'
   const [y, m, day] = d.split('-')
   return `${day}/${m}/${y}`
-}
-
-function toStringArray(val: string[] | Record<string, string> | undefined | null): string[] {
-  if (!val) return []
-  if (Array.isArray(val)) return val
-  return Object.values(val)
 }
 
 function charCounter(textareaId: string, counterId: string, max = 250): void {
@@ -1083,7 +1074,6 @@ function renderConfig(): void {
 
   const secs: Array<{ id: typeof activeConfigSection; label: string }> = [
     { id: 'congregacao', label: 'Congregação' },
-    { id: 'limpeza',     label: 'Limpeza'     },
     { id: 'designacoes', label: 'Designações' },
   ]
 
@@ -1104,9 +1094,8 @@ function renderConfig(): void {
     })
   })
 
-  if      (activeConfigSection === 'congregacao') renderConfigCongregacao()
-  else if (activeConfigSection === 'limpeza')     renderConfigLimpeza()
-  else                                            renderConfigDesignacoes()
+  if (activeConfigSection === 'congregacao') renderConfigCongregacao()
+  else renderConfigDesignacoes()
 }
 
 // ── Congregação ───────────────────────────────────────────────────────────────
@@ -1188,263 +1177,6 @@ async function saveConfigCongregacao(): Promise<void> {
     toast('Erro ao salvar')
   } finally {
     setLoading('btnSalvarCong', false, 'Salvar Congregação')
-  }
-}
-
-// ── Config Limpeza ────────────────────────────────────────────────────────────
-
-function renderConfigLimpeza(): void {
-  const el = document.getElementById('configContent')!
-  const lp: Partial<ConfigLimpeza> = config.limpeza ?? {}
-
-  const ativa           = lp.ativa          ?? false
-  const grupos          = lp.grupos          ?? 4
-  const inicioRotacao   = lp.inicioRotacao   ?? ''
-  const coordenadorMid  = lp.coordenadorMid  ?? ''
-  const textoPadrao     = lp.textoPadrao     ?? ''
-  const tpAprovado      = lp.textoPadraoAprovadoEm ?? ''
-
-  // Candidatos a coordenador/super: ativos, M, anciao ou servo-ministerial
-  const ancioes = Object.entries(pessoas)
-    .filter(([, p]) => p.active && p.sex === 'M' && (p.role === 'anciao' || p.role === 'servo-ministerial'))
-    .sort((a, b) => a[1].name.localeCompare(b[1].name, 'pt-BR'))
-
-  const ativos = Object.entries(pessoas)
-    .filter(([, p]) => p.active)
-    .sort((a, b) => a[1].name.localeCompare(b[1].name, 'pt-BR'))
-
-  const coordOpts = ancioes
-    .map(([mid, p]) => `<option value="${escapeHtml(mid)}" ${coordenadorMid === mid ? 'selected' : ''}>${escapeHtml(p.name)}</option>`)
-    .join('')
-
-  const grupoCards = Array.from({ length: grupos }, (_, i) => {
-    const gid  = String(i + 1)
-    const gc: Partial<ConfigLimpezaGrupo> = lp.gruposConfig?.[gid] ?? {}
-    const superMid    = gc.superintendenteMid ?? ''
-    const ajudantes   = toStringArray(gc.ajudantesMid as string[] | Record<string, string> | undefined)
-    const textoGrupo  = gc.textoInstrucoes ?? ''
-    const aprovadoGrupo = gc.aprovadoEm ?? ''
-
-    const superOpts = ancioes
-      .map(([mid, p]) => `<option value="${escapeHtml(mid)}" ${superMid === mid ? 'selected' : ''}>${escapeHtml(p.name)}</option>`)
-      .join('')
-
-    const ajudantesCheck = ativos.map(([mid, p]) => `
-      <label style="display:flex;align-items:center;gap:5px;cursor:pointer;padding:2px 0;font-size:.8rem">
-        <input type="checkbox" class="gAjud_${gid}" value="${escapeHtml(mid)}" ${ajudantes.includes(mid) ? 'checked' : ''}>
-        <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(p.name.split(' ')[0])}</span>
-      </label>`).join('')
-
-    return `
-      <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;
-        padding:14px;margin-bottom:10px">
-        <div style="font-size:.85rem;font-weight:700;color:var(--blue-deep);margin-bottom:12px">
-          Grupo ${gid}
-        </div>
-        <div class="form-group">
-          <label class="form-label">Superintendente</label>
-          <select id="gSuper_${gid}" class="form-select">
-            <option value="">Selecionar…</option>
-            ${superOpts}
-          </select>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Ajudantes</label>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px 10px;
-            max-height:160px;overflow-y:auto;border:1px solid var(--border);
-            border-radius:6px;padding:8px;background:var(--surface-2)">
-            ${ajudantesCheck}
-          </div>
-        </div>
-        <div class="form-group">
-          <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
-            <label class="form-label" style="margin:0">Texto de instrução</label>
-            <span style="font-size:.72rem;color:var(--ink-3)" id="gTextoCount_${gid}">
-              ${textoGrupo.length}/250
-            </span>
-          </div>
-          <textarea id="gTexto_${gid}" class="form-input" rows="3"
-            maxlength="250" style="resize:vertical">${escapeHtml(textoGrupo)}</textarea>
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px">
-            <span style="font-size:.74rem;color:var(--ink-3)">
-              Aprovado: <strong>${aprovadoGrupo ? formatDate(aprovadoGrupo) : 'Não aprovado'}</strong>
-            </span>
-            <button class="btn btn-ghost gAprovar" data-gid="${gid}"
-              style="font-size:.75rem;padding:3px 10px">✓ Aprovar hoje</button>
-          </div>
-        </div>
-      </div>`
-  }).join('')
-
-  el.innerHTML = `
-    <div class="form-group">
-      <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
-        <input type="checkbox" id="lAtiva" ${ativa ? 'checked' : ''}>
-        <span class="form-label" style="margin:0">Rotação ativa</span>
-      </label>
-    </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-      <div class="form-group">
-        <label class="form-label">Número de grupos</label>
-        <select id="lGrupos" class="form-select">
-          ${[2,3,4,5,6].map(n =>
-            `<option value="${n}" ${grupos === n ? 'selected' : ''}>${n} grupos</option>`).join('')}
-        </select>
-      </div>
-      <div class="form-group">
-        <label class="form-label">Início da rotação</label>
-        <input id="lInicio" class="form-input" type="date" value="${escapeHtml(inicioRotacao)}">
-      </div>
-    </div>
-    <div class="form-group">
-      <label class="form-label">Coordenador</label>
-      <select id="lCoordenador" class="form-select">
-        <option value="">Selecionar…</option>
-        ${coordOpts}
-      </select>
-    </div>
-    <div class="form-group">
-      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
-        <label class="form-label" style="margin:0">Texto padrão (.ics / cards)</label>
-        <span style="font-size:.72rem;color:var(--ink-3)" id="lTextoPadraoCount">
-          ${textoPadrao.length}/250
-        </span>
-      </div>
-      <textarea id="lTextoPadrao" class="form-input" rows="3"
-        maxlength="250" style="resize:vertical">${escapeHtml(textoPadrao)}</textarea>
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px">
-        <span style="font-size:.74rem;color:var(--ink-3)">
-          Aprovado: <strong>${tpAprovado ? formatDate(tpAprovado) : 'Não aprovado'}</strong>
-        </span>
-        <button id="btnAprovarTP" class="btn btn-ghost" style="font-size:.75rem;padding:3px 10px">
-          ✓ Aprovar hoje
-        </button>
-      </div>
-    </div>
-
-    <div style="font-size:.8rem;font-weight:600;color:var(--ink-2);margin:16px 0 10px;
-      text-transform:uppercase;letter-spacing:.05em">Por grupo</div>
-
-    ${grupoCards}
-
-    <div style="position:sticky;bottom:8px;margin-top:4px">
-      <button id="btnSalvarLimpezaConfig" class="btn btn-primary btn-full">
-        Salvar Config Limpeza
-      </button>
-    </div>`
-
-  // Contadores de caracteres
-  charCounter('lTextoPadrao', 'lTextoPadraoCount')
-  Array.from({ length: grupos }, (_, i) => {
-    charCounter(`gTexto_${i + 1}`, `gTextoCount_${i + 1}`)
-  })
-
-  // Aprovar texto padrão
-  document.getElementById('btnAprovarTP')!
-    .addEventListener('click', () => void approveTextoPadrao())
-
-  // Aprovar por grupo
-  document.querySelectorAll<HTMLButtonElement>('.gAprovar').forEach(btn => {
-    btn.addEventListener('click', () => void approveGrupoTexto(btn.dataset['gid']!))
-  })
-
-  // Salvar tudo
-  document.getElementById('btnSalvarLimpezaConfig')!
-    .addEventListener('click', () => void saveConfigLimpeza())
-}
-
-async function approveTextoPadrao(): Promise<void> {
-  const texto = (document.getElementById('lTextoPadrao') as HTMLTextAreaElement).value
-  const hoje  = todayStr()
-  try {
-    await update(configLimpezaRef, { textoPadrao: texto, textoPadraoAprovadoEm: hoje })
-    if (!config.limpeza) config.limpeza = {} as ConfigLimpeza
-    config.limpeza.textoPadrao           = texto
-    config.limpeza.textoPadraoAprovadoEm = hoje
-    toast('Texto padrão aprovado ✓')
-    renderConfigLimpeza()
-  } catch {
-    toast('Erro ao aprovar')
-  }
-}
-
-async function approveGrupoTexto(gid: string): Promise<void> {
-  const texto = (document.getElementById(`gTexto_${gid}`) as HTMLTextAreaElement).value
-  const hoje  = todayStr()
-  try {
-    await update(configLimpezaRef, {
-      [`gruposConfig/${gid}/textoInstrucoes`]: texto,
-      [`gruposConfig/${gid}/aprovadoEm`]:      hoje,
-    })
-    if (!config.limpeza) config.limpeza = {} as ConfigLimpeza
-    if (!config.limpeza.gruposConfig) config.limpeza.gruposConfig = {}
-    if (!config.limpeza.gruposConfig[gid]) {
-      config.limpeza.gruposConfig[gid] = { superintendenteMid:'', ajudantesMid:[], textoInstrucoes:'', aprovadoEm:'' }
-    }
-    config.limpeza.gruposConfig[gid]!.textoInstrucoes = texto
-    config.limpeza.gruposConfig[gid]!.aprovadoEm      = hoje
-    toast(`Grupo ${gid} aprovado ✓`)
-    renderConfigLimpeza()
-  } catch {
-    toast('Erro ao aprovar')
-  }
-}
-
-async function saveConfigLimpeza(): Promise<void> {
-  const vb  = (id: string) => (document.getElementById(id) as HTMLInputElement).checked
-  const vi  = (id: string) => parseInt((document.getElementById(id) as HTMLSelectElement).value, 10)
-  const v   = (id: string) => (document.getElementById(id) as HTMLInputElement).value.trim()
-
-  const grupos = vi('lGrupos')
-
-  const gruposConfig: Record<string, ConfigLimpezaGrupo> = {}
-  for (let i = 1; i <= grupos; i++) {
-    const gid = String(i)
-    const existente = config.limpeza?.gruposConfig?.[gid]
-    const ajudantesMid = Array.from(
-      document.querySelectorAll<HTMLInputElement>(`.gAjud_${gid}:checked`)
-    ).map(cb => cb.value)
-
-    const textoInstrucoes =
-      (document.getElementById(`gTexto_${gid}`) as HTMLTextAreaElement).value
-
-    gruposConfig[gid] = {
-      superintendenteMid: v(`gSuper_${gid}`),
-      ajudantesMid,
-      textoInstrucoes,
-      aprovadoEm: keepApprovalIfTextUnchanged(
-        existente?.textoInstrucoes,
-        textoInstrucoes,
-        existente?.aprovadoEm,
-      ),
-    }
-  }
-
-  const textoPadrao = (document.getElementById('lTextoPadrao') as HTMLTextAreaElement).value
-
-  const limpezaObj: ConfigLimpeza = {
-    ativa:                 vb('lAtiva'),
-    grupos,
-    inicioRotacao:         v('lInicio'),
-    coordenadorMid:        v('lCoordenador'),
-    textoPadrao,
-    textoPadraoAprovadoEm: keepApprovalIfTextUnchanged(
-      config.limpeza?.textoPadrao,
-      textoPadrao,
-      config.limpeza?.textoPadraoAprovadoEm,
-    ),
-    gruposConfig,
-  }
-
-  setLoading('btnSalvarLimpezaConfig', true)
-  try {
-    await set(configLimpezaRef, limpezaObj)
-    config.limpeza = limpezaObj
-    toast('Config Limpeza salva ✓')
-  } catch {
-    toast('Erro ao salvar')
-  } finally {
-    setLoading('btnSalvarLimpezaConfig', false, 'Salvar Config Limpeza')
   }
 }
 
