@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "test:tarefas": "node --test tests/tarefas-domain.test.mjs",
     "test:escala": "node --test tests/escala-domain.test.mjs tests/escala-migration.test.mjs",
+    "test:oradores": "node --test tests/oradores-domain.test.mjs",
     "test:programacao": "node --test tests/programacao-domain.test.mjs tests/programacao-documents.test.mjs",
     "test:limpeza": "node --test tests/limpeza-domain.test.mjs tests/limpeza-documents.test.mjs",
     "test:secretario": "node --test tests/secretario-domain.test.mjs tests/secretario-documents.test.mjs",
