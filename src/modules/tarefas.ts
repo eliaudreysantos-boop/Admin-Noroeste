@@ -23,6 +23,7 @@ import {
   manualConflictReason,
   meetingIsBlocked,
   meetingEntries,
+  isHistoricalFirstSection,
   periodKeyForDate,
   personIsActive,
   personName,
@@ -326,9 +327,12 @@ function renderEscala(): void {
   const content = document.getElementById('tarefasContent')
   if (!content) return
 
-  const futuras = futureMeetings().slice(0, 12)
-  const font = printFont()
   const periodMode = planning.periodMode === 'month' ? 'month' : 'bimester'
+  const selectedPeriodId = periodKeyForDate(`${selectedPeriodMonth}-01`, periodMode)
+  const reunioes = Object.values(periods[selectedPeriodId]?.meetings ?? {})
+    .filter(meeting => canonicalMeetingType(meeting.type) || isHistoricalFirstSection(meeting))
+    .sort((a, b) => String(a.date ?? '').localeCompare(String(b.date ?? '')))
+  const font = printFont()
 
   content.innerHTML = `
     ${sectionTitle('Escala de tarefas', 'Confira as próximas reuniões antes de enviar mensagens.')}
@@ -363,9 +367,9 @@ function renderEscala(): void {
       </button>
     </div>
     <div style="display:flex;flex-direction:column;gap:8px">
-      ${futuras.length
-        ? futuras.map(meeting => meetingCard(meeting)).join('')
-        : emptyState('Nenhuma reunião futura cadastrada.')}
+      ${reunioes.length
+        ? reunioes.map(meeting => meetingCard(meeting)).join('')
+        : emptyState('Nenhuma reunião cadastrada neste período.')}
     </div>`
 
   document.getElementById('tarefasPrintFont')?.addEventListener('input', (event) => {
@@ -841,10 +845,11 @@ function bindFlowCards(): void {
 
 function meetingCard(meeting: TarefasMeeting): string {
   const count = assignmentCount(meeting)
-  const type = canonicalMeetingType(meeting.type) === 'midweek' ? 'Meio de semana' : 'Fim de semana'
+  const historicalFirstSection = isHistoricalFirstSection(meeting)
+  const type = historicalFirstSection ? '1ª seção (histórico)' : canonicalMeetingType(meeting.type) === 'midweek' ? 'Meio de semana' : 'Fim de semana'
   const ref = meetingRefFor(meeting)
   const locked = ref ? periods[ref.periodId]?.locked === true : false
-  const editors = ref
+  const editors = ref && !historicalFirstSection
     ? GENERATED_ROLES.filter(role => meetingAllowsRole(meeting, role))
       .map(role => assignmentEditor(ref.periodId, ref.meetingId, meeting, role, locked))
       .join('')
@@ -858,7 +863,7 @@ function meetingCard(meeting: TarefasMeeting): string {
           <div style="font-size:.76rem;color:var(--ink-3)">${escapeHtml(type)}</div>
         </div>
         <span style="font-size:.75rem;font-weight:700;color:${locked ? '#B3261E' : '#7E3AF2'}">
-          ${locked ? 'Travada' : `${count} função${count === 1 ? '' : 'ões'}`}
+          ${historicalFirstSection ? 'Somente leitura' : locked ? 'Travada' : `${count} função${count === 1 ? '' : 'ões'}`}
         </span>
       </div>
       <div style="display:flex;flex-direction:column;gap:6px;margin-top:10px">
