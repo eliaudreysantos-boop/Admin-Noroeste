@@ -103,6 +103,19 @@ test('período vazio recebe somente meio e fim de semana canônicos', () => {
   assert.deepEqual(new Set(meetings.map(meeting => meeting.type)), new Set(['midweek', 'weekend']))
 })
 
+test('modo mensal limita as reuniões ao mês selecionado e mantém um fim de semana por data', () => {
+  const result = withCanonicalPeriod(
+    {},
+    { periodMode: 'month', meetingDays: { midweekDow: 3, weekendDow: 6 } },
+    '2026-09-01',
+  )
+  assert.equal(result.periodId, '2026-09')
+  const meetings = Object.values(result.periods['2026-09'].meetings)
+  assert.equal(meetings.every(meeting => meeting.date.startsWith('2026-09-')), true)
+  const weekends = meetings.filter(meeting => meeting.type === 'weekend')
+  assert.equal(new Set(weekends.map(meeting => meeting.date)).size, weekends.length)
+})
+
 test('período travado e edição manual inválida abortam sem patch parcial', () => {
   const locked = baseContext({ p1: basePerson() })
   locked.periods['2026-09'].locked = true

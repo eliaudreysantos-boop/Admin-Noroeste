@@ -23,6 +23,7 @@ import {
   manualConflictReason,
   meetingIsBlocked,
   meetingEntries,
+  periodKeyForDate,
   personIsActive,
   personName,
   personPhone,
@@ -63,6 +64,7 @@ interface TarefasPlanning {
   scaleStartDate?: string
   generatedAt?: string
   periodMode?: 'month' | 'bimester'
+  editingPeriod?: string
   meetingDays?: { midweekDow?: number; weekendDow?: number }
   midweekDow?: number
   weekendDow?: number
@@ -87,7 +89,20 @@ let speakers: Record<string, TaskSpeaker> = {}
 let talks: Record<string, TaskTalk> = {}
 let settings: TarefasSettings = {}
 let congregationName = 'Noroeste'
-let masterPeople: Record<string, { name?: string; active?: boolean }> = {}
+let masterPeople: Record<string, { name?: string; whatsapp?: string; active?: boolean }> = {}
+let context: AppContext
+let selectedPeriodMonth = monthNow()
+
+function monthNow(): string {
+  const date = new Date()
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+}
+
+function shiftMonth(value: string, amount: number): string {
+  const [year, month] = value.split('-').map(Number)
+  const date = new Date(year, month - 1 + amount, 1, 12)
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+}
 
 function toast(msg: string, ms = 2600): void {
   const el = document.getElementById('toast')
@@ -199,7 +214,8 @@ function assignmentName(value: unknown): string {
   return ''
 }
 
-export default function mount(_ctx: AppContext): void {
+export default function mount(ctx: AppContext): void {
+  context = ctx
   activeTab = 'indice'
   const el = document.getElementById('appContent')
   if (!el) return
@@ -230,6 +246,8 @@ async function loadTarefas(): Promise<void> {
     pessoas = peopleSnap.exists() ? (peopleSnap.val() as Record<string, TarefasPessoa>) : {}
     periods = scaleSnap.exists() ? (scaleSnap.val() as Record<string, TarefasPeriod>) : {}
     planning = planningSnap.exists() ? (planningSnap.val() as TarefasPlanning) : {}
+    const savedPeriod = planning.editingPeriod ?? planning.scaleStartDate?.slice(0, 7)
+    selectedPeriodMonth = /^\d{4}-\d{2}$/.test(savedPeriod ?? '') ? savedPeriod! : monthNow()
     events = eventsSnap.exists() ? (eventsSnap.val() as Record<string, TaskEvent>) : {}
     const discursos = discursosSnap.exists() ? (discursosSnap.val() as Record<string, unknown>) : {}
     speakers = (discursos['oradores'] ?? {}) as Record<string, TaskSpeaker>
@@ -237,7 +255,11 @@ async function loadTarefas(): Promise<void> {
     settings = settingsSnap.exists() ? (settingsSnap.val() as TarefasSettings) : {}
     const congregacao = congregacaoSnap.exists() ? (congregacaoSnap.val() as { nome?: string }) : {}
     congregationName = congregacao.nome?.trim() || 'Noroeste'
-    masterPeople = masterPeopleSnap.exists() ? (masterPeopleSnap.val() as Record<string, { name?: string; active?: boolean }>) : {}
+    masterPeople = masterPeopleSnap.exists() ? (masterPeopleSnap.val() as Record<string, { name?: string; whatsapp?: string; active?: boolean }>) : {}
+    pessoas = Object.fromEntries(Object.entries(pessoas).map(([id, person]) => {
+      const central = person.masterId ? masterPeople[person.masterId] : undefined
+      return [id, central ? { ...person, name: central.name ?? person.name, phone: central.whatsapp ?? person.phone } : person]
+    }))
   } catch {
     toast('Erro ao carregar Tarefas')
   }
@@ -263,7 +285,7 @@ function renderIndex(): void {
   content.innerHTML = `<div style="margin-bottom:14px"><h2 style="font-size:1.05rem;color:#7E3AF2;margin-bottom:2px">Tarefas</h2></div><div id="tarefasMenu"></div>`
   const items: ItemMenu[] = [
     { id: 'resumo', titulo: 'Resumo', subtitulo: 'Visão geral da escala de tarefas', icone: '▦', corFundo: '#7E3AF2' },
-    { id: 'escala', titulo: 'Escala', subtitulo: 'Defina o início e gere a escala', icone: '▣', corFundo: '#003F72' },
+    { id: 'escala', titulo: 'Escala', subtitulo: 'Escolha o período, gere e revise a escala', icone: '▣', corFundo: '#003F72' },
     { id: 'participantes', titulo: 'Pessoas', subtitulo: 'Participantes e vínculos com Admin', icone: '♙', corFundo: '#006EB6' },
     { id: 'mensagens', titulo: 'Mensagens', subtitulo: 'Textos para confirmação e envio', icone: '✉', corFundo: '#1A6B3C' },
     { id: 'pendencias', titulo: 'Pendências', subtitulo: 'Funções vazias e vínculos incompletos', icone: '!', corFundo: '#B3261E' },
@@ -306,14 +328,17 @@ function renderEscala(): void {
 
   const futuras = futureMeetings().slice(0, 12)
   const font = printFont()
-  const startDate = planning.scaleStartDate || todayStr()
+  const periodMode = planning.periodMode === 'month' ? 'month' : 'bimester'
 
   content.innerHTML = `
     ${sectionTitle('Escala de tarefas', 'Confira as próximas reuniões antes de enviar mensagens.')}
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:12px">
-      <label class="form-label" for="tarefasScaleStart">Início da escala</label>
-      <div class="module-form-grid" style="margin-top:6px">
-        <input id="tarefasScaleStart" class="form-input" type="date" value="${escapeHtml(startDate)}">
+      <div class="module-form-grid">
+        <div class="form-group" style="margin:0"><label class="form-label" for="tarefasPeriodMode">Formato</label><select id="tarefasPeriodMode" class="form-select"><option value="month" ${periodMode === 'month' ? 'selected' : ''}>Mensal</option><option value="bimester" ${periodMode === 'bimester' ? 'selected' : ''}>Bimestral</option></select></div>
+        <div class="form-group" style="margin:0"><label class="form-label" for="tarefasPeriodMonth">Período</label><input id="tarefasPeriodMonth" class="form-input" type="month" value="${escapeHtml(selectedPeriodMonth)}"></div>
+      </div>
+      <div class="module-form-grid" style="margin-top:8px">
+        <div style="display:flex;gap:8px"><button id="tarefasPreviousPeriod" class="btn btn-ghost" type="button" style="flex:1">Anterior</button><button id="tarefasNextPeriod" class="btn btn-ghost" type="button" style="flex:1">Próximo</button></div>
         <select id="tarefasGenerateRole" class="form-select">
           <option value="">Todas as funções</option>
           ${TASK_ROLES.map(role => `<option value="${role}">${escapeHtml(TASK_ROLE_LABELS[role])}</option>`).join('')}
@@ -356,24 +381,45 @@ function renderEscala(): void {
   })
 
   document.getElementById('btnGenerateScale')?.addEventListener('click', () => {
-    const input = document.getElementById('tarefasScaleStart') as HTMLInputElement | null
-    if (!input?.value) {
-      toast('Informe o início da escala')
-      return
-    }
+    const monthInput = document.getElementById('tarefasPeriodMonth') as HTMLInputElement | null
+    const modeInput = document.getElementById('tarefasPeriodMode') as HTMLSelectElement | null
+    if (!monthInput || !/^\d{4}-\d{2}$/.test(monthInput.value)) { toast('Selecione um período válido'); return }
+    selectedPeriodMonth = monthInput.value
+    const mode = modeInput?.value === 'month' ? 'month' : 'bimester'
     const roleValue = (document.getElementById('tarefasGenerateRole') as HTMLSelectElement | null)?.value ?? ''
-    void generateScale(input.value, roleValue ? roleValue as TaskRole : null)
+    void generateScale(`${selectedPeriodMonth}-01`, mode, roleValue ? roleValue as TaskRole : null)
   })
+  document.getElementById('tarefasPeriodMonth')?.addEventListener('change', event => {
+    const value = (event.target as HTMLInputElement).value
+    const mode = (document.getElementById('tarefasPeriodMode') as HTMLSelectElement | null)?.value === 'month' ? 'month' : 'bimester'
+    if (/^\d{4}-\d{2}$/.test(value)) selectedPeriodMonth = periodKeyForDate(`${value}-01`, mode)
+    renderEscala()
+  })
+  document.getElementById('tarefasPeriodMode')?.addEventListener('change', event => {
+    const mode = (event.target as HTMLSelectElement).value === 'month' ? 'month' : 'bimester'
+    planning = { ...planning, periodMode: mode }
+    selectedPeriodMonth = periodKeyForDate(`${selectedPeriodMonth}-01`, mode)
+    renderEscala()
+  })
+  const navigate = (direction: number) => {
+    const mode = (document.getElementById('tarefasPeriodMode') as HTMLSelectElement | null)?.value === 'month' ? 'month' : 'bimester'
+    const amount = mode === 'bimester' ? direction * 2 : direction
+    selectedPeriodMonth = shiftMonth(selectedPeriodMonth, amount)
+    renderEscala()
+  }
+  document.getElementById('tarefasPreviousPeriod')?.addEventListener('click', () => navigate(-1))
+  document.getElementById('tarefasNextPeriod')?.addEventListener('click', () => navigate(1))
 
   bindAssignmentEditors()
 }
 
-async function generateScale(startDate: string, role: TaskRole | null): Promise<void> {
+async function generateScale(startDate: string, mode: 'month' | 'bimester', role: TaskRole | null): Promise<void> {
   const button = document.getElementById('btnGenerateScale') as HTMLButtonElement | null
   if (button) button.disabled = true
   try {
     const generatedAt = new Date().toISOString()
-    const canonical = withCanonicalPeriod(periods, planning, startDate)
+    const nextPlanning = { ...planning, periodMode: mode }
+    const canonical = withCanonicalPeriod(periods, nextPlanning, startDate)
     if (!canonical) {
       showGenerationErrors(['Os dias das reuniões não estão configurados no planejamento.'])
       return
@@ -385,15 +431,17 @@ async function generateScale(startDate: string, role: TaskRole | null): Promise<
       return
     }
     const patch: Record<string, unknown> = {
-      'planning/scaleStartDate': startDate,
+      'planning/periodMode': mode,
+      'planning/editingPeriod': selectedPeriodMonth,
+      'planning/scaleStartDate': null,
       'planning/generatedAt': generatedAt,
     }
     Object.entries(result.patch).forEach(([path, value]) => {
       patch[`scale/periods/${path}`] = value
     })
     await update(tarefasRef, patch)
-    planning = { ...planning, scaleStartDate: startDate, generatedAt }
-    toast(`${result.generated} designações geradas a partir de ${formatDate(startDate)}`)
+    planning = { ...nextPlanning, editingPeriod: selectedPeriodMonth, scaleStartDate: undefined, generatedAt }
+    toast(`${result.generated} designações geradas para o período selecionado`)
     await loadTarefas()
   } catch {
     toast('Não foi possível gerar a escala')
@@ -419,12 +467,12 @@ function renderParticipantes(): void {
     .sort(([, a], [, b]) => pessoaNome(a, '').localeCompare(pessoaNome(b, ''), 'pt-BR'))
 
   content.innerHTML = `
-    ${sectionTitle('Participantes', 'Mantenha o vínculo com Admin em dia para evitar nomes duplicados.')}
-    <div style="display:flex;justify-content:flex-end;margin-bottom:10px"><button id="btnAddTaskPerson" class="btn btn-primary" type="button">Adicionar</button></div>
+    ${sectionTitle('Participantes', 'Pessoas gerenciadas pelo Admin. Edite funções, folga e vínculo.')}
+    ${context.usuario.apps.mestre ? '<div style="display:flex;justify-content:flex-end;margin-bottom:10px"><button id="btnAddTaskPerson" class="btn btn-primary" type="button">Vincular pessoa</button></div>' : ''}
     <div style="display:flex;flex-direction:column;gap:6px">
       ${rows.length
         ? rows.map(([id, p]) => pessoaRow(id, p)).join('')
-        : emptyState('Nenhum participante cadastrado.')}
+        : emptyState('Nenhum participante. Adicione pelo módulo Mestre no Admin SPA.')}
     </div>`
   document.getElementById('btnAddTaskPerson')?.addEventListener('click', () => openTaskPersonModal(null))
   content.querySelectorAll<HTMLButtonElement>('[data-edit-task-person]').forEach(button => {
@@ -896,7 +944,7 @@ function pessoaRow(id: string, p: TarefasPessoa): string {
         </div>
       </div>
       <span style="width:9px;height:9px;border-radius:50%;background:${linked ? '#1A6B3C' : '#B3261E'}"></span>
-      <button class="btn btn-ghost" type="button" data-edit-task-person="${escapeHtml(id)}" style="padding:4px 9px;font-size:.76rem">Editar</button>
+      ${context.usuario.apps.mestre ? `<button class="btn btn-ghost" type="button" data-edit-task-person="${escapeHtml(id)}" style="padding:4px 9px;font-size:.76rem">Editar</button>` : ''}
     </div>`
 }
 
@@ -905,23 +953,34 @@ function taskRoleCheck(role: keyof NonNullable<TarefasPessoa['roles']>, label: s
 }
 
 function openTaskPersonModal(id: string | null): void {
+  if (!context.usuario.apps.mestre) { toast('Somente o Admin pode configurar participantes'); return }
   const person = id ? pessoas[id] : undefined
   const unavailable = Array.isArray(person?.unavailableDates)
     ? person.unavailableDates
     : Object.entries(person?.unavailableDates ?? {}).filter(([, blocked]) => blocked).map(([date]) => date)
   const masterOptions = Object.entries(masterPeople)
-    .filter(([, item]) => item.active !== false)
+    .filter(([mid, item]) => item.active !== false && (person?.masterId === mid || !Object.values(pessoas).some(candidate => candidate.masterId === mid)))
     .sort(([, a], [, b]) => String(a.name ?? '').localeCompare(String(b.name ?? ''), 'pt-BR'))
     .map(([mid, item]) => `<option value="${escapeHtml(mid)}" ${person?.masterId === mid ? 'selected' : ''}>${escapeHtml(item.name || mid)}</option>`)
     .join('')
   const roles = person?.roles ?? {}
+  // Nome canônico vem do Admin — exibir somente leitura
+  const displayName = person?.masterId
+    ? (masterPeople[person.masterId]?.name ?? personName(person, id ?? ''))
+    : ''
   const overlay = document.createElement('div')
   overlay.className = 'modal-overlay'
   overlay.innerHTML = `<div class="modal">
-    <h2>${id ? 'Editar participante' : 'Novo participante'}</h2>
-    <div class="form-group"><label class="form-label" for="taskPersonName">Nome</label><input id="taskPersonName" class="form-input" value="${escapeHtml(personName(person, ''))}"></div>
-    <div class="form-group"><label class="form-label" for="taskPersonPhone">WhatsApp</label><input id="taskPersonPhone" class="form-input" inputmode="numeric" value="${escapeHtml(personPhone(person))}"></div>
-    <div class="form-group"><label class="form-label" for="taskPersonMaster">Vínculo com Admin</label><select id="taskPersonMaster" class="form-select"><option value="">Sem vínculo</option>${masterOptions}</select></div>
+    <h2>${id ? 'Editar participante' : 'Vincular pessoa'}</h2>
+    ${id ? `<div class="form-group">
+      <label class="form-label">Nome (gerenciado pelo Admin)</label>
+      <div style="padding:9px 12px;border:1px solid var(--border);border-radius:var(--radius);
+        background:var(--surface2);color:var(--ink-2);font-size:.92rem">
+        ${escapeHtml(displayName)}
+      </div>
+      <div class="form-help">WhatsApp: ${escapeHtml(personPhone(person) || 'não informado')}. Edite os dados pessoais no Admin.</div>
+    </div>` : ''}
+    <div class="form-group"><label class="form-label" for="taskPersonMaster">Pessoa do cadastro Admin</label><select id="taskPersonMaster" class="form-select" ${id && person?.masterId ? 'disabled' : ''}><option value="">Selecionar...</option>${masterOptions}</select></div>
     <div class="module-form-grid">
       <div class="form-group"><label class="form-label" for="taskPersonRule">Reuniões</label><select id="taskPersonRule" class="form-select"><option value="both" ${(person?.rule ?? 'both') === 'both' ? 'selected' : ''}>Todas</option><option value="midweek" ${person?.rule === 'midweek' ? 'selected' : ''}>Meio de semana</option><option value="weekend" ${person?.rule === 'weekend' ? 'selected' : ''}>Fim de semana</option><option value="none" ${person?.rule === 'none' ? 'selected' : ''}>Fora da escala</option></select></div>
       <div class="form-group"><label class="form-label" for="taskPersonRest">Referência da folga</label><input id="taskPersonRest" class="form-input" type="date" value="${escapeHtml(person?.refFolgaDate)}"></div>
@@ -938,18 +997,21 @@ function openTaskPersonModal(id: string | null): void {
 }
 
 async function saveTaskPerson(id: string | null, overlay: HTMLElement): Promise<void> {
+  if (!context.usuario.apps.mestre) { toast('Somente o Admin pode configurar participantes'); return }
+  const person = id ? pessoas[id] : undefined
   const input = (elementId: string) => (document.getElementById(elementId) as HTMLInputElement).value.trim()
-  const name = input('taskPersonName')
-  if (!name) { toast('Preencha o nome'); return }
   const unavailableDates = input('taskPersonUnavailable').split(/[\s,;]+/).filter(Boolean)
   if (unavailableDates.some(date => !/^\d{4}-\d{2}-\d{2}$/.test(date))) { toast('Revise as datas indisponíveis'); return }
   const roles: Record<string, boolean> = {}
   document.querySelectorAll<HTMLInputElement>('.task-person-role').forEach(checkbox => { roles[checkbox.value] = checkbox.checked })
-  const finalId = id ?? `p_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`
+  const selectedMasterId = (document.getElementById('taskPersonMaster') as HTMLSelectElement).value || person?.masterId || ''
+  const central = masterPeople[selectedMasterId]
+  if (!selectedMasterId || !central) { toast('Selecione uma pessoa do cadastro Admin'); return }
+  const finalId = id ?? `tar_${selectedMasterId}`
   const patch: Record<string, unknown> = {
-    [`${finalId}/name`]: name,
-    [`${finalId}/phone`]: input('taskPersonPhone').replace(/\D/g, ''),
-    [`${finalId}/masterId`]: input('taskPersonMaster') || null,
+    [`${finalId}/name`]: central.name ?? selectedMasterId,
+    [`${finalId}/phone`]: central.whatsapp ?? '',
+    [`${finalId}/masterId`]: selectedMasterId,
     [`${finalId}/rule`]: input('taskPersonRule'),
     [`${finalId}/refFolgaDate`]: input('taskPersonRest'),
     [`${finalId}/unavailableDates`]: unavailableDates.length ? unavailableDates : null,
@@ -960,7 +1022,7 @@ async function saveTaskPerson(id: string | null, overlay: HTMLElement): Promise<
   try {
     await update(tarefasPeopleRef, patch)
     overlay.remove()
-    toast(id ? 'Participante atualizado' : 'Participante adicionado')
+    toast('Participante atualizado')
     await loadTarefas()
   } catch {
     toast('Não foi possível salvar o participante')
