@@ -7,16 +7,18 @@ interface LegacyOrador { nome?: string; name?: string; telefone?: string; ativo?
 interface LegacyProgramacao { status?: string; data?: string; oradorId?: string; oradorNome?: string; temaNumero?: number; temaTitulo?: string; tipo?: string; congregacaoId?: string }
 interface LegacyTema { titulo?: string; ativo?: boolean; numero?: number }
 interface LegacyCongregacao { nome?: string; cidade?: string; tipo?: string; contato?: string; telefone?: string; ativa?: boolean }
+interface LegacyEvento { data?: string; tipo?: string; titulo?: string; observacoes?: string }
 interface LegacyDiscursos {
   oradores?: Record<string, LegacyOrador>
   programacao?: Record<string, LegacyProgramacao>
   temas?: Record<string, LegacyTema>
   congregacoes?: Record<string, LegacyCongregacao>
+  eventos?: Record<string, LegacyEvento>
 }
 
 let discursos: LegacyDiscursos = {}
 let pessoas: RawPessoas = {}
-type OradoresTab = 'indice' | 'resumo' | 'cadastro' | 'programacao' | 'temas' | 'congregacoes' | 'pendencias'
+type OradoresTab = 'indice' | 'resumo' | 'cadastro' | 'programacao' | 'temas' | 'congregacoes' | 'eventos' | 'pendencias'
 let activeTab: OradoresTab = 'indice'
 
 function toast(msg: string, ms = 2600): void {
@@ -117,6 +119,7 @@ function render(): void {
         { id: 'programacao', titulo: 'Programação', subtitulo: `${programacoesFuturas} compromisso${programacoesFuturas === 1 ? '' : 's'} futuro${programacoesFuturas === 1 ? '' : 's'}`, icone: '▣', corFundo: '#7E3AF2' },
         { id: 'temas', titulo: 'Temas', subtitulo: 'Catálogo dos discursos públicos', icone: '▤', corFundo: '#1A6B3C' },
         { id: 'congregacoes', titulo: 'Congregações', subtitulo: 'Locais, visitantes e intercâmbios', icone: '⌂', corFundo: '#006EB6' },
+        { id: 'eventos', titulo: 'Eventos', subtitulo: 'Datas sem discurso público local', icone: '◆', corFundo: '#8A5B00' },
         { id: 'pendencias', titulo: 'Pendências', subtitulo: `${aConfirmar} compromisso${aConfirmar === 1 ? '' : 's'} a confirmar`, icone: '!', corFundo: '#B3261E' },
       ]
       renderMenuCards(menu, items, id => { activeTab = id as OradoresTab; render() })
@@ -154,6 +157,9 @@ function render(): void {
   el.querySelectorAll<HTMLButtonElement>('[data-delete-congregacao]').forEach(button => {
     button.addEventListener('click', () => void deleteCongregacao(button.dataset['deleteCongregacao'] ?? ''))
   })
+  el.querySelector<HTMLButtonElement>('[data-add-evento]')?.addEventListener('click', () => openEventoModal(null))
+  el.querySelectorAll<HTMLButtonElement>('[data-edit-evento]').forEach(button => button.addEventListener('click', () => openEventoModal(button.dataset['editEvento'] ?? null)))
+  el.querySelectorAll<HTMLButtonElement>('[data-delete-evento]').forEach(button => button.addEventListener('click', () => void deleteEvento(button.dataset['deleteEvento'] ?? '')))
 }
 
 function renderTabContent(tab: OradoresTab): string {
@@ -161,7 +167,43 @@ function renderTabContent(tab: OradoresTab): string {
   if (tab === 'programacao') return programacaoView()
   if (tab === 'temas') return temasView()
   if (tab === 'congregacoes') return congregacoesView()
+  if (tab === 'eventos') return eventosView()
   return pendenciasView()
+}
+
+const EVENT_LABELS: Record<string, string> = {
+  congresso_assembleia: 'Congresso ou assembleia', visita_superintendente: 'Visita do superintendente',
+  reuniao_especial: 'Reunião especial', celebracao: 'Celebração',
+}
+
+function eventosView(): string {
+  const rows = Object.entries(discursos.eventos ?? {}).sort(([, a], [, b]) => String(a.data ?? '').localeCompare(String(b.data ?? '')))
+  return `<div style="margin-top:14px"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px"><h3 style="font-size:.95rem;color:#5C6062">Eventos</h3><button class="btn btn-primary" type="button" data-add-evento>Adicionar</button></div><div class="module-option-list">${rows.length ? rows.map(([id, event]) => `<div class="module-menu-btn" style="cursor:default"><div style="flex:1"><div class="mod-label">${escapeHtml(event.titulo || EVENT_LABELS[event.tipo ?? ''] || 'Evento')}</div><div class="mod-desc">${escapeHtml(formatDate(event.data))}</div></div><button class="btn btn-ghost" data-edit-evento="${escapeHtml(id)}">Editar</button><button class="btn btn-danger" data-delete-evento="${escapeHtml(id)}">Excluir</button></div>`).join('') : '<p class="empty-state">Nenhum evento especial cadastrado.</p>'}</div></div>`
+}
+
+function openEventoModal(id: string | null): void {
+  const current = id ? discursos.eventos?.[id] : undefined
+  const overlay = document.createElement('div'); overlay.className = 'modal-overlay'
+  overlay.innerHTML = `<div class="modal"><h2>${id ? 'Editar evento' : 'Novo evento'}</h2><div class="form-group"><label class="form-label">Data</label><input id="eventData" class="form-input" type="date" value="${escapeHtml(current?.data ?? '')}"></div><div class="form-group"><label class="form-label">Tipo</label><select id="eventType" class="form-select">${Object.entries(EVENT_LABELS).map(([value, label]) => `<option value="${value}" ${current?.tipo === value ? 'selected' : ''}>${label}</option>`).join('')}</select></div><div class="form-group"><label class="form-label">Título opcional</label><input id="eventTitle" class="form-input" value="${escapeHtml(current?.titulo ?? '')}"></div><div class="form-group"><label class="form-label">Observações</label><textarea id="eventObs" class="form-input">${escapeHtml(current?.observacoes ?? '')}</textarea></div><div style="display:flex;gap:8px"><button id="eventCancel" class="btn btn-ghost">Cancelar</button><button id="eventSave" class="btn btn-primary">Salvar</button></div></div>`
+  document.body.appendChild(overlay)
+  overlay.addEventListener('click', event => { if (event.target === overlay) overlay.remove() })
+  overlay.querySelector('#eventCancel')?.addEventListener('click', () => overlay.remove())
+  overlay.querySelector('#eventSave')?.addEventListener('click', () => void saveEvento(id, overlay))
+}
+
+async function saveEvento(id: string | null, overlay: HTMLElement): Promise<void> {
+  const data = (overlay.querySelector('#eventData') as HTMLInputElement).value
+  if (!data) { toast('Informe a data do evento'); return }
+  const record: LegacyEvento = { data, tipo: (overlay.querySelector('#eventType') as HTMLSelectElement).value, titulo: (overlay.querySelector('#eventTitle') as HTMLInputElement).value.trim(), observacoes: (overlay.querySelector('#eventObs') as HTMLTextAreaElement).value.trim() }
+  const finalId = id ?? `e_${Date.now().toString(36)}`
+  await update(tarefasDiscursosRef, { [`eventos/${finalId}`]: record })
+  discursos.eventos = { ...(discursos.eventos ?? {}), [finalId]: record }; overlay.remove(); toast('Evento salvo'); render()
+}
+
+async function deleteEvento(id: string): Promise<void> {
+  if (!id || !discursos.eventos?.[id] || !window.confirm('Excluir este evento?')) return
+  await update(tarefasDiscursosRef, { [`eventos/${id}`]: null })
+  const next = { ...(discursos.eventos ?? {}) }; delete next[id]; discursos.eventos = next; toast('Evento excluído'); render()
 }
 
 function congregacoesView(): string {
