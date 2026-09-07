@@ -1,5 +1,5 @@
-import type { AppContext } from '../types'
-import { get, update, tarefasDiscursosRef } from '../firebase'
+import type { AppContext, RawPessoas } from '../types'
+import { get, pessoasRef, update, tarefasDiscursosRef } from '../firebase'
 import { renderMenuCards, type ItemMenu } from '../ui/menu-cards'
 import { moduleBackButton, moduleTitle } from '../ui/module-header'
 
@@ -15,6 +15,7 @@ interface LegacyDiscursos {
 }
 
 let discursos: LegacyDiscursos = {}
+let pessoas: RawPessoas = {}
 type OradoresTab = 'indice' | 'resumo' | 'cadastro' | 'programacao' | 'temas' | 'congregacoes' | 'pendencias'
 let activeTab: OradoresTab = 'indice'
 
@@ -59,12 +60,21 @@ export default function mount(_ctx: AppContext): void {
 
 async function loadOradores(): Promise<void> {
   try {
-    const snap = await get(tarefasDiscursosRef)
+    const [snap, peopleSnap] = await Promise.all([get(tarefasDiscursosRef), get(pessoasRef)])
     discursos = snap.exists() ? (snap.val() as LegacyDiscursos) : {}
+    pessoas = peopleSnap.exists() ? peopleSnap.val() as RawPessoas : {}
   } catch {
     toast('Erro ao carregar Oradores')
   }
   render()
+}
+
+function oradorNome(id: string, orador?: LegacyOrador): string {
+  return pessoas[orador?.pessoaId ?? '']?.name ?? orador?.nome ?? orador?.name ?? id
+}
+
+function oradorTelefone(orador?: LegacyOrador): string {
+  return pessoas[orador?.pessoaId ?? '']?.whatsapp ?? orador?.telefone ?? ''
 }
 
 function render(): void {
@@ -186,8 +196,8 @@ async function deleteCongregacao(id: string): Promise<void> {
 }
 
 function cadastroView(): string {
-  const rows = Object.entries(discursos.oradores ?? {}).sort(([, a], [, b]) => (a.nome ?? a.name ?? '').localeCompare(b.nome ?? b.name ?? '', 'pt-BR'))
-  return `<div style="margin-top:14px"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:2px"><div><h3 style="font-size:.95rem;color:#5C6062">Cadastro</h3><p style="font-size:.75rem;color:var(--ink-3)">Oradores locais e visitantes já registrados.</p></div><button class="btn btn-primary" type="button" data-add-orador style="padding:6px 10px;font-size:.78rem;white-space:nowrap">Adicionar</button></div><div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:0 12px">${rows.length ? rows.map(([id, o]) => `<div style="display:flex;justify-content:space-between;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)"><div style="flex:1;min-width:0"><strong>${escapeHtml(o.nome ?? o.name ?? id)}</strong><div style="font-size:.75rem;color:var(--ink-3)">${escapeHtml(o.tipo ?? 'tipo não informado')}${o.telefone ? ` · ${escapeHtml(o.telefone)}` : ' · sem telefone'}</div></div><span style="font-size:.72rem;font-weight:700;color:${o.ativo === false ? '#B3261E' : '#1A6B3C'}">${o.ativo === false ? 'Inativo' : 'Ativo'}</span><button class="btn btn-ghost" type="button" data-edit-orador="${escapeHtml(id)}" style="padding:4px 8px;font-size:.72rem">Editar</button><button class="btn btn-danger" type="button" data-delete-orador="${escapeHtml(id)}" style="padding:4px 8px;font-size:.72rem">Excluir</button></div>`).join('') : '<p style="padding:16px 0;color:var(--ink-3);text-align:center;font-size:.82rem">Nenhum orador cadastrado.</p>'}</div></div>`
+  const rows = Object.entries(discursos.oradores ?? {}).sort(([idA, a], [idB, b]) => oradorNome(idA, a).localeCompare(oradorNome(idB, b), 'pt-BR'))
+  return `<div style="margin-top:14px"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:2px"><div><h3 style="font-size:.95rem;color:#5C6062">Cadastro</h3><p style="font-size:.75rem;color:var(--ink-3)">Oradores locais e visitantes vinculados ao Admin.</p></div><button class="btn btn-primary" type="button" data-add-orador style="padding:6px 10px;font-size:.78rem;white-space:nowrap">Adicionar</button></div><div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:0 12px">${rows.length ? rows.map(([id, o]) => `<div style="display:flex;justify-content:space-between;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)"><div style="flex:1;min-width:0"><strong>${escapeHtml(oradorNome(id, o))}</strong><div style="font-size:.75rem;color:var(--ink-3)">${escapeHtml(o.tipo ?? 'tipo não informado')}${oradorTelefone(o) ? ` · ${escapeHtml(oradorTelefone(o))}` : ' · sem WhatsApp'}${o.pessoaId ? '' : ' · vínculo pendente'}</div></div><span style="font-size:.72rem;font-weight:700;color:${o.ativo === false ? '#B3261E' : '#1A6B3C'}">${o.ativo === false ? 'Inativo' : 'Ativo'}</span><button class="btn btn-ghost" type="button" data-edit-orador="${escapeHtml(id)}" style="padding:4px 8px;font-size:.72rem">Editar</button><button class="btn btn-danger" type="button" data-delete-orador="${escapeHtml(id)}" style="padding:4px 8px;font-size:.72rem">Excluir</button></div>`).join('') : '<p style="padding:16px 0;color:var(--ink-3);text-align:center;font-size:.82rem">Nenhum orador cadastrado.</p>'}</div></div>`
 }
 
 function newOradorId(): string {
@@ -198,9 +208,11 @@ function newOradorId(): string {
 
 function openOradorModal(id: string | null): void {
   const current = id ? discursos.oradores?.[id] : undefined
+  const linked = new Set(Object.entries(discursos.oradores ?? {}).filter(([other]) => other !== id).map(([, item]) => item.pessoaId).filter(Boolean))
+  const personOptions = Object.entries(pessoas).filter(([mid, person]) => person.active !== false && (!linked.has(mid) || mid === current?.pessoaId)).sort(([, a], [, b]) => a.name.localeCompare(b.name, 'pt-BR')).map(([mid, person]) => `<option value="${escapeHtml(mid)}" ${current?.pessoaId === mid ? 'selected' : ''}>${escapeHtml(person.name)}</option>`).join('')
   const overlay = document.createElement('div')
   overlay.className = 'modal-overlay'
-  overlay.innerHTML = `<div class="modal"><h2>${id ? 'Editar orador' : 'Novo orador'}</h2><div class="form-group"><label class="form-label" for="oradorNome">Nome</label><input id="oradorNome" class="form-input" value="${escapeHtml(current?.nome ?? current?.name ?? '')}"></div><div class="form-group"><label class="form-label" for="oradorTipo">Tipo</label><select id="oradorTipo" class="form-select"><option value="local" ${current?.tipo === 'local' ? 'selected' : ''}>Local</option><option value="visitante" ${current?.tipo === 'visitante' ? 'selected' : ''}>Visitante</option></select></div><div class="form-group"><label class="form-label" for="oradorTelefone">Telefone</label><input id="oradorTelefone" class="form-input" type="tel" value="${escapeHtml(current?.telefone ?? '')}"></div><div class="form-group"><label style="display:flex;align-items:center;gap:8px"><input id="oradorAtivo" type="checkbox" ${current?.ativo !== false ? 'checked' : ''}> <span class="form-label" style="margin:0">Ativo</span></label></div><div style="display:flex;gap:8px;margin-top:8px"><button id="cancelOrador" class="btn btn-ghost" type="button" style="flex:1">Cancelar</button><button id="saveOrador" class="btn btn-primary" type="button" style="flex:1">Salvar</button></div></div>`
+  overlay.innerHTML = `<div class="modal"><h2>${id ? 'Editar orador' : 'Adicionar orador'}</h2><div class="form-group"><label class="form-label" for="oradorPessoa">Pessoa do cadastro Admin</label><select id="oradorPessoa" class="form-select"><option value="">Selecionar...</option>${personOptions}</select><p class="form-help">Nome e WhatsApp são editados somente no Admin.</p></div><div class="form-group"><label class="form-label" for="oradorTipo">Tipo</label><select id="oradorTipo" class="form-select"><option value="local" ${current?.tipo === 'local' ? 'selected' : ''}>Local</option><option value="visitante" ${current?.tipo === 'visitante' ? 'selected' : ''}>Visitante</option></select></div><div class="form-group"><label style="display:flex;align-items:center;gap:8px"><input id="oradorAtivo" type="checkbox" ${current?.ativo !== false ? 'checked' : ''}> <span class="form-label" style="margin:0">Ativo</span></label></div><div style="display:flex;gap:8px;margin-top:8px"><button id="cancelOrador" class="btn btn-ghost" type="button" style="flex:1">Cancelar</button><button id="saveOrador" class="btn btn-primary" type="button" style="flex:1">Salvar</button></div></div>`
   document.body.appendChild(overlay)
   overlay.addEventListener('click', event => { if (event.target === overlay) overlay.remove() })
   overlay.querySelector('#cancelOrador')?.addEventListener('click', () => overlay.remove())
@@ -208,15 +220,15 @@ function openOradorModal(id: string | null): void {
 }
 
 async function saveOrador(id: string | null, overlay: HTMLElement): Promise<void> {
-  const nome = (overlay.querySelector('#oradorNome') as HTMLInputElement).value.trim()
-  if (!nome) { toast('Preencha o nome'); return }
+  const pessoaId = (overlay.querySelector('#oradorPessoa') as HTMLSelectElement).value
+  if (!pessoaId || !pessoas[pessoaId]) { toast('Selecione uma pessoa do Admin'); return }
   const record: LegacyOrador = {
     ...(id ? discursos.oradores?.[id] : {}),
-    nome,
+    pessoaId,
     tipo: (overlay.querySelector('#oradorTipo') as HTMLSelectElement).value,
-    telefone: (overlay.querySelector('#oradorTelefone') as HTMLInputElement).value.trim(),
     ativo: (overlay.querySelector('#oradorAtivo') as HTMLInputElement).checked,
   }
+  delete record.nome; delete record.name; delete record.telefone
   const finalId = id ?? newOradorId()
   try {
     await update(tarefasDiscursosRef, { [`oradores/${finalId}`]: record })
@@ -229,7 +241,7 @@ async function saveOrador(id: string | null, overlay: HTMLElement): Promise<void
 
 async function deleteOrador(id: string): Promise<void> {
   if (!id || !discursos.oradores?.[id]) return
-  if (!window.confirm(`Excluir o orador "${discursos.oradores[id].nome ?? discursos.oradores[id].name ?? id}"?`)) return
+  if (!window.confirm(`Excluir o orador "${oradorNome(id, discursos.oradores[id])}"?`)) return
   try {
     await update(tarefasDiscursosRef, { [`oradores/${id}`]: null })
     const next = { ...(discursos.oradores ?? {}) }
@@ -247,8 +259,8 @@ function programacaoView(): string {
 
 function openProgramacaoModal(id: string | null): void {
   const current = id ? discursos.programacao?.[id] : undefined
-  const speakers = Object.entries(discursos.oradores ?? {}).sort(([, a], [, b]) => (a.nome ?? a.name ?? '').localeCompare(b.nome ?? b.name ?? '', 'pt-BR'))
-  const options = speakers.map(([speakerId, speaker]) => `<option value="${escapeHtml(speakerId)}" ${speakerId === current?.oradorId ? 'selected' : ''}>${escapeHtml(speaker.nome ?? speaker.name ?? speakerId)}</option>`).join('')
+  const speakers = Object.entries(discursos.oradores ?? {}).sort(([idA, a], [idB, b]) => oradorNome(idA, a).localeCompare(oradorNome(idB, b), 'pt-BR'))
+  const options = speakers.map(([speakerId, speaker]) => `<option value="${escapeHtml(speakerId)}" ${speakerId === current?.oradorId ? 'selected' : ''}>${escapeHtml(oradorNome(speakerId, speaker))}</option>`).join('')
   const congregacoes = Object.entries(discursos.congregacoes ?? {}).filter(([, c]) => c.ativa !== false).sort(([, a], [, b]) => (a.nome ?? '').localeCompare(b.nome ?? '', 'pt-BR'))
   const congregationOptions = congregacoes.map(([congId, congregation]) => `<option value="${escapeHtml(congId)}" ${congId === current?.congregacaoId ? 'selected' : ''}>${escapeHtml(congregation.nome ?? congId)}</option>`).join('')
   const overlay = document.createElement('div')
@@ -268,7 +280,7 @@ async function saveProgramacao(id: string | null, overlay: HTMLElement): Promise
     data: (overlay.querySelector('#progData') as HTMLInputElement).value,
     tipo: (overlay.querySelector('#progTipo') as HTMLSelectElement).value,
     oradorId: oradorId || undefined,
-    oradorNome: orador ? (orador.nome ?? orador.name) : undefined,
+    oradorNome: orador ? oradorNome(oradorId, orador) : undefined,
     congregacaoId: (overlay.querySelector('#progCongregacao') as HTMLSelectElement).value || undefined,
     temaNumero: Number((overlay.querySelector('#progTemaNumero') as HTMLInputElement).value) || undefined,
     temaTitulo: (overlay.querySelector('#progTemaTitulo') as HTMLInputElement).value.trim() || undefined,
@@ -340,7 +352,8 @@ function pendenciasView(): string {
     if (p.status !== 'confirmado') items.push(`Compromisso de ${formatDate(p.data)} aguardando confirmação.`)
   })
   Object.entries(discursos.oradores ?? {}).forEach(([, o]) => {
-    if (o.ativo !== false && !o.telefone) items.push(`${o.nome ?? o.name ?? 'Orador'} está sem telefone.`)
+    if (o.ativo !== false && !o.pessoaId) items.push(`${oradorNome('', o) || 'Orador'} está sem vínculo com o Admin.`)
+    else if (o.ativo !== false && !oradorTelefone(o)) items.push(`${oradorNome('', o) || 'Orador'} está sem WhatsApp no Admin.`)
   })
   return `<div style="margin-top:14px"><h3 style="font-size:.95rem;color:#5C6062;margin-bottom:2px">Pendências</h3><p style="font-size:.75rem;color:var(--ink-3);margin-bottom:10px">Itens que precisam de revisão antes da entrega.</p>${items.length ? `<div style="display:flex;flex-direction:column;gap:8px">${items.map(item => `<div style="border:1px solid #E6C7C4;background:#FFF7F6;color:#7E2B25;border-radius:8px;padding:12px;font-size:.82rem">${escapeHtml(item)}</div>`).join('')}</div>` : '<div style="padding:18px;border:1px solid #B7DEC7;background:#F1FAF4;border-radius:8px;color:#1A6B3C;font-size:.84rem">Nenhuma pendência identificada.</div>'}</div>`
 }
