@@ -6,8 +6,8 @@ import database from '../NAO FAZER COMMIT DESSA PASTA/oradoress2-default-rtdb-ex
 test('une disponibilidade, preserva só participa com e remapeia histórico', () => {
   const plan = planEscalaIdMigration({
     participants: {
-      old1: { masterId: 'm1', active: true, onlyWithId: 'old3', capPerMonth: 2 },
-      old2: { masterId: 'm1', active: false, onlyWithId: '', capPerMonth: 2 },
+      old1: { masterId: 'm1', active: true, onlyWithId: 'old3', capPerMonth: 2, pioneer: true, sameSexOnly: false },
+      old2: { masterId: 'm1', active: false, onlyWithId: '', capPerMonth: 2, child: true, sameSexOnly: true },
       old3: { masterId: 'm2', active: true },
     },
     availability: { local: { old1: { a: true }, old2: { b: true } } },
@@ -17,6 +17,10 @@ test('une disponibilidade, preserva só participa com e remapeia histórico', ()
   assert.equal(plan.stats.duplicateProfilesMerged, 1)
   assert.deepEqual(plan.migrated.availability.local.m1, { a: true, b: true })
   assert.equal(plan.migrated.participants.m1.onlyWithId, 'm2')
+  assert.equal(plan.migrated.participants.m1.pioneer, true)
+  assert.equal(plan.migrated.participants.m1.withChild, true)
+  assert.equal(plan.migrated.participants.m1.sameSexOnly, true)
+  assert.equal('child' in plan.migrated.participants.m1, false)
   assert.deepEqual(plan.migrated.tables.local['2026-09'].rows['2026-09-01'].slots['08:00'], { p1: 'm1', p2: 'm2' })
 })
 
@@ -34,6 +38,8 @@ test('export real gera prévia sem modificar a origem', () => {
   assert.equal(JSON.stringify(database.escala), before)
   assert.equal(plan.stats.legacyProfiles, 57)
   assert.equal(plan.stats.duplicateProfilesMerged, 3)
+  assert.equal(plan.canApply, true)
+  assert.deepEqual(plan.conflicts, [])
   assert.ok(plan.stats.tableReferencesRemapped > 0)
   assert.ok(Object.keys(plan.migrated.participants).every(id => id.startsWith('m_')))
 })

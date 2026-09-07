@@ -29,7 +29,10 @@ export interface EscalaMigrationPlan {
 }
 
 const IDENTITY_FIELDS = new Set(['name', 'phone', 'sex', 'masterId', 'legacyId'])
-const MERGED_FIELDS = new Set(['active', 'availabilityUpdatedAt', 'onlyWithId', 'updatedAt'])
+const MERGED_FIELDS = new Set([
+  'active', 'availabilityUpdatedAt', 'onlyWithId', 'updatedAt', 'sortOrder',
+  'pioneer', 'withChild', 'child', 'sameSexOnly', 'sameSex',
+])
 
 function distinct(values: unknown[]): unknown[] {
   const seen = new Set<string>()
@@ -68,7 +71,13 @@ export function planEscalaIdMigration(data: EscalaMigrationData): EscalaMigratio
   for (const [masterId, entries] of groups) {
     const profiles = entries.map(([, profile]) => profile)
     const legacyIds = entries.map(([id]) => id)
-    const result: EscalaParticipant = { masterId, active: profiles.some(profile => profile.active !== false) }
+    const result: EscalaParticipant = {
+      masterId,
+      active: profiles.some(profile => profile.active !== false),
+      pioneer: profiles.some(profile => profile.pioneer === true),
+      withChild: profiles.some(profile => profile.withChild === true || profile.child === true),
+      sameSexOnly: profiles.some(profile => profile.sameSexOnly === true || profile.sameSex === true),
+    }
     const fields = new Set(profiles.flatMap(profile => Object.keys(profile)))
 
     for (const field of fields) {
