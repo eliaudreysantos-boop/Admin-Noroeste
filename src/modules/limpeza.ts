@@ -18,6 +18,7 @@ import {
   configReunioesRef,
   limpezaPeriodosRef,
   tarefasPlanejamentoRef,
+  secretarioRef,
 } from '../firebase'
 import { renderMenuCards, type ItemMenu } from '../ui/menu-cards'
 import { moduleBackButton } from '../ui/module-header'
@@ -41,6 +42,10 @@ let periodAnchor = todayStr()
 let selectedPeriodId = ''
 let congregationName = 'Noroeste'
 let reunioes: Partial<ConfigReunioes> = {}
+interface GrupoServico { id?: string; nome?: string; ativo?: boolean }
+interface PublicadorServico { masterId?: string; grupoId?: string; ativo?: boolean }
+let gruposServico: Record<string, GrupoServico> = {}
+let publicadoresServico: Record<string, PublicadorServico> = {}
 
 function toast(msg: string, ms = 2600): void {
   const el = document.getElementById('toast')
@@ -107,7 +112,43 @@ function activePeople(): [string, MasterPessoa][] {
 }
 
 function groupCount(): number {
+  if (usingServiceGroups()) return serviceGroupEntries().length
   return Math.max(1, Math.min(12, Number(limpeza.grupos ?? 4)))
+}
+
+function usingServiceGroups(): boolean {
+  return limpeza.aproveitarGruposServicoCampo === true
+}
+
+function serviceGroupEntries(): [string, GrupoServico][] {
+  return Object.entries(gruposServico)
+    .filter(([, group]) => group.ativo !== false)
+    .sort((a, b) => String(a[1].nome ?? a[0]).localeCompare(String(b[1].nome ?? b[0]), 'pt-BR') || a[0].localeCompare(b[0]))
+}
+
+function groupSourceId(position: number): string {
+  return usingServiceGroups() ? (serviceGroupEntries()[position - 1]?.[0] ?? String(position)) : String(position)
+}
+
+function groupOwnConfig(position: number): Partial<ConfigLimpezaGrupo> {
+  const key = groupSourceId(position)
+  return usingServiceGroups() ? limpeza.gruposServicoConfig?.[key] ?? {} : limpeza.gruposConfig?.[key] ?? {}
+}
+
+function effectiveGenerationData(): { config: ConfigLimpeza; people: RawPessoas } {
+  if (!usingServiceGroups()) return { config: limpeza as ConfigLimpeza, people: pessoas }
+  const groups = serviceGroupEntries()
+  const groupPosition = new Map(groups.map(([id], index) => [id, index + 1]))
+  const people = Object.fromEntries(Object.entries(pessoas).map(([mid, person]) => [mid, { ...person, limpeza: { grupo: 0 } }])) as RawPessoas
+  Object.values(publicadoresServico).forEach(publisher => {
+    const position = publisher.ativo === false ? undefined : groupPosition.get(publisher.grupoId ?? '')
+    if (position && publisher.masterId && people[publisher.masterId]?.active) people[publisher.masterId] = { ...people[publisher.masterId], limpeza: { grupo: position } }
+  })
+  const gruposConfig = Object.fromEntries(groups.map(([id, group], index) => {
+    const own = limpeza.gruposServicoConfig?.[id] ?? {}
+    return [String(index + 1), { ...own, nome: group.nome?.trim() || `Grupo ${index + 1}` }]
+  })) as Record<string, ConfigLimpezaGrupo>
+  return { config: { ...(limpeza as ConfigLimpeza), grupos: groups.length, gruposConfig }, people }
 }
 
 function candidateOptions(selectedMid = ''): string {
@@ -150,13 +191,14 @@ async function loadAll(): Promise<void> {
   }
 
   try {
-    const [pessoasSnap, limpezaSnap, periodosSnap, congregacaoSnap, reunioesSnap, planejamentoSnap] = await Promise.all([
+    const [pessoasSnap, limpezaSnap, periodosSnap, congregacaoSnap, reunioesSnap, planejamentoSnap, secretarioSnap] = await Promise.all([
       get(pessoasRef),
       get(configLimpezaRef),
       get(limpezaPeriodosRef),
       get(configCongregacaoRef),
       get(configReunioesRef),
       get(tarefasPlanejamentoRef),
+      get(secretarioRef),
     ])
     pessoas = pessoasSnap.exists() ? (pessoasSnap.val() as RawPessoas) : {}
     limpeza = limpezaSnap.exists() ? (limpezaSnap.val() as ConfigLimpeza) : {}
@@ -166,6 +208,9 @@ async function loadAll(): Promise<void> {
     reunioes = reunioesSnap.exists() ? (reunioesSnap.val() as ConfigReunioes) : {}
     const planejamento = planejamentoSnap.exists() ? (planejamentoSnap.val() as { periodMode?: CleaningPeriodMode }) : {}
     periodMode = planejamento.periodMode === 'month' ? 'month' : 'bimester'
+    const secretario = secretarioSnap.exists() ? secretarioSnap.val() as { grupos?: Record<string, GrupoServico>; publicadores?: Record<string, PublicadorServico> } : {}
+    gruposServico = secretario.grupos ?? {}
+    publicadoresServico = secretario.publicadores ?? {}
     const ids = Object.keys(periodos).sort()
     selectedPeriodId = ids[ids.length - 1] ?? ''
   } catch {
@@ -255,14 +300,15 @@ function renderEscala(): void {
 async function saveGeneratedPeriod(): Promise<void> {
   const button = document.getElementById('btnGerarEscalaLimpeza') as HTMLButtonElement | null
   try {
-    if (!limpeza.ativa || !limpeza.inicioRotacao || !limpeza.grupos || !reunioes.meiaDeSemana || !reunioes.fimDeSemana) {
+    const effective = effectiveGenerationData()
+    if (!limpeza.ativa || !limpeza.inicioRotacao || !effective.config.grupos || !reunioes.meiaDeSemana || !reunioes.fimDeSemana) {
       throw new Error('Complete a configuração da rotação e dos dias de reunião antes de gerar.')
     }
     button?.setAttribute('disabled', '')
     if (button) button.textContent = 'Gerando...'
     const generated = generateCleaningPeriod(
-      `${periodAnchor.slice(0, 7)}-01`, periodMode, limpeza as ConfigLimpeza,
-      reunioes as ConfigReunioes, pessoas, congregationName, new Date().toISOString(),
+      `${periodAnchor.slice(0, 7)}-01`, periodMode, effective.config,
+      reunioes as ConfigReunioes, effective.people, congregationName, new Date().toISOString(),
     )
     await update(limpezaPeriodosRef, { [generated.id]: generated })
     periodos[generated.id] = generated
@@ -280,6 +326,21 @@ function renderGrupos(): void {
   const content = document.getElementById('limpezaContent')
   if (!content) return
   limpezaChanges.clear()
+
+  if (usingServiceGroups()) {
+    const groups = serviceGroupEntries()
+    content.innerHTML = `
+      ${renderSectionTitle('Grupos de limpeza', '')}
+      <div class="notice">Os grupos e seus membros são administrados no Secretário. Aqui eles são somente leitura.</div>
+      <div class="module-option-list">${groups.map(([id, group], index) => {
+        const members = Object.values(publicadoresServico)
+          .filter(publisher => publisher.ativo !== false && publisher.grupoId === id && publisher.masterId && pessoas[publisher.masterId]?.active)
+          .map(publisher => pessoas[publisher.masterId!].name)
+          .sort((a, b) => a.localeCompare(b, 'pt-BR'))
+        return `<div class="module-menu-btn" style="cursor:default"><div class="mod-icon">${index + 1}</div><div><div class="mod-label">${escapeHtml(group.nome ?? `Grupo ${index + 1}`)}</div><div class="mod-desc">${members.length ? escapeHtml(members.join(', ')) : 'Nenhum membro ativo'}</div></div></div>`
+      }).join('') || '<p class="empty-state">Nenhum grupo ativo cadastrado no Secretário.</p>'}</div>`
+    return
+  }
 
   const ativos = activePeople()
   content.innerHTML = `
@@ -353,6 +414,7 @@ function updateLimpezaCounters(ativos: [string, MasterPessoa][]): void {
 }
 
 async function saveGrupos(ativos: [string, MasterPessoa][]): Promise<void> {
+  if (usingServiceGroups()) { toast('Os grupos são administrados no Secretário'); return }
   if (limpezaChanges.size === 0) { toast('Nenhuma alteração'); return }
 
   setLoading('btnSalvarLimpezaGrupos', true, 'Salvar Grupos')
@@ -391,26 +453,28 @@ function renderConfig(): void {
 
   const grupoCards = Array.from({ length: grupos }, (_, i) => {
     const gid = String(i + 1)
-    const item: Partial<ConfigLimpezaGrupo> = limpeza.gruposConfig?.[gid] ?? {}
-    const nome = item.nome ?? ''
+    const sourceId = groupSourceId(i + 1)
+    const item = groupOwnConfig(i + 1)
+    const serviceName = usingServiceGroups() ? gruposServico[sourceId]?.nome ?? `Grupo ${gid}` : ''
+    const nome = usingServiceGroups() ? serviceName : item.nome ?? ''
     const superintendenteMid = item.superintendenteMid ?? ''
     const ajudantesMid = toStringArray(item.ajudantesMid as string[] | Record<string, string> | undefined)
     const textoInstrucoes = item.textoInstrucoes ?? ''
     const aprovadoEm = item.aprovadoEm ?? ''
 
     return `
-      <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;
+      <div data-cleaning-group="${escapeHtml(sourceId)}" style="background:var(--surface);border:1px solid var(--border);border-radius:8px;
         padding:12px;margin-bottom:10px">
         <div style="font-size:.9rem;font-weight:700;color:var(--blue-deep);margin-bottom:10px">
-          Grupo ${gid}
+          ${escapeHtml(nome || `Grupo ${gid}`)}
         </div>
-        <div class="form-group">
+        <div class="form-group" ${usingServiceGroups() ? 'hidden' : ''}>
           <label class="form-label">Nome do grupo</label>
-          <input id="gNome_${gid}" class="form-input" maxlength="40" value="${escapeHtml(nome)}" placeholder="Ex.: Salão do Reino">
+          <input id="gNome_${escapeHtml(sourceId)}" class="form-input" maxlength="40" value="${escapeHtml(nome)}" placeholder="Ex.: Salão do Reino">
         </div>
         <div class="form-group">
           <label class="form-label">Superintendente</label>
-          <select id="gSuper_${gid}" class="form-select">
+          <select id="gSuper_${escapeHtml(sourceId)}" class="form-select">
             <option value="">Selecionar...</option>
             ${candidateOptions(superintendenteMid)}
           </select>
@@ -422,7 +486,7 @@ function renderConfig(): void {
             border-radius:6px;padding:8px;background:var(--surface-2)">
             ${activePeople().map(([mid, p]) => `
               <label style="display:flex;align-items:center;gap:5px;cursor:pointer;padding:2px 0;font-size:.8rem">
-                <input type="checkbox" class="gAjud_${gid}" value="${mid}" ${ajudantesMid.includes(mid) ? 'checked' : ''}>
+                <input type="checkbox" data-group-helper="${escapeHtml(sourceId)}" value="${mid}" ${ajudantesMid.includes(mid) ? 'checked' : ''}>
                 <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(p.name.split(' ')[0] ?? p.name)}</span>
               </label>`).join('')}
           </div>
@@ -430,14 +494,14 @@ function renderConfig(): void {
         <div class="form-group">
           <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
             <label class="form-label" style="margin:0">Texto de instrução</label>
-            <span style="font-size:.72rem;color:var(--ink-3)" id="gTextoCount_${gid}">${textoInstrucoes.length}/250</span>
+            <span style="font-size:.72rem;color:var(--ink-3)" id="gTextoCount_${escapeHtml(sourceId)}">${textoInstrucoes.length}/250</span>
           </div>
-          <textarea id="gTexto_${gid}" class="form-input" rows="3" maxlength="250">${escapeHtml(textoInstrucoes)}</textarea>
+          <textarea id="gTexto_${escapeHtml(sourceId)}" class="form-input" rows="3" maxlength="250">${escapeHtml(textoInstrucoes)}</textarea>
           <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;gap:8px">
             <span style="font-size:.74rem;color:var(--ink-3)">
               Aprovado: <strong>${aprovadoEm ? formatDate(aprovadoEm) : 'Não aprovado'}</strong>
             </span>
-            <button class="btn btn-ghost gAprovar" data-gid="${gid}" style="font-size:.75rem;padding:3px 10px">
+            <button class="btn btn-ghost gAprovar" data-gid="${escapeHtml(sourceId)}" style="font-size:.75rem;padding:3px 10px">
               Aprovar hoje
             </button>
           </div>
@@ -453,8 +517,15 @@ function renderConfig(): void {
         <span class="form-label" style="margin:0">Rotação ativa</span>
       </label>
     </div>
+    <div class="form-group">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+        <input type="checkbox" id="lUsarGruposServico" ${usingServiceGroups() ? 'checked' : ''}>
+        <span class="form-label" style="margin:0">Aproveitar grupos de serviço de campo</span>
+      </label>
+      <p class="form-help">Marcado, nomes e membros vêm do Secretário e não podem ser alterados na Limpeza.</p>
+    </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-      <div class="form-group">
+      <div class="form-group" ${usingServiceGroups() ? 'hidden' : ''}>
         <label class="form-label">Número de grupos</label>
         <select id="lGrupos" class="form-select">
           ${[2,3,4,5,6].map(n => `<option value="${n}" ${grupos === n ? 'selected' : ''}>${n} grupos</option>`).join('')}
@@ -495,7 +566,7 @@ function renderConfig(): void {
     </div>`
 
   charCounter('lTextoPadrao', 'lTextoPadraoCount')
-  Array.from({ length: grupos }, (_, i) => charCounter(`gTexto_${i + 1}`, `gTextoCount_${i + 1}`))
+  Array.from({ length: grupos }, (_, i) => groupSourceId(i + 1)).forEach(id => charCounter(`gTexto_${id}`, `gTextoCount_${id}`))
 
   document.getElementById('btnAprovarTextoPadrao')!
     .addEventListener('click', () => void approveTextoPadrao())
@@ -526,15 +597,18 @@ async function approveGrupoTexto(gid: string): Promise<void> {
   const hoje = todayStr()
 
   try {
+    const collection = usingServiceGroups() ? 'gruposServicoConfig' : 'gruposConfig'
     await update(configLimpezaRef, {
-      [`gruposConfig/${gid}/textoInstrucoes`]: textoInstrucoes,
-      [`gruposConfig/${gid}/aprovadoEm`]: hoje,
+      [`${collection}/${gid}/textoInstrucoes`]: textoInstrucoes,
+      [`${collection}/${gid}/aprovadoEm`]: hoje,
     })
-    if (!limpeza.gruposConfig) limpeza.gruposConfig = {}
-    limpeza.gruposConfig[gid] = {
-      nome: limpeza.gruposConfig[gid]?.nome ?? '',
-      superintendenteMid: limpeza.gruposConfig[gid]?.superintendenteMid ?? '',
-      ajudantesMid: limpeza.gruposConfig[gid]?.ajudantesMid ?? [],
+    const configs = usingServiceGroups()
+      ? (limpeza.gruposServicoConfig ??= {})
+      : (limpeza.gruposConfig ??= {})
+    configs[gid] = {
+      nome: configs[gid]?.nome ?? '',
+      superintendenteMid: configs[gid]?.superintendenteMid ?? '',
+      ajudantesMid: configs[gid]?.ajudantesMid ?? [],
       textoInstrucoes,
       aprovadoEm: hoje,
     }
@@ -548,19 +622,20 @@ async function approveGrupoTexto(gid: string): Promise<void> {
 async function saveConfig(): Promise<void> {
   const checked = (id: string) => (document.getElementById(id) as HTMLInputElement).checked
   const value = (id: string) => (document.getElementById(id) as HTMLInputElement).value.trim()
-  const grupos = Number((document.getElementById('lGrupos') as HTMLSelectElement).value)
-  const gruposConfig: Record<string, ConfigLimpezaGrupo> = {}
+  const reuseServiceGroups = checked('lUsarGruposServico')
+  const grupos = reuseServiceGroups ? serviceGroupEntries().length : Number((document.getElementById('lGrupos') as HTMLSelectElement).value)
+  const editedConfigs: Record<string, ConfigLimpezaGrupo> = {}
 
   for (let i = 1; i <= grupos; i++) {
-    const gid = String(i)
-    const existente = limpeza.gruposConfig?.[gid]
+    const gid = groupSourceId(i)
+    const existente = reuseServiceGroups ? limpeza.gruposServicoConfig?.[gid] : limpeza.gruposConfig?.[gid]
     const textoInstrucoes = (document.getElementById(`gTexto_${gid}`) as HTMLTextAreaElement).value
     const ajudantesMid = Array.from(
-      document.querySelectorAll<HTMLInputElement>(`.gAjud_${gid}:checked`)
-    ).map(cb => cb.value)
+      document.querySelectorAll<HTMLInputElement>('[data-group-helper]:checked')
+    ).filter(cb => cb.dataset['groupHelper'] === gid).map(cb => cb.value)
 
-    gruposConfig[gid] = {
-      nome: value(`gNome_${gid}`),
+    editedConfigs[gid] = {
+      nome: reuseServiceGroups ? '' : value(`gNome_${gid}`),
       superintendenteMid: value(`gSuper_${gid}`),
       ajudantesMid,
       textoInstrucoes,
@@ -575,7 +650,8 @@ async function saveConfig(): Promise<void> {
   const textoPadrao = (document.getElementById('lTextoPadrao') as HTMLTextAreaElement).value
   const nextConfig: ConfigLimpeza = {
     ativa: checked('lAtiva'),
-    grupos,
+    aproveitarGruposServicoCampo: reuseServiceGroups,
+    grupos: reuseServiceGroups ? Number(limpeza.grupos ?? 4) : grupos,
     inicioRotacao: value('lInicio'),
     coordenadorMid: value('lCoordenador'),
     textoPadrao,
@@ -584,7 +660,8 @@ async function saveConfig(): Promise<void> {
       textoPadrao,
       limpeza.textoPadraoAprovadoEm,
     ),
-    gruposConfig,
+    gruposConfig: reuseServiceGroups ? limpeza.gruposConfig ?? {} : editedConfigs,
+    gruposServicoConfig: reuseServiceGroups ? editedConfigs : limpeza.gruposServicoConfig ?? {},
   }
 
   setLoading('btnSalvarLimpezaConfig', true, 'Salvar Configuração')
@@ -678,3 +755,7 @@ async function exportCleaningPdf(): Promise<void> {
     if (button) { button.disabled = false; button.textContent = 'Baixar PDF' }
   }
 }
+  document.getElementById('lUsarGruposServico')!.addEventListener('change', event => {
+    limpeza.aproveitarGruposServicoCampo = (event.target as HTMLInputElement).checked
+    renderConfig()
+  })

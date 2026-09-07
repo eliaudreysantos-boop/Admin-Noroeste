@@ -112,12 +112,14 @@ export interface LimpezaPeriodoGerado {
 
 export interface ConfigLimpeza {
   ativa:                 boolean
+  aproveitarGruposServicoCampo?: boolean
   grupos:                number       // qtd de grupos
   inicioRotacao:         string       // 'YYYY-MM-DD'
   coordenadorMid:        string
   textoPadrao:           string
   textoPadraoAprovadoEm: string       // 'YYYY-MM-DD' | ''
   gruposConfig:          Record<string, ConfigLimpezaGrupo>
+  gruposServicoConfig?:  Record<string, ConfigLimpezaGrupo>
 }
 
 export interface ConfigDesignacao {
