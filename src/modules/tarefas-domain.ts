@@ -127,12 +127,6 @@ export function canonicalMeetingType(raw: unknown): TaskMeetingType | null {
   return null
 }
 
-export function isHistoricalFirstSection(meeting: TaskMeeting): boolean {
-  return String(meeting.type ?? '').toLowerCase() === 'weekend_s1'
-    && String(meeting.date ?? '') >= '2026-05-16'
-    && String(meeting.date ?? '') <= '2026-09-01'
-}
-
 export function personName(person: TaskPerson | undefined, fallback: string): string {
   return person?.name?.trim() || person?.nome?.trim() || fallback
 }

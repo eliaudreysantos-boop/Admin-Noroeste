@@ -23,7 +23,6 @@ import {
   manualConflictReason,
   meetingIsBlocked,
   meetingEntries,
-  isHistoricalFirstSection,
   periodKeyForDate,
   personIsActive,
   personName,
@@ -330,7 +329,7 @@ function renderEscala(): void {
   const periodMode = planning.periodMode === 'month' ? 'month' : 'bimester'
   const selectedPeriodId = periodKeyForDate(`${selectedPeriodMonth}-01`, periodMode)
   const reunioes = Object.values(periods[selectedPeriodId]?.meetings ?? {})
-    .filter(meeting => canonicalMeetingType(meeting.type) || isHistoricalFirstSection(meeting))
+    .filter(meeting => canonicalMeetingType(meeting.type))
     .sort((a, b) => String(a.date ?? '').localeCompare(String(b.date ?? '')))
   const font = printFont()
 
@@ -845,11 +844,10 @@ function bindFlowCards(): void {
 
 function meetingCard(meeting: TarefasMeeting): string {
   const count = assignmentCount(meeting)
-  const historicalFirstSection = isHistoricalFirstSection(meeting)
-  const type = historicalFirstSection ? '1ª seção (histórico)' : canonicalMeetingType(meeting.type) === 'midweek' ? 'Meio de semana' : 'Fim de semana'
+  const type = canonicalMeetingType(meeting.type) === 'midweek' ? 'Meio de semana' : 'Fim de semana'
   const ref = meetingRefFor(meeting)
   const locked = ref ? periods[ref.periodId]?.locked === true : false
-  const editors = ref && !historicalFirstSection
+  const editors = ref
     ? GENERATED_ROLES.filter(role => meetingAllowsRole(meeting, role))
       .map(role => assignmentEditor(ref.periodId, ref.meetingId, meeting, role, locked))
       .join('')
@@ -863,7 +861,7 @@ function meetingCard(meeting: TarefasMeeting): string {
           <div style="font-size:.76rem;color:var(--ink-3)">${escapeHtml(type)}</div>
         </div>
         <span style="font-size:.75rem;font-weight:700;color:${locked ? '#B3261E' : '#7E3AF2'}">
-          ${historicalFirstSection ? 'Somente leitura' : locked ? 'Travada' : `${count} função${count === 1 ? '' : 'ões'}`}
+          ${locked ? 'Travada' : `${count} função${count === 1 ? '' : 'ões'}`}
         </span>
       </div>
       <div style="display:flex;flex-direction:column;gap:6px;margin-top:10px">
@@ -1014,8 +1012,6 @@ async function saveTaskPerson(id: string | null, overlay: HTMLElement): Promise<
   if (!selectedMasterId || !central) { toast('Selecione uma pessoa do cadastro Admin'); return }
   const finalId = id ?? `tar_${selectedMasterId}`
   const patch: Record<string, unknown> = {
-    [`${finalId}/name`]: central.name ?? selectedMasterId,
-    [`${finalId}/phone`]: central.whatsapp ?? '',
     [`${finalId}/masterId`]: selectedMasterId,
     [`${finalId}/rule`]: input('taskPersonRule'),
     [`${finalId}/refFolgaDate`]: input('taskPersonRest'),

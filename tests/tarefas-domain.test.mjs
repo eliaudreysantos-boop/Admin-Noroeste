@@ -9,7 +9,7 @@ import {
   isFolga,
   roleApplies,
   withCanonicalPeriod,
-  isHistoricalFirstSection,
+  canonicalMeetingType,
 } from '../src/modules/tarefas-domain.ts'
 import {
   buildTaskConfirmationMessage,
@@ -117,11 +117,10 @@ test('modo mensal limita as reuniões ao mês selecionado e mantém um fim de se
   assert.equal(new Set(weekends.map(meeting => meeting.date)).size, weekends.length)
 })
 
-test('primeira seção é reconhecida somente no intervalo histórico', () => {
-  assert.equal(isHistoricalFirstSection({ date: '2026-05-16', type: 'weekend_s1' }), true)
-  assert.equal(isHistoricalFirstSection({ date: '2026-09-01', type: 'weekend_s1' }), true)
-  assert.equal(isHistoricalFirstSection({ date: '2026-09-02', type: 'weekend_s1' }), false)
-  assert.equal(isHistoricalFirstSection({ date: '2026-08-01', type: 'weekend' }), false)
+test('preserva a antiga S2 como reunião única e ignora a antiga S1', () => {
+  assert.equal(canonicalMeetingType('weekend'), 'weekend')
+  assert.equal(canonicalMeetingType('weekend_s2'), 'weekend')
+  assert.equal(canonicalMeetingType('weekend_s1'), null)
 })
 
 test('período travado e edição manual inválida abortam sem patch parcial', () => {
