@@ -13,7 +13,7 @@ import {
   monthLabel, personMessage, printRowsForLocal,
 } from './escala-output'
 
-type Tab = 'indice' | 'participantes' | 'disponibilidade' | 'escalaAtual' | 'mensagens' | 'pendencias' | 'config'
+type Tab = 'indice' | 'locais' | 'participantes' | 'disponibilidade' | 'escalaAtual' | 'mensagens' | 'pendencias' | 'config'
 type Participants = Record<string, EscalaParticipant>
 type Locals = Record<string, EscalaLocal>
 interface Settings { groupWhatsAppLink?: string; printFontPt?: number }
@@ -34,7 +34,9 @@ let tab: Tab = 'indice'
 const root = () => document.getElementById('escalaContent')!
 const orderedLocals = () => Object.entries(locals).sort((a, b) => Number(a[1].sortOrder ?? 0) - Number(b[1].sortOrder ?? 0))
 const orderedPeople = (active = false) => Object.entries(participants).filter(([, p]) => !active || p.active !== false).sort((a, b) => name(a[0]).localeCompare(name(b[0]), 'pt-BR'))
-const name = (id: string) => participantName(participants[id], id)
+const centralId = (id: string) => participants[id]?.masterId ?? (pessoas[id] ? id : '')
+const name = (id: string) => pessoas[centralId(id)]?.name ?? participantName(participants[id], id)
+const phoneOf = (id: string) => pessoas[centralId(id)]?.whatsapp ?? participants[id]?.phone ?? ''
 const now = () => new Date().toISOString()
 const isAdmin = () => context.usuario.apps.mestre === true
 
@@ -64,11 +66,17 @@ async function load(): Promise<void> {
   try {
     const [snap, peopleSnap] = await Promise.all([get(escalaRef), get(pessoasRef)])
     const data = snap.exists() ? snap.val() as Data : {}
-    participants = data.participants ?? {}; locals = data.scales ?? {}; availability = data.availability ?? {}
+    locals = data.scales ?? {}; availability = data.availability ?? {}
     tables = data.tables ?? {}; blocks = data.monthSlotBlocks ?? {}; exclusions = data.monthExclusions ?? {}
     settings = data.settings ?? {}; greetings = data.greetings ?? {}; publishedMonth = data.publishedMonth ?? ''
     selectedMonth = /^\d{4}-\d{2}$/.test(data.editingMonth ?? '') ? data.editingMonth! : monthNow()
     pessoas = peopleSnap.exists() ? peopleSnap.val() as RawPessoas : {}
+    const rawProfiles = data.participants ?? {}
+    participants = Object.fromEntries(Object.entries(rawProfiles).map(([id, profile]) => {
+      const mid = profile.masterId ?? (pessoas[id] ? id : '')
+      const central = pessoas[mid]
+      return [id, central ? { ...profile, name: central.name, sex: central.sex ?? profile.sex, phone: central.whatsapp ?? profile.phone } : profile]
+    }))
     selectedLocalId = orderedLocals()[0]?.[0] ?? ''; selectedParticipantId = orderedPeople(true)[0]?.[0] ?? ''
   } catch (error) { console.error(error); toast('Não foi possível carregar a Escala') }
   render()
@@ -76,6 +84,7 @@ async function load(): Promise<void> {
 function go(next: Tab): void { tab = next; render() }
 function render(): void {
   if (tab === 'indice') renderIndex()
+  else if (tab === 'locais') renderLocais()
   else if (tab === 'participantes') renderParticipants()
   else if (tab === 'disponibilidade') renderAvailability()
   else if (tab === 'escalaAtual') renderScale()
@@ -86,6 +95,7 @@ function render(): void {
 function renderIndex(): void {
   root().innerHTML = '<div style="margin-bottom:14px"><h2 style="font-size:1.05rem;color:#1A6B3C">Escala</h2></div><div id="escalaMenu"></div>'
   const items: ItemMenu[] = [
+    { id: 'locais', titulo: 'Locais', subtitulo: 'Pontos de carrinho, dias e horários', icone: '⌖', corFundo: '#8A5B00' },
     { id: 'participantes', titulo: 'Participantes', subtitulo: 'Cadastro e regras de participação', icone: '♙', corFundo: '#1A6B3C' },
     { id: 'disponibilidade', titulo: 'Disponibilidade', subtitulo: 'Dias, locais e horários disponíveis', icone: '◫', corFundo: '#006EB6' },
     { id: 'escalaAtual', titulo: 'Escala do mês', subtitulo: 'Gerar, revisar, editar e publicar', icone: '▣', corFundo: '#003F72' },
@@ -107,8 +117,64 @@ function bindPeriod(rerender: () => void): void {
   document.getElementById('eLocal')?.addEventListener('change', event => { selectedLocalId = (event.target as HTMLSelectElement).value; rerender() })
 }
 
+const DOW_LABELS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
+
+function renderLocais(): void {
+  root().innerHTML = `<div style="display:flex;gap:8px;margin-bottom:12px"><span style="flex:1"></span>${isAdmin() ? '<button id="lNew" class="btn btn-primary" type="button">Novo local</button>' : ''}</div><div id="lList" class="module-option-list">${orderedLocals().map(([id, l]) => {
+    const dias = (l.daysActive ?? []).map(d => DOW_LABELS[d]).join(', ') || 'nenhum dia ativo'
+    const horarios = localSlots(l)
+    return `<button class="module-menu-btn" type="button" data-local="${esc(id)}"><div class="mod-icon" style="background:#8A5B0020;color:#8A5B00">⌖</div><div><div class="mod-label">${esc(l.name ?? id)}</div><div class="mod-desc">${esc(dias)} · ${horarios.length} horário(s)/dia</div></div></button>`
+  }).join('') || '<p class="empty-state">Nenhum local cadastrado ainda.</p>'}</div>`
+  document.querySelectorAll<HTMLButtonElement>('[data-local]').forEach(button => button.addEventListener('click', () => { if (!isAdmin()) { toast('Somente o Admin pode editar locais'); return } localModal(button.dataset['local']!) }))
+  document.getElementById('lNew')?.addEventListener('click', () => localModal(''))
+}
+function localModal(id: string): void {
+  const l = locals[id] ?? {}
+  const overlay = document.createElement('div'); overlay.className = 'modal-overlay'
+  overlay.innerHTML = `<div class="modal"><h2>${id ? 'Editar local' : 'Novo local'}</h2><div class="form-group"><label class="form-label">Nome</label><input id="lmName" class="form-input" value="${esc(l.name ?? '')}"></div><div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">${DOW_LABELS.map((label, dow) => `<label><input type="checkbox" data-lmday="${dow}" ${(l.daysActive ?? []).includes(dow) ? 'checked' : ''}> ${label}</label>`).join('')}</div><div class="module-form-grid"><div class="form-group"><label class="form-label">Início</label><input id="lmStart" class="form-input" type="time" value="${esc(l.startTime ?? l.start ?? '08:00')}"></div><div class="form-group"><label class="form-label">Fim</label><input id="lmEnd" class="form-input" type="time" value="${esc(l.endTime ?? l.end ?? '18:00')}"></div><div class="form-group"><label class="form-label">Intervalo (min)</label><input id="lmStep" class="form-input" type="number" min="15" step="15" value="${Number(l.stepMinutes ?? l.intervalMin ?? 120)}"></div><div class="form-group"><label class="form-label">Ordem de exibição</label><input id="lmOrder" class="form-input" type="number" value="${Number(l.sortOrder ?? Object.keys(locals).length)}"></div></div><p class="form-help">Pré-visualização dos horários:</p><p id="lmPreview" class="form-help" style="font-weight:600"></p><div style="display:flex;gap:8px">${id ? '<button id="lmDelete" class="btn btn-danger" type="button">Apagar local</button>' : ''}<span style="flex:1"></span><button id="lmCancel" class="btn btn-ghost">Cancelar</button><button id="lmSave" class="btn btn-primary">Salvar</button></div></div>`
+  document.body.appendChild(overlay)
+  const preview = () => {
+    const start = (document.getElementById('lmStart') as HTMLInputElement).value, end = (document.getElementById('lmEnd') as HTMLInputElement).value, step = Number((document.getElementById('lmStep') as HTMLInputElement).value) || 120
+    const slots = localSlots({ startTime: start, endTime: end, stepMinutes: step })
+    document.getElementById('lmPreview')!.textContent = slots.length ? slots.join(' · ') : 'Nenhum horário — confira início/fim/intervalo'
+  }
+  ;['lmStart', 'lmEnd', 'lmStep'].forEach(fieldId => document.getElementById(fieldId)!.addEventListener('input', preview))
+  preview()
+  document.getElementById('lmCancel')!.addEventListener('click', () => overlay.remove())
+  document.getElementById('lmSave')!.addEventListener('click', () => void saveLocal(id, overlay))
+  document.getElementById('lmDelete')?.addEventListener('click', () => void deleteLocal(id, overlay))
+}
+async function saveLocal(id: string, overlay: HTMLElement): Promise<void> {
+  const nome = (document.getElementById('lmName') as HTMLInputElement).value.trim()
+  if (!nome) { toast('Dê um nome ao local'); return }
+  const daysActive = [...document.querySelectorAll<HTMLInputElement>('[data-lmday]')].filter(box => box.checked).map(box => Number(box.dataset['lmday']))
+  if (!daysActive.length) { toast('Marque ao menos um dia ativo'); return }
+  const startTime = (document.getElementById('lmStart') as HTMLInputElement).value
+  const endTime = (document.getElementById('lmEnd') as HTMLInputElement).value
+  const stepMinutes = Number((document.getElementById('lmStep') as HTMLInputElement).value)
+  if (!startTime || !endTime || !Number.isFinite(stepMinutes) || stepMinutes < 15 || !localSlots({ startTime, endTime, stepMinutes }).length) { toast('Confira início, fim e intervalo dos horários'); return }
+  const local: EscalaLocal = {
+    name: nome, daysActive,
+    startTime, endTime, stepMinutes,
+    sortOrder: Number((document.getElementById('lmOrder') as HTMLInputElement).value) || 0,
+  }
+  const target = id || `loc_${Date.now()}`
+  try { await update(child(escalaRef, `scales/${target}`), local); locals[target] = local; overlay.remove(); toast('Local salvo'); renderLocais() } catch { toast('Não foi possível salvar o local') }
+}
+async function deleteLocal(id: string, overlay: HTMLElement): Promise<void> {
+  if (!confirm(`Apagar "${locals[id]?.name ?? id}"? Isso apaga também escalas, disponibilidade, bloqueios e edições manuais deste local. Esta ação não pode ser desfeita.`)) return
+  try {
+    const patch: Record<string, unknown> = { [`scales/${id}`]: null, [`tables/${id}`]: null, [`availability/${id}`]: null, [`manualEdits/${id}`]: null }
+    Object.keys(blocks).forEach(scope => { patch[`monthSlotBlocks/${scope}/${id}`] = null })
+    await update(escalaRef, patch)
+    delete locals[id]; delete tables[id]; delete availability[id]
+    Object.values(blocks).forEach(scope => { delete scope[id] })
+    overlay.remove(); toast('Local removido'); renderLocais()
+  } catch { toast('Não foi possível apagar o local') }
+}
+
 function renderParticipants(): void {
-  const unlinked = orderedPeople().filter(([, p]) => !p.masterId).length
+  const unlinked = orderedPeople().filter(([id]) => !centralId(id)).length
   root().innerHTML = `${unlinked ? `<div class="notice warning">${unlinked} participante(s) legado(s) sem vínculo com o cadastro do Admin.</div>` : ''}<div style="display:flex;gap:8px;margin-bottom:12px"><input id="pSearch" class="form-input" type="search" placeholder="Buscar participante" style="flex:1">${isAdmin() ? '<button id="pNew" class="btn btn-primary" type="button">Vincular pessoa</button>' : ''}</div><div id="pList" class="module-option-list"></div>`
   const list = () => {
     const term = (document.getElementById('pSearch') as HTMLInputElement).value.trim().toLocaleLowerCase('pt-BR')
@@ -126,27 +192,58 @@ function renderParticipants(): void {
 }
 function participantModal(id: string): void {
   if (!isAdmin()) { toast('Somente o Admin pode editar participantes'); return }
-  const p = participants[id] ?? { active: true, sex: 'M' }
+  const isNew = !id
+  const p = isNew ? { active: true } as EscalaParticipant : participants[id]!
+  const currentMid = id ? centralId(id) : ''
   const availablePeople = Object.entries(pessoas)
-    .filter(([mid, person]) => person.active && (p.masterId === mid || !Object.values(participants).some(item => item.masterId === mid)))
+    .filter(([mid, person]) => person.active && (mid === currentMid || !Object.keys(participants).some(profileId => centralId(profileId) === mid)))
     .sort((a, b) => a[1].name.localeCompare(b[1].name, 'pt-BR'))
-  const masterOptions = availablePeople.map(([mid, person]) => `<option value="${esc(mid)}" ${p.masterId === mid ? 'selected' : ''}>${esc(person.name)}</option>`).join('')
-  const canonical = p.masterId ? pessoas[p.masterId] : undefined
+  const masterOptions = availablePeople.map(([mid, person]) => `<option value="${esc(mid)}" ${mid === currentMid ? 'selected' : ''}>${esc(person.name)}</option>`).join('')
   const overlay = document.createElement('div'); overlay.className = 'modal-overlay'
-  overlay.innerHTML = `<div class="modal"><h2>${id ? 'Editar participante' : 'Vincular pessoa'}</h2><div class="form-group"><label class="form-label">Pessoa do cadastro Admin</label><select id="pmMaster" class="form-select" ${id && p.masterId ? 'disabled' : ''}><option value="">Selecionar...</option>${masterOptions}</select></div>${id ? `<div class="form-help" style="margin-bottom:12px">Nome e WhatsApp: ${esc(canonical?.name ?? p.name ?? id)}${canonical?.whatsapp || p.phone ? ` · ${esc(canonical?.whatsapp ?? p.phone)}` : ''}. Edite esses dados no Admin.</div>` : ''}<div class="module-form-grid"><div class="form-group"><label class="form-label">Máximo/mês (0 sem limite)</label><input id="pmCap" class="form-input" type="number" min="0" max="99" value="${Number(p.capPerMonth ?? 0)}"></div><div class="form-group"><label class="form-label">Participa a partir de</label><input id="pmStart" class="form-input" type="date" value="${esc(p.startFromDate ?? '')}"></div><div class="form-group"><label class="form-label">Referência da folga</label><input id="pmFolga" class="form-input" type="date" value="${esc(p.refFolgaDate ?? '')}"></div><div class="form-group"><label class="form-label">Só participa com</label><select id="pmOnly" class="form-select"><option value="">Sem restrição</option>${orderedPeople(true).filter(([other]) => other !== id).map(([other]) => `<option value="${esc(other)}" ${p.onlyWithId === other ? 'selected' : ''}>${esc(name(other))}</option>`).join('')}</select></div></div><div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px"><label><input id="pmActive" type="checkbox" ${p.active !== false ? 'checked' : ''}> Ativo na Escala</label><label><input id="pmPioneer" type="checkbox" ${p.pioneer ? 'checked' : ''}> Pioneiro</label><label><input id="pmChild" type="checkbox" ${p.withChild ? 'checked' : ''}> Acompanha criança</label><label><input id="pmSame" type="checkbox" ${p.sameSexOnly ? 'checked' : ''}> Mesmo sexo</label></div><div class="form-group"><label class="form-label">Observação da Escala</label><textarea id="pmObs" class="form-input">${esc(p.obs ?? '')}</textarea></div><div style="display:flex;gap:8px"><span style="flex:1"></span><button id="pmCancel" class="btn btn-ghost">Cancelar</button><button id="pmSave" class="btn btn-primary">Salvar</button></div></div>`
+  overlay.innerHTML = `<div class="modal"><h2>${isNew ? 'Adicionar participante' : esc(name(id))}</h2>${isNew ? `<div class="form-group"><label class="form-label">Pessoa do cadastro Admin</label><select id="pmMaster" class="form-select"><option value="">Selecionar...</option>${masterOptions}</select></div>` : `<div class="form-help" style="margin-bottom:12px">Nome e WhatsApp vêm do cadastro Admin (${esc(phoneOf(id) || 'sem WhatsApp')}) — edite lá se precisar mudar.</div>`}<div class="module-form-grid"><div class="form-group"><label class="form-label">Máximo/mês (0 sem limite)</label><input id="pmCap" class="form-input" type="number" min="0" max="99" value="${Number(p.capPerMonth ?? 0)}"></div><div class="form-group"><label class="form-label">Participa a partir de</label><input id="pmStart" class="form-input" type="date" value="${esc(p.startFromDate ?? '')}"></div><div class="form-group"><label class="form-label">Referência da folga</label><input id="pmFolga" class="form-input" type="date" value="${esc(p.refFolgaDate ?? '')}"></div><div class="form-group"><label class="form-label">Só participa com</label><select id="pmOnly" class="form-select"><option value="">Sem restrição</option>${orderedPeople(true).filter(([other]) => other !== id).map(([other]) => `<option value="${esc(other)}" ${p.onlyWithId === other ? 'selected' : ''}>${esc(name(other))}</option>`).join('')}</select></div></div><div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px"><label><input id="pmActive" type="checkbox" ${p.active !== false ? 'checked' : ''}> Ativo na Escala</label><label><input id="pmPioneer" type="checkbox" ${p.pioneer ? 'checked' : ''}> Pioneiro</label><label><input id="pmChild" type="checkbox" ${p.withChild ? 'checked' : ''}> Acompanha criança</label><label><input id="pmSame" type="checkbox" ${p.sameSexOnly ? 'checked' : ''}> Mesmo sexo</label></div><div class="form-group"><label class="form-label">Observação da Escala</label><textarea id="pmObs" class="form-input">${esc(p.obs ?? '')}</textarea></div><div style="display:flex;gap:8px">${isNew ? '' : '<button id="pmRemove" class="btn btn-danger" type="button">Remover da Escala</button>'}<span style="flex:1"></span><button id="pmCancel" class="btn btn-ghost">Cancelar</button><button id="pmSave" class="btn btn-primary">Salvar</button></div></div>`
   document.body.appendChild(overlay)
   document.getElementById('pmCancel')!.addEventListener('click', () => overlay.remove())
   document.getElementById('pmSave')!.addEventListener('click', () => void saveParticipant(id, overlay))
+  document.getElementById('pmRemove')?.addEventListener('click', () => void removeParticipant(id, overlay))
 }
 async function saveParticipant(id: string, overlay: HTMLElement): Promise<void> {
   if (!isAdmin()) { toast('Somente o Admin pode editar participantes'); return }
   const value = (target: string) => (document.getElementById(target) as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value
-  const masterId = (document.getElementById('pmMaster') as HTMLSelectElement).value || participants[id]?.masterId || ''
-  if (!masterId || !pessoas[masterId]) { toast('Selecione uma pessoa do cadastro Admin'); return }
-  const target = id || `esc_${masterId}`
-  const central = pessoas[masterId]
-  const p: EscalaParticipant = { ...(participants[id] ?? {}), name: central.name, sex: central.sex ?? '', phone: central.whatsapp, capPerMonth: Math.min(99, Math.max(0, Number(value('pmCap')) || 0)), startFromDate: value('pmStart'), refFolgaDate: value('pmFolga'), onlyWithId: value('pmOnly'), masterId, active: (document.getElementById('pmActive') as HTMLInputElement).checked, pioneer: (document.getElementById('pmPioneer') as HTMLInputElement).checked, withChild: (document.getElementById('pmChild') as HTMLInputElement).checked, sameSexOnly: (document.getElementById('pmSame') as HTMLInputElement).checked, obs: value('pmObs').trim(), updatedAt: now() }
-  try { await update(child(escalaRef, `participants/${target}`), p); participants[target] = p; overlay.remove(); toast('Participante salvo'); renderParticipants() } catch { toast('Não foi possível salvar') }
+  const mid = id ? centralId(id) : (document.getElementById('pmMaster') as HTMLSelectElement).value
+  if (!mid || !pessoas[mid]) { toast('Selecione uma pessoa do cadastro Admin'); return }
+  const target = id || `esc_${mid}`
+  const activeNow = (document.getElementById('pmActive') as HTMLInputElement).checked
+  const onlyWithId = value('pmOnly') || undefined
+  const profile = { masterId: mid, capPerMonth: Math.min(99, Math.max(0, Number(value('pmCap')) || 0)), startFromDate: value('pmStart'), refFolgaDate: value('pmFolga'), onlyWithId: onlyWithId ?? null, active: activeNow, pioneer: (document.getElementById('pmPioneer') as HTMLInputElement).checked, withChild: (document.getElementById('pmChild') as HTMLInputElement).checked, sameSexOnly: (document.getElementById('pmSame') as HTMLInputElement).checked, obs: value('pmObs').trim(), updatedAt: now() }
+  try {
+    const dependentIds = activeNow ? [] : participantReferencesTo(target)
+    const patch = Object.fromEntries(Object.entries(profile).map(([key, field]) => [`participants/${target}/${key}`, field]))
+    dependentIds.forEach(otherId => { patch[`participants/${otherId}/onlyWithId`] = null })
+    await update(escalaRef, patch)
+    participants[target] = { ...participants[target], ...profile, onlyWithId, name: pessoas[mid].name, sex: pessoas[mid].sex ?? '', phone: pessoas[mid].whatsapp ?? '' }
+    dependentIds.forEach(otherId => { participants[otherId]!.onlyWithId = undefined })
+    overlay.remove(); toast('Participante salvo'); renderParticipants()
+  } catch { toast('Não foi possível salvar') }
+}
+async function removeParticipant(id: string, overlay: HTMLElement): Promise<void> {
+  const uses = Object.values(tables).reduce((sum, byMonth) => sum + Object.values(byMonth).reduce((s, table) => s + Object.values(table.rows ?? {}).reduce((n, row) => n + Object.values(row.slots ?? {}).filter(cell => cell.p1 === id || cell.p2 === id).length, 0), 0), 0)
+  if (uses) { toast(`${name(id)} aparece em ${uses} horário(s). Inative o participante antes de removê-lo.`); return }
+  if (!confirm(`Remover ${name(id)} da Escala?`)) return
+  try {
+    const patch: Record<string, unknown> = { [`participants/${id}`]: null }
+    Object.keys(availability).forEach(localId => { patch[`availability/${localId}/${id}`] = null })
+    const dependentIds = participantReferencesTo(id)
+    dependentIds.forEach(otherId => { patch[`participants/${otherId}/onlyWithId`] = null })
+    await update(escalaRef, patch)
+    delete participants[id]; Object.keys(availability).forEach(localId => { delete availability[localId]?.[id] })
+    dependentIds.forEach(otherId => { participants[otherId]!.onlyWithId = undefined })
+    overlay.remove(); toast('Participante removido da Escala'); renderParticipants()
+  } catch { toast('Não foi possível remover') }
+}
+function participantReferencesTo(id: string): string[] {
+  return Object.entries(participants)
+    .filter(([otherId, participant]) => otherId !== id && participant.onlyWithId === id)
+    .map(([otherId]) => otherId)
 }
 function renderAvailability(): void {
   const people = orderedPeople(true), local = locals[selectedLocalId]
@@ -270,16 +367,16 @@ async function copyMessage(): Promise<void> {
 function digits(value: unknown): string { const result = String(value ?? '').replace(/\D/g, ''); return result.length === 11 ? `55${result}` : result }
 function openWhatsApp(): void {
   const type = (document.getElementById('mType') as HTMLSelectElement).value, target = (document.getElementById('mTarget') as HTMLSelectElement)?.value ?? ''
-  const phone = type === 'day' ? '' : digits(participants[target]?.phone ?? (participants[target]?.masterId ? pessoas[participants[target].masterId]?.whatsapp : ''))
+  const phone = type === 'day' ? '' : digits(phoneOf(target))
   if (!phone) { toast('Este destino não tem WhatsApp cadastrado'); return }
   window.open(`https://wa.me/${phone}?text=${encodeURIComponent((document.getElementById('mText') as HTMLTextAreaElement).value)}`, '_blank', 'noopener')
 }
 
 function renderPending(): void {
   const pending: { level: string; title: string; detail: string; target: Tab }[] = [], active = orderedPeople(true)
-  const stuck = active.filter(([, p]) => p.onlyWithId && participants[p.onlyWithId]?.active === false)
+  const stuck = active.filter(([, p]) => p.onlyWithId && (!participants[p.onlyWithId] || participants[p.onlyWithId]?.active === false))
   if (stuck.length) pending.push({ level: 'high', title: `${stuck.length} participante(s) preso(s) a uma pessoa inativa`, detail: stuck.map(([, p]) => participantName(p)).join(', '), target: 'participantes' })
-  const noPhone = active.filter(([, p]) => !digits(p.phone ?? (p.masterId ? pessoas[p.masterId]?.whatsapp : '')))
+  const noPhone = active.filter(([id]) => !digits(phoneOf(id)))
   if (noPhone.length) pending.push({ level: 'medium', title: `${noPhone.length} participante(s) sem WhatsApp`, detail: noPhone.slice(0, 6).map(([id]) => name(id)).join(', '), target: 'participantes' })
   const noAvailability = active.filter(([id]) => !Object.values(availability).some(byPerson => Object.values(byPerson[id] ?? {}).some(Boolean)))
   if (noAvailability.length) pending.push({ level: 'high', title: `${noAvailability.length} participante(s) sem disponibilidade`, detail: noAvailability.slice(0, 6).map(([id]) => name(id)).join(', '), target: 'disponibilidade' })

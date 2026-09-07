@@ -21,6 +21,7 @@ export const ESCALA_RULE_LABELS: Record<EscalaRule, string> = {
 export interface EscalaParticipant {
   name?: string
   sex?: 'M' | 'F' | string
+  phone?: string
   active?: boolean
   pioneer?: boolean
   withChild?: boolean
@@ -29,7 +30,6 @@ export interface EscalaParticipant {
   capPerMonth?: number
   startFromDate?: string
   refFolgaDate?: string
-  phone?: string
   obs?: string
   masterId?: string
   availabilityUpdatedAt?: string | number | null
@@ -121,8 +121,11 @@ export function localSlots(local: EscalaLocal): string[] {
   const start = String(local.startTime ?? local.start ?? '06:00')
   const end = String(local.endTime ?? local.end ?? '20:00')
   const step = Number(local.stepMinutes ?? local.intervalMin ?? 120) || 120
+  const startMinutes = timeToMinutes(start)
+  const endMinutes = timeToMinutes(end)
+  if (!Number.isFinite(startMinutes) || !Number.isFinite(endMinutes) || step < 15 || endMinutes <= startMinutes) return []
   const slots: string[] = []
-  for (let value = timeToMinutes(start); value < timeToMinutes(end); value += step) slots.push(minutesToTime(value))
+  for (let value = startMinutes; value < endMinutes; value += step) slots.push(minutesToTime(value))
   return slots
 }
 
