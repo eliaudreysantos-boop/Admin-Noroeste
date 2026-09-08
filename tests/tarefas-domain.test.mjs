@@ -145,6 +145,20 @@ test('geração de uma função não exige que as outras colunas já estejam pre
   assert.equal(result.patch['2026-09/meetings/m1/assignments/leitor'], undefined)
 })
 
+test('geração somente de lacunas preserva as designações já preenchidas', () => {
+  const people = Object.fromEntries(Array.from({ length: 8 }, (_, index) => [
+    `p${index + 1}`,
+    basePerson({ name: `Pessoa ${index + 1}` }),
+  ]))
+  const context = baseContext(people, {
+    date: '2026-09-12', type: 'weekend', assignments: { leitor: 'p1' }, manualEdits: {},
+  })
+  const result = computeGeneration(context, '2026-09-01', null, '2026-09-01T12:00:00.000Z', '2026-09', true)
+  assert.equal(result.aborted, false)
+  assert.equal(result.patch['2026-09/meetings/m1/assignments/leitor'], undefined)
+  assert.ok(result.patch['2026-09/meetings/m1/assignments/mic1'])
+})
+
 test('mensagem individual reúne todas as designações em ordem cronológica', () => {
   const text = buildTaskPersonMessage('Ana', 'Olá, veja suas designações.', [
     { date: '2026-09-20', type: 'weekend', roles: ['mic1'] },

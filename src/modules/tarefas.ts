@@ -108,12 +108,6 @@ function monthNow(): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
 }
 
-function shiftMonth(value: string, amount: number): string {
-  const [year, month] = value.split('-').map(Number)
-  const date = new Date(year, month - 1 + amount, 1, 12)
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
-}
-
 function toast(msg: string, ms = 2600): void {
   const el = document.getElementById('toast')
   if (!el) return
@@ -298,9 +292,6 @@ function renderEscala(): void {
   const allPeriodMeetings = Object.values(periods[selectedPeriodId]?.meetings ?? {})
     .filter(meeting => canonicalMeetingType(meeting.type))
     .sort((a, b) => String(a.date ?? '').localeCompare(String(b.date ?? '')))
-  const reunioes = onlyPendingMeetings
-    ? allPeriodMeetings.filter(meeting => GENERATED_ROLES.some(role => meetingAllowsRole(meeting, role) && !assignmentForRole(meeting, role)))
-    : allPeriodMeetings
   const font = printFont()
 
   content.innerHTML = `
@@ -311,42 +302,25 @@ function renderEscala(): void {
         <div class="form-group" style="margin:0"><label class="form-label" for="tarefasPeriodMode">Formato</label><select id="tarefasPeriodMode" class="form-select"><option value="month" ${periodMode === 'month' ? 'selected' : ''}>Mensal</option><option value="bimester" ${periodMode === 'bimester' ? 'selected' : ''}>Bimestral</option></select></div>
         <div class="form-group" style="margin:0"><label class="form-label" for="tarefasPeriodMonth">Período</label><input id="tarefasPeriodMonth" class="form-input" type="month" value="${escapeHtml(selectedPeriodMonth)}"></div>
       </div>
-      <div class="module-form-grid" style="margin-top:8px">
-        <div style="display:flex;gap:8px"><button id="tarefasPreviousPeriod" class="btn btn-ghost" type="button" style="flex:1">Anterior</button><button id="tarefasNextPeriod" class="btn btn-ghost" type="button" style="flex:1">Próximo</button></div>
-        <div></div>
-      </div>
       <div class="scale-actions" style="margin-top:8px">
         <button id="btnGenerateScale" class="btn btn-primary" type="button" ${locked ? 'disabled' : ''}>Gerar escala</button>
         <button id="btnToggleTaskLock" class="btn btn-ghost" type="button">${locked ? 'Destravar escala' : 'Travar escala'}</button>
         <button id="btnClearTaskScale" class="btn btn-danger" type="button" ${locked || !allPeriodMeetings.length ? 'disabled' : ''}>Limpar escala</button>
       </div>
-    </div>
-    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:12px">
-      <label class="form-label" for="tarefasGenerateRole">Refazer uma função</label>
-      <div class="module-form-grid">
-        <select id="tarefasGenerateRole" class="form-select"><option value="">Escolha a função</option>${TASK_ROLES.map(role => `<option value="${role}">${escapeHtml(TASK_ROLE_LABELS[role])}</option>`).join('')}</select>
-        <div class="scale-actions"><button id="btnGenerateTaskRole" class="btn btn-ghost" type="button" ${locked ? 'disabled' : ''}>Gerar função</button><button id="btnClearTaskRole" class="btn btn-danger" type="button" ${locked ? 'disabled' : ''}>Limpar função</button></div>
-      </div>
-      <label style="display:flex;align-items:center;gap:7px;margin-top:12px;font-size:.84rem;color:var(--ink-2)"><input id="tarefasOnlyPending" type="checkbox" ${onlyPendingMeetings ? 'checked' : ''}> Apenas reuniões pendentes</label>
-    </div>
-    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;
-      padding:12px;margin-bottom:12px">
-      <label class="form-label" for="tarefasPrintFont">Letra do PDF</label>
-      <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
-        <input id="tarefasPrintFont" class="form-input" type="range"
-          min="${PRINT_MIN_PT}" max="${PRINT_MAX_PT}" step="1" value="${font}" style="padding:0">
-        <span id="tarefasPrintFontValue" style="min-width:42px;text-align:right;font-size:.82rem;font-weight:700;color:var(--ink-2)">
-          ${font} pt
-        </span>
-      </div>
-      <button id="btnTarefasPdf" class="btn btn-primary btn-full" type="button" style="margin-top:10px">
-        Gerar PDF
-      </button>
+      <details style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border)">
+        <summary style="cursor:pointer;font-size:.86rem;font-weight:700;color:var(--ink-2)">Refazer uma função ou ajustar a impressão</summary>
+        <div class="module-form-grid" style="margin-top:10px">
+          <div class="form-group" style="margin:0"><label class="form-label" for="tarefasGenerateRole">Função</label><select id="tarefasGenerateRole" class="form-select"><option value="">Escolha a função</option>${TASK_ROLES.map(role => `<option value="${role}">${escapeHtml(TASK_ROLE_LABELS[role])}</option>`).join('')}</select></div>
+          <div class="scale-actions" style="align-items:end"><button id="btnGenerateTaskRole" class="btn btn-ghost" type="button" ${locked ? 'disabled' : ''}>Gerar função</button><button id="btnClearTaskRole" class="btn btn-danger" type="button" ${locked ? 'disabled' : ''}>Limpar função</button></div>
+        </div>
+        <label style="display:flex;align-items:center;gap:7px;margin-top:12px;font-size:.84rem;color:var(--ink-2)"><input id="tarefasOnlyPending" type="checkbox" ${onlyPendingMeetings ? 'checked' : ''}> Gerar somente lacunas pendentes</label>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:12px"><label class="form-label" for="tarefasPrintFont" style="margin:0;white-space:nowrap">Letra do PDF</label><input id="tarefasPrintFont" class="form-input" type="range" min="${PRINT_MIN_PT}" max="${PRINT_MAX_PT}" step="1" value="${font}" style="padding:0;flex:1"><span id="tarefasPrintFontValue" style="min-width:42px;text-align:right;font-size:.82rem;font-weight:700;color:var(--ink-2)">${font} pt</span><button id="btnTarefasPdf" class="btn btn-ghost" type="button">Gerar PDF</button></div>
+      </details>
     </div>
     <div style="display:flex;flex-direction:column;gap:8px">
-      ${reunioes.length
-        ? reunioes.map(meeting => meetingCard(meeting)).join('')
-        : emptyState(onlyPendingMeetings ? 'Não há reuniões pendentes neste período.' : 'Nenhuma reunião cadastrada neste período.')}
+      ${allPeriodMeetings.length
+        ? allPeriodMeetings.map(meeting => meetingCard(meeting)).join('')
+        : emptyState('Nenhuma reunião cadastrada neste período.')}
     </div>`
 
   document.getElementById('tarefasPrintFont')?.addEventListener('input', (event) => {
@@ -367,12 +341,12 @@ function renderEscala(): void {
     if (!monthInput || !/^\d{4}-\d{2}$/.test(monthInput.value)) { toast('Selecione um período válido'); return }
     selectedPeriodMonth = monthInput.value
     const mode = modeInput?.value === 'month' ? 'month' : 'bimester'
-    void generateScale(`${selectedPeriodMonth}-01`, mode, null)
+    void generateScale(`${selectedPeriodMonth}-01`, mode, null, onlyPendingMeetings)
   })
   document.getElementById('btnGenerateTaskRole')?.addEventListener('click', () => {
     const role = (document.getElementById('tarefasGenerateRole') as HTMLSelectElement).value as TaskRole
     if (!role) { toast('Escolha a função que deseja gerar'); return }
-    void generateScale(`${selectedPeriodMonth}-01`, periodMode, role)
+    void generateScale(`${selectedPeriodMonth}-01`, periodMode, role, onlyPendingMeetings)
   })
   document.getElementById('btnClearTaskRole')?.addEventListener('click', () => {
     const role = (document.getElementById('tarefasGenerateRole') as HTMLSelectElement).value as TaskRole
@@ -383,7 +357,6 @@ function renderEscala(): void {
   document.getElementById('btnClearTaskScale')?.addEventListener('click', () => void clearTaskScale(selectedPeriodId))
   document.getElementById('tarefasOnlyPending')?.addEventListener('change', event => {
     onlyPendingMeetings = (event.target as HTMLInputElement).checked
-    renderEscala()
   })
   document.getElementById('tarefasPeriodMonth')?.addEventListener('change', event => {
     const value = (event.target as HTMLInputElement).value
@@ -397,15 +370,6 @@ function renderEscala(): void {
     selectedPeriodMonth = periodKeyForDate(`${selectedPeriodMonth}-01`, mode)
     renderEscala()
   })
-  const navigate = (direction: number) => {
-    const mode = (document.getElementById('tarefasPeriodMode') as HTMLSelectElement | null)?.value === 'month' ? 'month' : 'bimester'
-    const amount = mode === 'bimester' ? direction * 2 : direction
-    selectedPeriodMonth = shiftMonth(selectedPeriodMonth, amount)
-    renderEscala()
-  }
-  document.getElementById('tarefasPreviousPeriod')?.addEventListener('click', () => navigate(-1))
-  document.getElementById('tarefasNextPeriod')?.addEventListener('click', () => navigate(1))
-
   bindAssignmentEditors()
   if (pendingTarget?.meetingId) {
     document.querySelector<HTMLElement>(`[data-task-meeting-id="${pendingTarget.meetingId}"]`)
@@ -468,7 +432,7 @@ async function clearTaskRole(periodId: string, role: TaskRole): Promise<void> {
   } catch { toast('Não foi possível limpar a função') }
 }
 
-async function generateScale(startDate: string, mode: 'month' | 'bimester', role: TaskRole | null): Promise<void> {
+async function generateScale(startDate: string, mode: 'month' | 'bimester', role: TaskRole | null, onlyPending: boolean): Promise<void> {
   const button = document.getElementById('btnGenerateScale') as HTMLButtonElement | null
   if (button) button.disabled = true
   try {
@@ -480,7 +444,7 @@ async function generateScale(startDate: string, mode: 'month' | 'bimester', role
       return
     }
     const context = { ...domainContext(), periods: canonical.periods }
-    const result = computeGeneration(context, startDate, role, generatedAt, canonical.periodId)
+    const result = computeGeneration(context, startDate, role, generatedAt, canonical.periodId, onlyPending)
     if (result.aborted) {
       showGenerationErrors(result.errors)
       return
@@ -1005,6 +969,8 @@ async function saveAssignment(periodId: string, meetingId: string, role: string,
 function pessoaRow(id: string, p: TarefasPessoa, recentUsage: number, focused = false): string {
   const linked = Boolean(p.masterId)
   const active = isActive(p)
+  const meetings = p.rule === 'midweek' ? 'Meio de semana' : p.rule === 'weekend' ? 'Fim de semana' : p.rule === 'none' ? 'Fora da escala' : 'Todas as reuniões'
+  const roles = TASK_ROLES.filter(role => p.roles?.[role] === true).map(role => TASK_ROLE_LABELS[role]).join(', ') || 'Nenhuma função'
 
   return `
     <div data-task-person-id="${escapeHtml(id)}" style="background:var(--surface);border:1px solid ${focused ? '#7E3AF2' : 'var(--border)'};box-shadow:${focused ? '0 0 0 3px #EAE1FA' : 'none'};border-radius:8px;
@@ -1014,8 +980,9 @@ function pessoaRow(id: string, p: TarefasPessoa, recentUsage: number, focused = 
           ${escapeHtml(pessoaNome(p, id))}
         </div>
         <div style="font-size:.72rem;color:var(--ink-3)">
-          ${active ? 'Ativo' : 'Inativo'} · ${linked ? 'Vinculado ao Admin' : 'Sem vínculo'} · ${recentUsage} função${recentUsage === 1 ? '' : 'ões'} em 6 meses
+          ${active ? 'Ativo' : 'Inativo'} · ${meetings} · ${recentUsage} função${recentUsage === 1 ? '' : 'ões'} em 6 meses
         </div>
+        <div style="font-size:.72rem;color:var(--ink-3);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(roles)}</div>
       </div>
       <span style="width:9px;height:9px;border-radius:50%;background:${linked ? '#1A6B3C' : '#B3261E'}"></span>
       ${context.usuario.apps.mestre ? `<button class="btn btn-ghost" type="button" data-edit-task-person="${escapeHtml(id)}" style="padding:4px 9px;font-size:.76rem">Editar</button>` : ''}
@@ -1035,7 +1002,7 @@ function openTaskPersonModal(id: string | null): void {
   const masterOptions = Object.entries(masterPeople)
     .filter(([mid, item]) => item.active !== false && (person?.masterId === mid || !Object.values(pessoas).some(candidate => candidate.masterId === mid)))
     .sort(([, a], [, b]) => String(a.name ?? '').localeCompare(String(b.name ?? ''), 'pt-BR'))
-    .map(([mid, item]) => `<option value="${escapeHtml(mid)}" ${person?.masterId === mid ? 'selected' : ''}>${escapeHtml(item.name || mid)}</option>`)
+    .map(([mid, item]) => `<option value="${escapeHtml(mid)}" ${person?.masterId === mid ? 'selected' : ''}>${escapeHtml(item.name || mid)} · ID ${escapeHtml(mid)}</option>`)
     .join('')
   const roles = person?.roles ?? {}
   // Nome canônico vem do Admin — exibir somente leitura
@@ -1054,7 +1021,7 @@ function openTaskPersonModal(id: string | null): void {
       </div>
       <div class="form-help">WhatsApp: ${escapeHtml(personPhone(person) || 'não informado')}. Edite os dados pessoais no Admin.</div>
     </div>` : ''}
-    <div class="form-group"><label class="form-label" for="taskPersonMaster">Pessoa do cadastro Admin</label><select id="taskPersonMaster" class="form-select" ${id && person?.masterId ? 'disabled' : ''}><option value="">Selecionar...</option>${masterOptions}</select></div>
+    <div class="form-group"><label class="form-label" for="taskPersonMaster">Pessoa do cadastro Admin</label><select id="taskPersonMaster" class="form-select" ${id && person?.masterId ? 'disabled' : ''}><option value="">Selecionar pelo nome ou ID...</option>${masterOptions}</select></div>
     <div class="module-form-grid">
       <div class="form-group"><label class="form-label" for="taskPersonRule">Reuniões</label><select id="taskPersonRule" class="form-select"><option value="both" ${(person?.rule ?? 'both') === 'both' ? 'selected' : ''}>Todas</option><option value="midweek" ${person?.rule === 'midweek' ? 'selected' : ''}>Meio de semana</option><option value="weekend" ${person?.rule === 'weekend' ? 'selected' : ''}>Fim de semana</option><option value="none" ${person?.rule === 'none' ? 'selected' : ''}>Fora da escala</option></select></div>
       <div class="form-group"><label class="form-label" for="taskPersonRest">Referência da folga</label><input id="taskPersonRest" class="form-input" type="date" value="${escapeHtml(person?.refFolgaDate)}"></div>
