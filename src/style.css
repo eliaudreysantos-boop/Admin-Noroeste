@@ -796,3 +796,10 @@ textarea.form-input {
 .text-muted    { color: var(--ink-3); }
 .mt-8          { margin-top: 8px; }
 .mt-16         { margin-top: 16px; }
+.coordinator-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+.coordinator-card { border:1px solid var(--border); border-radius:8px; background:var(--surface); overflow:hidden; }
+.coordinator-card summary { display:grid; grid-template-columns:42px 1fr auto; gap:10px; align-items:center; padding:12px; cursor:pointer; list-style:none; }
+.coordinator-card summary::-webkit-details-marker { display:none; }
+.coordinator-card summary small { display:block; margin-top:3px; color:var(--ink-3); }
+.coordinator-card-body { border-top:1px solid var(--border); padding:12px; }
+@media (max-width: 900px) { .coordinator-grid { grid-template-columns:1fr; } }

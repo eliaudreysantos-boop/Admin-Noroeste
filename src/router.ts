@@ -86,6 +86,16 @@ export function navigateModuleIndex(): void {
 export function initRouter(uid: string, usuario: import('./types').Usuario): void {
   _ctx = { uid, usuario }
 
+  if (usuario.secretarioPapel === 'coordenador' && !usuario.apps.mestre) {
+    _currentModule = null
+    _accessList = []
+    emitRouteState()
+    const content = document.getElementById('appContent')!
+    content.innerHTML = '<p style="padding:24px;color:var(--ink-3)">Carregando...</p>'
+    void import('./modules/coordenador').then(module => { module.default(_ctx!); animateRoute(content) })
+    return
+  }
+
   // apps.mestre = Admin → acesso total a todos os módulos
   const accessList = usuario.apps.mestre
     ? MODULES_ORDER
