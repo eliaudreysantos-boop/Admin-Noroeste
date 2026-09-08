@@ -18,7 +18,7 @@ const MODULE_META: Record<
 }
 
 const MODULES_ORDER: ModuleName[] = [
-  'mestre', 'tarefas', 'limpeza', 'oradores', 'escala', 'programacao', 'secretario', 'individual',
+  'mestre', 'secretario', 'oradores', 'programacao', 'tarefas', 'limpeza', 'escala', 'individual',
 ]
 
 // ─── Lazy loaders ───────────────────────────────────────────────────────────

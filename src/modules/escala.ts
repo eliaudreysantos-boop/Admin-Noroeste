@@ -104,10 +104,10 @@ function render(): void {
 function renderIndex(): void {
   root().innerHTML = '<div style="margin-bottom:14px"><h2 style="font-size:1.05rem;color:#1A6B3C">Escala</h2></div><div id="escalaMenu"></div>'
   const items: ItemMenu[] = [
-    { id: 'locais', titulo: 'Locais', subtitulo: 'Pontos de carrinho, dias e horários', icone: '⌖', corFundo: '#8A5B00' },
+    { id: 'escalaAtual', titulo: 'Escala do mês', subtitulo: 'Gerar, revisar, editar e publicar', icone: '▣', corFundo: '#003F72' },
     { id: 'participantes', titulo: 'Participantes', subtitulo: 'Cadastro e regras de participação', icone: '♙', corFundo: '#1A6B3C' },
     { id: 'disponibilidade', titulo: 'Disponibilidade', subtitulo: 'Dias, locais e horários disponíveis', icone: '◫', corFundo: '#006EB6' },
-    { id: 'escalaAtual', titulo: 'Escala do mês', subtitulo: 'Gerar, revisar, editar e publicar', icone: '▣', corFundo: '#003F72' },
+    { id: 'locais', titulo: 'Locais', subtitulo: 'Pontos de carrinho, dias e horários', icone: '⌖', corFundo: '#8A5B00' },
     { id: 'mensagens', titulo: 'Mensagens', subtitulo: 'Pessoa, dia e confirmação', icone: '✉', corFundo: '#7E3AF2' },
     { id: 'pendencias', titulo: 'Pendências', subtitulo: 'Conflitos e dados que precisam de atenção', icone: '!', corFundo: '#B3261E' },
     { id: 'config', titulo: 'Configuração', subtitulo: 'Textos, WhatsApp e impressão', icone: '⚙', corFundo: '#5C6062' },

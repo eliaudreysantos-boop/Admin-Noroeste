@@ -239,9 +239,9 @@ function renderIndex(): void {
   const items: ItemMenu[] = [
     { id: 'escala', titulo: 'Gerar escala', subtitulo: 'Calcule e salve a rotação mensal ou bimestral', icone: '▦', corFundo: '#B83E18' },
     { id: 'grupos', titulo: 'Grupos', subtitulo: 'Distribua as pessoas pelos grupos de limpeza', icone: '♧', corFundo: '#006EB6' },
-    { id: 'config', titulo: 'Configuração', subtitulo: 'Rotação, coordenador e instruções', icone: '⚙', corFundo: '#003F72' },
     { id: 'texto', titulo: 'Texto', subtitulo: 'Gere a mensagem para publicar em Tarefas', icone: '≡', corFundo: '#1A6B3C' },
     { id: 'pdf', titulo: 'PDF', subtitulo: 'Baixe a escala já gerada em arquivo separado', icone: '▤', corFundo: '#7E3AF2' },
+    { id: 'config', titulo: 'Configuração', subtitulo: 'Rotação, coordenador e instruções', icone: '⚙', corFundo: '#003F72' },
   ]
   renderMenuCards(content.querySelector<HTMLElement>('#limpezaMenu')!, items, id => { activeTab = id as LimpezaTab; renderContent() })
 }

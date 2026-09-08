@@ -107,10 +107,10 @@ function renderIndex(): void {
   root().innerHTML = '<div style="margin-bottom:14px"><h2 style="font-size:1.05rem;color:var(--blue-deep)">Programação</h2></div><div id="programacaoMenu"></div>'
   const items: ItemMenu[] = [
     { id: 'programa', titulo: 'Programa', subtitulo: 'Semanas, partes e designações', icone: '▦', corFundo: '#003F72' },
-    { id: 'apostilas', titulo: 'Apostilas', subtitulo: 'Importação oficial por semana ou bimestre', icone: '▤', corFundo: '#7E3AF2' },
     { id: 'pessoas', titulo: 'Pessoas', subtitulo: 'Vínculos e permissões de designação', icone: '♙', corFundo: '#006EB6' },
-    { id: 'arquivos', titulo: 'Arquivos', subtitulo: 'S-89, S-140 PDF e DOCX', icone: '▣', corFundo: '#1A6B3C' },
+    { id: 'apostilas', titulo: 'Apostilas', subtitulo: 'Importação oficial por semana ou bimestre', icone: '▤', corFundo: '#7E3AF2' },
     { id: 'lembretes', titulo: 'Lembretes', subtitulo: 'Mensagens editáveis e confirmações', icone: '✉', corFundo: '#A54B00' },
+    { id: 'arquivos', titulo: 'Arquivos', subtitulo: 'S-89, S-140 PDF e DOCX', icone: '▣', corFundo: '#1A6B3C' },
     { id: 'pendencias', titulo: 'Pendências', subtitulo: 'Designações, conflitos e entregas', icone: '!', corFundo: '#B3261E' },
     { id: 'config', titulo: 'Configuração', subtitulo: 'Horário, salas e texto de lembrete', icone: '⚙', corFundo: '#5C6062' },
   ]

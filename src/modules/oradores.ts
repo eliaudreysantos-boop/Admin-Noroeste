@@ -126,14 +126,14 @@ function render(): void {
     const menu = el.querySelector<HTMLElement>('#oradoresMenu')
     if (menu) {
       const items: ItemMenu[] = [
-        { id: 'cadastro', titulo: 'Cadastro', subtitulo: 'Oradores da congregação', icone: '♙', corFundo: '#003F72' },
         { id: 'programacao', titulo: 'Programação', subtitulo: `${programacoesFuturas} compromisso${programacoesFuturas === 1 ? '' : 's'} futuro${programacoesFuturas === 1 ? '' : 's'}`, icone: '▣', corFundo: '#7E3AF2' },
         { id: 'designacoes', titulo: 'Designações por orador', subtitulo: 'Agenda individual e mensagens', icone: '☷', corFundo: '#003F72' },
+        { id: 'cadastro', titulo: 'Cadastro', subtitulo: 'Oradores da congregação', icone: '♙', corFundo: '#003F72' },
         { id: 'temas', titulo: 'Temas', subtitulo: 'Catálogo dos discursos públicos', icone: '▤', corFundo: '#1A6B3C' },
         { id: 'congregacoes', titulo: 'Congregações', subtitulo: 'Locais, visitantes e intercâmbios', icone: '⌂', corFundo: '#006EB6' },
         { id: 'intercambios', titulo: 'Intercâmbios', subtitulo: 'Entradas, saídas e mensagens', icone: '⇄', corFundo: '#7E3AF2' },
-        { id: 'emergencia', titulo: 'Emergência', subtitulo: 'Substitutos e temas disponíveis', icone: '!', corFundo: '#B3261E' },
         { id: 'eventos', titulo: 'Eventos', subtitulo: 'Datas sem discurso público local', icone: '◆', corFundo: '#8A5B00' },
+        { id: 'emergencia', titulo: 'Emergência', subtitulo: 'Substitutos e temas disponíveis', icone: '!', corFundo: '#B3261E' },
         { id: 'pendencias', titulo: 'Pendências', subtitulo: `${aConfirmar} compromisso${aConfirmar === 1 ? '' : 's'} a confirmar`, icone: '!', corFundo: '#B3261E' },
       ]
       renderMenuCards(menu, items, id => { activeTab = id as OradoresTab; render() })

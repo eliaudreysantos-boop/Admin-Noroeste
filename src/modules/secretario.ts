@@ -54,10 +54,10 @@ function renderIndex(element: HTMLElement): void {
   element.innerHTML = '<div style="margin-bottom:14px"><h2 style="font-size:1.05rem;color:#5C6062;margin:0">Secretário</h2></div><div id="secretarioMenu"></div>'
   const items: ItemMenu[] = [
     { id: 'publicadores', titulo: 'Publicadores', subtitulo: 'Vínculos ao cadastro do Admin e categorias', icone: '♙', corFundo: '#5C6062' },
-    { id: 'grupos', titulo: 'Grupos', subtitulo: 'Organização congregacional dos publicadores', icone: '◫', corFundo: '#1A6B3C' },
     { id: 'relatorios', titulo: 'Relatórios', subtitulo: 'Entrega mensal e registros atrasados', icone: '▦', corFundo: '#003F72' },
-    { id: 'conferencia', titulo: 'Relatório JW.org', subtitulo: 'Totais prontos para conferência e envio', icone: '✓', corFundo: '#B83E18' },
     { id: 'assistencia', titulo: 'Assistência', subtitulo: 'Presença por data e tipo de reunião', icone: '≡', corFundo: '#006EB6' },
+    { id: 'conferencia', titulo: 'Relatório JW.org', subtitulo: 'Totais prontos para conferência e envio', icone: '✓', corFundo: '#B83E18' },
+    { id: 'grupos', titulo: 'Grupos', subtitulo: 'Organização congregacional dos publicadores', icone: '◫', corFundo: '#1A6B3C' },
     { id: 'documentos', titulo: 'Documentos', subtitulo: 'Preenchimento de S-21, S-1, S-88 e S-3', icone: '▤', corFundo: '#7E3AF2' },
     { id: 'arquivos', titulo: 'Arquivo', subtitulo: 'Histórico e arquivo da congregação', icone: '□', corFundo: '#8A5A00' },
   ]
