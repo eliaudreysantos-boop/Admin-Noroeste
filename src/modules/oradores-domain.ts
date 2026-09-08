@@ -97,6 +97,17 @@ export function needsReconfirmation(talk: Talk, today: string, days = 7): boolea
 
 export interface EmergencyCandidate { speakerId: string; themeIds: string[] }
 
+export function watchtowerIssues(speakers: Record<string, Speaker>): string[] {
+  const eligible = Object.entries(speakers).filter(([, speaker]) => speaker.ativo !== false && speaker.tipo !== 'visitante')
+  const conductors = eligible.filter(([, speaker]) => speaker.sentinelaDirigente)
+  const substitutes = eligible.filter(([, speaker]) => speaker.sentinelaSubstituto)
+  const issues: string[] = []
+  if (conductors.length !== 1) issues.push('Defina exatamente um dirigente local e ativo de A Sentinela')
+  if (substitutes.length !== 1) issues.push('Defina exatamente um substituto local e ativo de A Sentinela')
+  if (conductors[0]?.[0] && conductors[0][0] === substitutes[0]?.[0]) issues.push('Dirigente e substituto de A Sentinela devem ser pessoas diferentes')
+  return issues
+}
+
 export function emergencyCandidates(
   talkId: string,
   talk: Talk,

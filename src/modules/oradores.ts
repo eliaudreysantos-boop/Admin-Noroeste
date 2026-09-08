@@ -2,7 +2,7 @@ import type { AppContext, RawPessoas } from '../types'
 import { get, pessoasRef, update, tarefasDiscursosRef, tarefasScaleRef } from '../firebase'
 import { renderMenuCards, type ItemMenu } from '../ui/menu-cards'
 import { moduleBackButton, moduleTitle } from '../ui/module-header'
-import { allowedTheme, confirmationPatch, deriveStatus, emergencyCandidates, eventBlocksLocal, needsReconfirmation, talkConflicts, type Congregation, type Speaker, type Talk, type Theme } from './oradores-domain'
+import { allowedTheme, confirmationPatch, deriveStatus, emergencyCandidates, eventBlocksLocal, needsReconfirmation, talkConflicts, watchtowerIssues, type Congregation, type Speaker, type Talk, type Theme } from './oradores-domain'
 
 interface LegacyOrador extends Speaker {}
 interface LegacyProgramacao extends Talk {}
@@ -346,7 +346,7 @@ function openCongregacaoModal(id: string | null): void {
   const current = id ? discursos.congregacoes?.[id] : undefined
   const overlay = document.createElement('div')
   overlay.className = 'modal-overlay'
-  overlay.innerHTML = `<div class="modal"><h2>${id ? 'Editar congregação' : 'Nova congregação'}</h2><div class="form-group"><label class="form-label" for="congNome">Nome</label><input id="congNome" class="form-input" value="${escapeHtml(current?.nome ?? '')}"></div><div class="form-group"><label class="form-label" for="congCidade">Cidade</label><input id="congCidade" class="form-input" value="${escapeHtml(current?.cidade ?? '')}"></div><div class="form-group"><label class="form-label" for="congTipo">Tipo</label><select id="congTipo" class="form-select"><option value="visitante" ${current?.tipo !== 'local' ? 'selected' : ''}>Visitante</option><option value="local" ${current?.tipo === 'local' ? 'selected' : ''}>Local</option></select></div><div class="form-group"><label class="form-label" for="congTelefone">Telefone</label><input id="congTelefone" class="form-input" type="tel" value="${escapeHtml(current?.telefone ?? '')}"></div><div class="form-group"><label style="display:flex;align-items:center;gap:8px"><input id="congAtiva" type="checkbox" ${current?.ativa !== false ? 'checked' : ''}> <span class="form-label" style="margin:0">Ativa</span></label></div><div style="display:flex;gap:8px;margin-top:8px"><button id="cancelCong" class="btn btn-ghost" type="button" style="flex:1">Cancelar</button><button id="saveCong" class="btn btn-primary" type="button" style="flex:1">Salvar</button></div></div>`
+  overlay.innerHTML = `<div class="modal"><h2>${id ? 'Editar congregação' : 'Nova congregação'}</h2><div class="form-group"><label class="form-label" for="congNome">Nome</label><input id="congNome" class="form-input" value="${escapeHtml(current?.nome ?? '')}"></div><div class="form-group"><label class="form-label" for="congCidade">Cidade</label><input id="congCidade" class="form-input" value="${escapeHtml(current?.cidade ?? '')}"></div><div class="form-group"><label class="form-label" for="congTipo">Tipo</label><select id="congTipo" class="form-select"><option value="visitante" ${current?.tipo !== 'local' ? 'selected' : ''}>Visitante</option><option value="local" ${current?.tipo === 'local' ? 'selected' : ''}>Local</option></select></div><div class="form-group"><label class="form-label" for="congContato">Contato</label><input id="congContato" class="form-input" value="${escapeHtml(current?.contato ?? '')}"></div><div class="form-group"><label class="form-label" for="congTelefone">Telefone do contato</label><input id="congTelefone" class="form-input" type="tel" value="${escapeHtml(current?.telefone ?? '')}"></div><div class="module-form-grid"><div class="form-group"><label class="form-label" for="congDia">Dia da reunião</label><input id="congDia" class="form-input" value="${escapeHtml(current?.diaReuniao ?? '')}" placeholder="Domingo"></div><div class="form-group"><label class="form-label" for="congHorario">Horário</label><input id="congHorario" class="form-input" type="time" value="${escapeHtml(current?.horario ?? '')}"></div></div><div class="form-group"><label class="form-label" for="congLocal">Localização</label><input id="congLocal" class="form-input" value="${escapeHtml(current?.localizacao ?? '')}"></div><div class="form-group"><label class="form-label" for="congObs">Observações</label><textarea id="congObs" class="form-input">${escapeHtml(current?.observacoes ?? '')}</textarea></div><div class="form-group"><label style="display:flex;align-items:center;gap:8px"><input id="congAtiva" type="checkbox" ${current?.ativa !== false ? 'checked' : ''}> <span class="form-label" style="margin:0">Ativa</span></label></div><div style="display:flex;gap:8px;margin-top:8px"><button id="cancelCong" class="btn btn-ghost" type="button" style="flex:1">Cancelar</button><button id="saveCong" class="btn btn-primary" type="button" style="flex:1">Salvar</button></div></div>`
   document.body.appendChild(overlay)
   overlay.addEventListener('click', event => { if (event.target === overlay) overlay.remove() })
   overlay.querySelector('#cancelCong')?.addEventListener('click', () => overlay.remove())
@@ -356,7 +356,7 @@ function openCongregacaoModal(id: string | null): void {
 async function saveCongregacao(id: string | null, overlay: HTMLElement): Promise<void> {
   const nome = (overlay.querySelector('#congNome') as HTMLInputElement).value.trim()
   if (!nome) { toast('Preencha o nome da congregação'); return }
-  const record: LegacyCongregacao = { ...(id ? discursos.congregacoes?.[id] : {}), nome, cidade: (overlay.querySelector('#congCidade') as HTMLInputElement).value.trim(), tipo: (overlay.querySelector('#congTipo') as HTMLSelectElement).value, telefone: (overlay.querySelector('#congTelefone') as HTMLInputElement).value.trim(), ativa: (overlay.querySelector('#congAtiva') as HTMLInputElement).checked }
+  const record: LegacyCongregacao = { ...(id ? discursos.congregacoes?.[id] : {}), nome, cidade: (overlay.querySelector('#congCidade') as HTMLInputElement).value.trim(), tipo: (overlay.querySelector('#congTipo') as HTMLSelectElement).value, contato: (overlay.querySelector('#congContato') as HTMLInputElement).value.trim(), telefone: (overlay.querySelector('#congTelefone') as HTMLInputElement).value.trim(), diaReuniao: (overlay.querySelector('#congDia') as HTMLInputElement).value.trim(), horario: (overlay.querySelector('#congHorario') as HTMLInputElement).value, localizacao: (overlay.querySelector('#congLocal') as HTMLInputElement).value.trim(), observacoes: (overlay.querySelector('#congObs') as HTMLTextAreaElement).value.trim(), ativa: (overlay.querySelector('#congAtiva') as HTMLInputElement).checked }
   const finalId = id ?? `c_${Date.now().toString(36)}`
   try { await update(tarefasDiscursosRef, { [`congregacoes/${finalId}`]: record }); discursos.congregacoes = { ...(discursos.congregacoes ?? {}), [finalId]: record }; overlay.remove(); toast(id ? 'Congregação atualizada' : 'Congregação adicionada'); render() } catch { toast('Erro ao salvar congregação') }
 }
@@ -383,9 +383,10 @@ function openOradorModal(id: string | null): void {
   const current = id ? discursos.oradores?.[id] : undefined
   const linked = new Set(Object.entries(discursos.oradores ?? {}).filter(([other]) => other !== id).map(([, item]) => item.pessoaId).filter(Boolean))
   const personOptions = Object.entries(pessoas).filter(([mid, person]) => person.active !== false && (!linked.has(mid) || mid === current?.pessoaId)).sort(([, a], [, b]) => a.name.localeCompare(b.name, 'pt-BR')).map(([mid, person]) => `<option value="${escapeHtml(mid)}" ${current?.pessoaId === mid ? 'selected' : ''}>${escapeHtml(person.name)}</option>`).join('')
+  const themeChecks = Object.entries(discursos.temas ?? {}).filter(([, theme]) => theme.ativo !== false).sort(([, a], [, b]) => Number(a.numero ?? 0) - Number(b.numero ?? 0)).map(([themeId, theme]) => `<label style="display:flex;gap:8px;padding:6px 0"><input type="checkbox" data-orador-theme="${escapeHtml(themeId)}" ${current?.temaIds?.includes(themeId) ? 'checked' : ''}> ${escapeHtml(`${theme.numero ?? ''} ${theme.titulo ?? ''}`.trim())}</label>`).join('')
   const overlay = document.createElement('div')
   overlay.className = 'modal-overlay'
-  overlay.innerHTML = `<div class="modal"><h2>${id ? 'Editar orador' : 'Adicionar orador'}</h2><div class="form-group"><label class="form-label" for="oradorPessoa">Pessoa do cadastro Admin</label><select id="oradorPessoa" class="form-select"><option value="">Selecionar...</option>${personOptions}</select><p class="form-help">Nome e WhatsApp são editados somente no Admin.</p></div><div class="form-group"><label class="form-label" for="oradorTipo">Tipo</label><select id="oradorTipo" class="form-select"><option value="local" ${current?.tipo === 'local' ? 'selected' : ''}>Local</option><option value="visitante" ${current?.tipo === 'visitante' ? 'selected' : ''}>Visitante</option></select></div><div class="form-group"><label style="display:flex;align-items:center;gap:8px"><input id="oradorAtivo" type="checkbox" ${current?.ativo !== false ? 'checked' : ''}> <span class="form-label" style="margin:0">Ativo</span></label></div><div style="display:flex;gap:8px;margin-top:8px"><button id="cancelOrador" class="btn btn-ghost" type="button" style="flex:1">Cancelar</button><button id="saveOrador" class="btn btn-primary" type="button" style="flex:1">Salvar</button></div></div>`
+  overlay.innerHTML = `<div class="modal"><h2>${id ? 'Editar orador' : 'Adicionar orador'}</h2><div class="form-group"><label class="form-label" for="oradorPessoa">Pessoa do cadastro Admin</label><select id="oradorPessoa" class="form-select"><option value="">Selecionar...</option>${personOptions}</select><p class="form-help">Nome e WhatsApp são editados somente no Admin.</p></div><div class="form-group"><label class="form-label" for="oradorTipo">Tipo</label><select id="oradorTipo" class="form-select"><option value="local" ${current?.tipo === 'local' ? 'selected' : ''}>Local</option><option value="visitante" ${current?.tipo === 'visitante' ? 'selected' : ''}>Visitante</option></select></div><div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px"><label><input id="oradorAtivo" type="checkbox" ${current?.ativo !== false ? 'checked' : ''}> Ativo</label><label><input id="oradorSaida" type="checkbox" ${current?.aprovadoParaSaida ? 'checked' : ''}> Aprovado para saídas</label><label><input id="oradorPreside" type="checkbox" ${current?.podePresidir ? 'checked' : ''}> Pode presidir</label><label><input id="oradorSentinela" type="checkbox" ${current?.sentinelaDirigente ? 'checked' : ''}> Dirigente da Sentinela</label><label><input id="oradorSentinelaSub" type="checkbox" ${current?.sentinelaSubstituto ? 'checked' : ''}> Substituto da Sentinela</label></div><div class="form-group"><label class="form-label">Temas aprovados</label><div style="max-height:220px;overflow:auto;border:1px solid var(--border);padding:6px 10px;border-radius:8px">${themeChecks || '<p class="empty-state">Nenhum tema ativo cadastrado.</p>'}</div></div><div style="display:flex;gap:8px;margin-top:8px"><button id="cancelOrador" class="btn btn-ghost" type="button" style="flex:1">Cancelar</button><button id="saveOrador" class="btn btn-primary" type="button" style="flex:1">Salvar</button></div></div>`
   document.body.appendChild(overlay)
   overlay.addEventListener('click', event => { if (event.target === overlay) overlay.remove() })
   overlay.querySelector('#cancelOrador')?.addEventListener('click', () => overlay.remove())
@@ -395,16 +396,36 @@ function openOradorModal(id: string | null): void {
 async function saveOrador(id: string | null, overlay: HTMLElement): Promise<void> {
   const pessoaId = (overlay.querySelector('#oradorPessoa') as HTMLSelectElement).value
   if (!pessoaId || !pessoas[pessoaId]) { toast('Selecione uma pessoa do Admin'); return }
+  const sentinelaDirigente = (overlay.querySelector('#oradorSentinela') as HTMLInputElement).checked
+  const sentinelaSubstituto = (overlay.querySelector('#oradorSentinelaSub') as HTMLInputElement).checked
+  if (sentinelaDirigente && sentinelaSubstituto) { toast('A mesma pessoa não pode ser dirigente e substituto da Sentinela'); return }
+  const temaIds = Array.from(overlay.querySelectorAll<HTMLInputElement>('[data-orador-theme]:checked')).map(input => input.dataset['oradorTheme']!).filter(Boolean)
   const record: LegacyOrador = {
     ...(id ? discursos.oradores?.[id] : {}),
     pessoaId,
     tipo: (overlay.querySelector('#oradorTipo') as HTMLSelectElement).value,
     ativo: (overlay.querySelector('#oradorAtivo') as HTMLInputElement).checked,
+    aprovadoParaSaida: (overlay.querySelector('#oradorSaida') as HTMLInputElement).checked,
+    podePresidir: (overlay.querySelector('#oradorPreside') as HTMLInputElement).checked,
+    sentinelaDirigente,
+    sentinelaSubstituto,
+    temaIds,
   }
   delete record.nome; delete record.name; delete record.telefone
   const finalId = id ?? newOradorId()
   try {
-    await update(tarefasDiscursosRef, { [`oradores/${finalId}`]: record })
+    const patch: Record<string, unknown> = { [`oradores/${finalId}`]: record }
+    Object.entries(discursos.oradores ?? {}).forEach(([otherId, other]) => {
+      if (otherId === finalId) return
+      if (sentinelaDirigente && other.sentinelaDirigente) patch[`oradores/${otherId}/sentinelaDirigente`] = false
+      if (sentinelaSubstituto && other.sentinelaSubstituto) patch[`oradores/${otherId}/sentinelaSubstituto`] = false
+    })
+    await update(tarefasDiscursosRef, patch)
+    Object.entries(discursos.oradores ?? {}).forEach(([otherId, other]) => {
+      if (otherId === finalId) return
+      if (sentinelaDirigente) other.sentinelaDirigente = false
+      if (sentinelaSubstituto) other.sentinelaSubstituto = false
+    })
     discursos.oradores = { ...(discursos.oradores ?? {}), [finalId]: record }
     overlay.remove()
     toast(id ? 'Orador atualizado' : 'Orador adicionado')
@@ -568,6 +589,11 @@ function pendenciasView(): string {
   Object.entries(discursos.oradores ?? {}).forEach(([, o]) => {
     if (o.ativo !== false && !o.pessoaId) items.push(`${oradorNome('', o) || 'Orador'} está sem vínculo com o Admin.`)
     else if (o.ativo !== false && !oradorTelefone(o)) items.push(`${oradorNome('', o) || 'Orador'} está sem WhatsApp no Admin.`)
+    if (o.ativo !== false && !(o.temaIds?.length)) items.push(`${oradorNome('', o) || 'Orador'} está sem temas aprovados.`)
+  })
+  watchtowerIssues(discursos.oradores ?? {}).forEach(issue => items.push(issue))
+  Object.values(discursos.congregacoes ?? {}).forEach(congregation => {
+    if (congregation.ativa !== false && (!congregation.contato || !congregation.telefone || !congregation.diaReuniao || !congregation.horario)) items.push(`${congregation.nome ?? 'Congregação'} está com contato ou reunião incompletos.`)
   })
   return `<div style="margin-top:14px"><h3 style="font-size:.95rem;color:#5C6062;margin-bottom:2px">Pendências</h3><p style="font-size:.75rem;color:var(--ink-3);margin-bottom:10px">Itens que precisam de revisão antes da entrega.</p>${items.length ? `<div style="display:flex;flex-direction:column;gap:8px">${items.map(item => `<div style="border:1px solid #E6C7C4;background:#FFF7F6;color:#7E2B25;border-radius:8px;padding:12px;font-size:.82rem">${escapeHtml(item)}</div>`).join('')}</div>` : '<div style="padding:18px;border:1px solid #B7DEC7;background:#F1FAF4;border-radius:8px;color:#1A6B3C;font-size:.84rem">Nenhuma pendência identificada.</div>'}</div>`
 }

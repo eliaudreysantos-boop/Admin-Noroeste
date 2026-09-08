@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { allowedTheme, confirmationPatch, congregationIdOf, deriveStatus, emergencyCandidates, eventBlocksLocal, needsReconfirmation, realizedSpeakerId, talkConflicts, themeHistory } from '../src/modules/oradores-domain.ts'
+import { allowedTheme, confirmationPatch, congregationIdOf, deriveStatus, emergencyCandidates, eventBlocksLocal, needsReconfirmation, realizedSpeakerId, talkConflicts, themeHistory, watchtowerIssues } from '../src/modules/oradores-domain.ts'
 
 test('origem e destino seguem o tipo da programação', () => {
   assert.equal(congregationIdOf({ tipo: 'saida_orador', congregacaoDestinoId: 'destino', congregacaoOrigemId: 'origem' }), 'destino')
@@ -46,4 +46,13 @@ test('emergência filtra conflitos e temas recentes', () => {
     visitante: { ativo: true, tipo: 'visitante', pessoaId: 'p3', temaIds: ['livre'] },
   }, { livre: { ativo: true }, recente: { ativo: true } }, '2026-09-07')
   assert.deepEqual(candidates, [{ speakerId: 'livre', themeIds: ['livre'] }])
+})
+
+test('Sentinela exige dirigente e substituto locais, ativos e diferentes', () => {
+  assert.deepEqual(watchtowerIssues({
+    d: { tipo: 'local', ativo: true, sentinelaDirigente: true },
+    s: { tipo: 'local', ativo: true, sentinelaSubstituto: true },
+    v: { tipo: 'visitante', ativo: true, sentinelaDirigente: true },
+  }), [])
+  assert.equal(watchtowerIssues({ d: { tipo: 'local', ativo: true, sentinelaDirigente: true, sentinelaSubstituto: true } }).length, 1)
 })
