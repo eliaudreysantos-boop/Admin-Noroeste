@@ -25,6 +25,7 @@ interface Data {
   tables?: EscalaTables; monthSlotBlocks?: EscalaBlocks; monthExclusions?: Record<string, string[]>
   settings?: Settings; greetings?: Greetings; publishedMonth?: string; editingMonth?: string
   publishedSnapshots?: Record<string, EscalaPublishedSnapshot>
+  notified?: Record<string, Record<string, string>>
 }
 
 let context: AppContext
@@ -33,6 +34,7 @@ let historicalSnapshots: Record<string, EscalaPublishedSnapshot> = {}
 let availability: EscalaAvailability = {}, tables: EscalaTables = {}, blocks: EscalaBlocks = {}
 let exclusions: Record<string, string[]> = {}, settings: Settings = {}, greetings: Greetings = {}
 let publishedMonth = '', selectedMonth = monthNow(), selectedLocalId = '', selectedParticipantId = ''
+let notified: Record<string, Record<string, string>> = {}
 let tab: Tab = 'indice'
 
 const root = () => document.getElementById('escalaContent')!
@@ -74,6 +76,7 @@ async function load(): Promise<void> {
     locals = data.scales ?? {}; availability = data.availability ?? {}
     tables = data.tables ?? {}; blocks = data.monthSlotBlocks ?? {}; exclusions = data.monthExclusions ?? {}
     settings = data.settings ?? {}; greetings = data.greetings ?? {}; publishedMonth = data.publishedMonth ?? ''
+    notified = data.notified ?? {}
     selectedMonth = /^\d{4}-\d{2}$/.test(data.editingMonth ?? '') ? data.editingMonth! : monthNow()
     pessoas = peopleSnap.exists() ? peopleSnap.val() as RawPessoas : {}
     const rawProfiles = data.participants ?? {}
@@ -277,8 +280,15 @@ async function saveAvailability(keys: string[], on: boolean, rerender = false): 
     participants[selectedParticipantId].availabilityUpdatedAt = stamp; if (rerender) renderAvailability()
   } catch { toast('Não foi possível salvar a disponibilidade'); renderAvailability() }
 }
-async function confirmAvailability(): Promise<void> {
-  try { const stamp = now(); await update(child(escalaRef, `participants/${selectedParticipantId}`), { availabilityUpdatedAt: stamp }); participants[selectedParticipantId].availabilityUpdatedAt = stamp; toast('Disponibilidade revisada hoje') } catch { toast('Não foi possível confirmar') }
+async function confirmAvailability(participantId = selectedParticipantId): Promise<void> {
+  if (!participantId || !participants[participantId]) return
+  try {
+    const stamp = now()
+    await update(child(escalaRef, `participants/${participantId}`), { availabilityUpdatedAt: stamp })
+    participants[participantId].availabilityUpdatedAt = stamp
+    toast('Disponibilidade revisada hoje')
+    if (tab === 'mensagens') renderMessages()
+  } catch { toast('Não foi possível confirmar') }
 }
 
 function hasData(month: string): boolean {
@@ -288,13 +298,13 @@ function renderScale(): void {
   const local = locals[selectedLocalId]
   if (!local) { root().innerHTML = '<p class="empty-state">Nenhum local cadastrado.</p>'; return }
   const table = tables[selectedLocalId]?.[selectedMonth], published = publishedMonth === selectedMonth
-  root().innerHTML = `${periodControls()}${published ? '<div class="notice warning">Este mês está publicado e bloqueado para edição.</div>' : ''}<div class="scale-actions"><button id="sGenerateAll" class="btn btn-primary" ${published ? 'disabled' : ''}>${hasData(selectedMonth) ? 'Completar mês' : 'Gerar mês'}</button>${orderedLocals().length > 1 ? `<button id="sGenerateLocal" class="btn btn-ghost" ${published ? 'disabled' : ''}>Só ${esc(local.name ?? selectedLocalId)}</button>` : ''}<button id="sPdf" class="btn btn-ghost" ${hasData(selectedMonth) ? '' : 'disabled'}>Gerar PDF</button>${published ? '<button id="sUnpublish" class="btn btn-ghost">Despublicar</button>' : '<button id="sPublish" class="btn btn-ghost">Publicar mês</button>'}</div><div class="scale-days">${activeDates(selectedMonth, local.daysActive ?? [], exclusions[selectedMonth] ?? []).map(date => `<section class="scale-day"><h3>${esc(dayLabel(date))}</h3>${localSlots(local).map(time => slotHtml(date, time, table)).join('')}</section>`).join('') || '<p class="empty-state">Este local não tem dias ativos neste mês.</p>'}</div>`
+  root().innerHTML = `${periodControls()}${published ? '<div class="notice warning">Este mês está publicado e bloqueado para edição.</div>' : ''}<div class="scale-actions"><button id="sGenerateAll" class="btn btn-primary" ${published ? 'disabled' : ''}>${hasData(selectedMonth) ? 'Completar mês' : 'Gerar mês'}</button><button id="sPdf" class="btn btn-ghost" ${hasData(selectedMonth) ? '' : 'disabled'}>Gerar PDF</button>${published ? '<button id="sUnpublish" class="btn btn-ghost">Despublicar</button>' : `<button id="sPublish" class="btn btn-ghost" ${hasData(selectedMonth) ? '' : 'disabled'}>Publicar mês</button>${hasData(selectedMonth) ? '<button id="sDelete" class="btn btn-danger">Apagar mês</button>' : ''}`}</div><div class="scale-days">${activeDates(selectedMonth, local.daysActive ?? [], exclusions[selectedMonth] ?? []).map(date => `<section class="scale-day"><h3>${esc(dayLabel(date))}</h3>${localSlots(local).map(time => slotHtml(date, time, table)).join('')}</section>`).join('') || '<p class="empty-state">Este local não tem dias ativos neste mês.</p>'}</div>`
   bindPeriod(renderScale)
   document.getElementById('sGenerateAll')!.addEventListener('click', () => void generate())
-  document.getElementById('sGenerateLocal')?.addEventListener('click', () => void generate(selectedLocalId))
   document.getElementById('sPdf')!.addEventListener('click', printPdf)
   document.getElementById('sPublish')?.addEventListener('click', () => void publish())
   document.getElementById('sUnpublish')?.addEventListener('click', () => void unpublish())
+  document.getElementById('sDelete')?.addEventListener('click', () => void deleteMonth())
   document.querySelectorAll<HTMLButtonElement>('[data-slot]').forEach(button => button.addEventListener('click', () => pairModal(button.dataset['date']!, button.dataset['time']!)))
 }
 function slotHtml(date: string, time: string, table?: EscalaTable): string {
@@ -307,9 +317,9 @@ function slotHtml(date: string, time: string, table?: EscalaTable): string {
   }
   return `<button class="scale-slot" data-slot data-date="${date}" data-time="${time}" ${publishedMonth === selectedMonth ? 'disabled' : ''}><strong>${time}</strong><span>${esc(names.length ? names.join(' + ') : status)}</span></button>`
 }
-async function generate(onlyLocalId = ''): Promise<void> {
+async function generate(): Promise<void> {
   if (publishedMonth === selectedMonth) { toast('Despublique o mês antes de gerar'); return }
-  const generated = generateAll({ month: selectedMonth, locals, onlyLocalId: onlyLocalId || undefined, participants, availability, tables, blocks, exclusions: exclusions[selectedMonth] ?? [] })
+  const generated = generateAll({ month: selectedMonth, locals, participants, availability, tables, blocks, exclusions: exclusions[selectedMonth] ?? [] })
   if (generated.errors.length) { toast(generated.errors.join('. ')); return }
   const patch: Record<string, unknown> = { editingMonth: selectedMonth, lastGeneratedAt: now() }
   Object.keys(generated.results).forEach(id => { patch[`tables/${id}/${selectedMonth}`] = generated.tables[id][selectedMonth] })
@@ -348,18 +358,59 @@ async function unpublish(): Promise<void> {
   try { await update(escalaRef, { publishedMonth: '' }); publishedMonth = ''; toast('Mês aberto para edição'); renderScale() } catch { toast('Não foi possível despublicar') }
 }
 
+async function deleteMonth(): Promise<void> {
+  if (!hasData(selectedMonth) || !confirm(`Apagar a escala inteira de ${monthLabel(selectedMonth)} em todos os locais?`)) return
+  const patch: Record<string, unknown> = {}
+  Object.keys(locals).forEach(id => {
+    patch[`tables/${id}/${selectedMonth}`] = null
+    patch[`manualEdits/${id}/${selectedMonth}`] = null
+  })
+  try {
+    await update(escalaRef, patch)
+    Object.keys(tables).forEach(id => { delete tables[id]?.[selectedMonth] })
+    toast('Escala do mês apagada em todos os locais')
+    renderScale()
+  } catch { toast('Não foi possível apagar a escala do mês') }
+}
+
 function renderMessages(): void {
-  const people = orderedPeople(true), dates = [...new Set(Object.values(tables).flatMap(byMonth => Object.keys(byMonth[selectedMonth]?.rows ?? {})))].sort()
-  root().innerHTML = `${periodControls(false)}<div class="module-form-grid"><div class="form-group"><label class="form-label">Tipo</label><select id="mType" class="form-select"><option value="person">Mensagem para pessoa</option><option value="day">Mensagem do dia</option><option value="confirm">Confirmar disponibilidade</option></select></div><div class="form-group" id="mTargetWrap"></div></div><div class="form-group"><label class="form-label">Texto</label><textarea id="mText" class="form-input" rows="12"></textarea></div><div class="scale-actions"><button id="mCopy" class="btn btn-ghost">Copiar</button><button id="mWhats" class="btn btn-primary">Abrir WhatsApp</button><button id="mGroup" class="btn btn-ghost" ${settings.groupWhatsAppLink ? '' : 'disabled'}>Abrir grupo</button></div>`
+  const directory = participantDirectory()
+  const assignedPeople = orderedPeople(true).map(([id]) => ({ id, count: assignmentsForPerson(id, selectedMonth, tables, locals, directory).length }))
+    .filter(item => item.count > 0)
+    .sort((a, b) => Number(Boolean(notified[a.id]?.[selectedMonth])) - Number(Boolean(notified[b.id]?.[selectedMonth])) || name(a.id).localeCompare(name(b.id), 'pt-BR'))
+  const today = new Date().toISOString().slice(0, 10)
+  const tomorrow = new Date(new Date(`${today}T12:00:00`).getTime() + 86_400_000).toISOString().slice(0, 10)
+  const dates = [today, tomorrow].filter(date => assignmentsForDay(date, selectedMonth, tables, locals, directory).length > 0)
+  const confirmationPeople = orderedPeople(true).map(([id, person]) => ({ id, person, updated: person.availabilityUpdatedAt ? new Date(person.availabilityUpdatedAt).getTime() : 0 }))
+    .sort((a, b) => a.updated - b.updated || name(a.id).localeCompare(name(b.id), 'pt-BR'))
+  root().innerHTML = `${periodControls(false)}<div class="module-form-grid"><div class="form-group"><label class="form-label">Tipo</label><select id="mType" class="form-select"><option value="person">Mensagem para pessoa</option><option value="day">Mensagem do dia</option><option value="confirm">Confirmar disponibilidade</option></select></div><div class="form-group" id="mTargetWrap"></div></div><div class="form-group"><label class="form-label">Texto</label><textarea id="mText" class="form-input" rows="12"></textarea></div><div id="mConfirmAction"></div><div class="scale-actions"><button id="mCopy" class="btn btn-ghost">Copiar</button><button id="mWhats" class="btn btn-primary">Abrir WhatsApp</button><button id="mGroup" class="btn btn-ghost" ${settings.groupWhatsAppLink ? '' : 'disabled'}>Abrir grupo</button></div>`
   bindPeriod(renderMessages)
   const type = document.getElementById('mType') as HTMLSelectElement
   const targets = () => {
-    document.getElementById('mTargetWrap')!.innerHTML = type.value === 'day' ? `<label class="form-label">Dia</label><select id="mTarget" class="form-select">${dates.map(date => `<option value="${date}">${esc(dayLabel(date))}</option>`).join('')}</select>` : `<label class="form-label">Pessoa</label><select id="mTarget" class="form-select">${people.map(([id]) => `<option value="${esc(id)}">${esc(name(id))}</option>`).join('')}</select>`
-    document.getElementById('mTarget')!.addEventListener('change', fillMessage); fillMessage()
+    const wrap = document.getElementById('mTargetWrap')!
+    const confirmAction = document.getElementById('mConfirmAction')!
+    confirmAction.innerHTML = ''
+    if (type.value === 'day') {
+      wrap.innerHTML = dates.length ? `<label class="form-label">Dia</label><select id="mTarget" class="form-select">${dates.map(date => `<option value="${date}">${esc(dayLabel(date))}</option>`).join('')}</select>` : '<p class="form-help">Hoje e amanhã não têm duplas marcadas.</p>'
+    } else if (type.value === 'confirm') {
+      wrap.innerHTML = `<label class="form-label">Pessoa</label><select id="mTarget" class="form-select">${confirmationPeople.map(({ id, person }) => `<option value="${esc(id)}">${esc(name(id))} · ${person.availabilityUpdatedAt ? `revisada em ${esc(String(person.availabilityUpdatedAt).slice(0, 10))}` : 'nunca revisada'}</option>`).join('')}</select>`
+      confirmAction.innerHTML = '<button id="mConfirmDone" class="btn btn-ghost" type="button">Respondeu que está certo</button>'
+      document.getElementById('mConfirmDone')!.addEventListener('click', () => void confirmAvailability((document.getElementById('mTarget') as HTMLSelectElement).value))
+    } else {
+      wrap.innerHTML = assignedPeople.length ? `<label class="form-label">Pessoa</label><select id="mTarget" class="form-select">${assignedPeople.map(({ id, count }) => `<option value="${esc(id)}">${notified[id]?.[selectedMonth] ? 'Avisado · ' : ''}${esc(name(id))} · ${count} horário(s)</option>`).join('')}</select>` : '<p class="form-help">Ninguém está escalado neste período.</p>'
+    }
+    const target = document.getElementById('mTarget') as HTMLSelectElement | null
+    const hasTarget = Boolean(target)
+    ;(document.getElementById('mCopy') as HTMLButtonElement).disabled = !hasTarget
+    ;(document.getElementById('mWhats') as HTMLButtonElement).disabled = !hasTarget || type.value === 'day'
+    ;(document.getElementById('mGroup') as HTMLButtonElement).disabled = !hasTarget || !settings.groupWhatsAppLink
+    if (!target) { (document.getElementById('mText') as HTMLTextAreaElement).value = ''; return }
+    target.addEventListener('change', fillMessage)
+    fillMessage()
   }
   type.addEventListener('change', targets); targets()
   document.getElementById('mCopy')!.addEventListener('click', () => void copyMessage())
-  document.getElementById('mWhats')!.addEventListener('click', openWhatsApp)
+  document.getElementById('mWhats')!.addEventListener('click', () => void openWhatsApp())
   document.getElementById('mGroup')!.addEventListener('click', () => { void copyMessage(); window.open(settings.groupWhatsAppLink, '_blank', 'noopener') })
 }
 function fillMessage(): void {
@@ -372,11 +423,19 @@ async function copyMessage(): Promise<void> {
   try { await navigator.clipboard.writeText((document.getElementById('mText') as HTMLTextAreaElement).value); toast('Mensagem copiada') } catch { toast('Não foi possível copiar automaticamente') }
 }
 function digits(value: unknown): string { const result = String(value ?? '').replace(/\D/g, ''); return result.length === 11 ? `55${result}` : result }
-function openWhatsApp(): void {
+async function openWhatsApp(): Promise<void> {
   const type = (document.getElementById('mType') as HTMLSelectElement).value, target = (document.getElementById('mTarget') as HTMLSelectElement)?.value ?? ''
   const phone = type === 'day' ? '' : digits(phoneOf(target))
   if (!phone) { toast('Este destino não tem WhatsApp cadastrado'); return }
-  window.open(`https://wa.me/${phone}?text=${encodeURIComponent((document.getElementById('mText') as HTMLTextAreaElement).value)}`, '_blank', 'noopener')
+  const popup = window.open(`https://wa.me/${phone}?text=${encodeURIComponent((document.getElementById('mText') as HTMLTextAreaElement).value)}`, '_blank', 'noopener')
+  if (!popup || type !== 'person') return
+  const stamp = now()
+  try {
+    await update(escalaRef, { [`notified/${target}/${selectedMonth}`]: stamp })
+    notified[target] ??= {}; notified[target][selectedMonth] = stamp
+    toast('WhatsApp aberto e aviso registrado')
+    renderMessages()
+  } catch { toast('WhatsApp aberto, mas não foi possível registrar o aviso') }
 }
 
 function renderPending(): void {
@@ -401,28 +460,39 @@ function renderPending(): void {
 
 function renderConfig(): void {
   const font = Math.min(18, Math.max(8, Number(settings.printFontPt ?? 12)))
-  const local = locals[selectedLocalId]
+  const hasLocals = orderedLocals().length > 0
   const scope = '__persist__'
-  root().innerHTML = `${periodControls()}<div class="form-group"><label class="form-label">Link do grupo do WhatsApp</label><input id="cGroup" class="form-input" value="${esc(settings.groupWhatsAppLink ?? '')}"></div><div class="form-group"><label class="form-label">Tamanho máximo no PDF: <strong id="cFontValue">${font}pt</strong></label><input id="cFont" type="range" min="8" max="18" value="${font}" style="width:100%"><p class="form-help">O app reduz a partir deste teto até encontrar a maior letra que caiba sem quebrar nomes.</p></div><div class="form-group"><label class="form-label">Mensagem para pessoa</label><textarea id="cPerson" class="form-input">${esc(greetings.participant ?? '')}</textarea></div><div class="form-group"><label class="form-label">Mensagem do dia</label><textarea id="cDay" class="form-input">${esc(greetings.date ?? '')}</textarea></div><div class="form-group"><label class="form-label">Confirmação de disponibilidade</label><textarea id="cConfirm" class="form-input">${esc(greetings.confirm ?? '')}</textarea></div><button id="cSave" class="btn btn-primary">Salvar textos e impressão</button><hr style="border:0;border-top:1px solid var(--border);margin:18px 0"><h3 style="font-size:.9rem;margin-bottom:8px">Exceções de ${esc(monthLabel(selectedMonth))}</h3><div style="display:flex;gap:8px;margin-bottom:8px"><input id="cExclusion" class="form-input" type="date" min="${selectedMonth}-01" max="${selectedMonth}-31"><button id="cAddExclusion" class="btn btn-ghost">Adicionar</button></div><div class="module-option-list">${(exclusions[selectedMonth] ?? []).map(date => `<div class="module-menu-btn" style="cursor:default"><div><div class="mod-label">${esc(dayLabel(date))}</div><div class="mod-desc">Sem carrinho em todos os locais</div></div><button class="btn btn-danger" data-remove-exclusion="${date}">Remover</button></div>`).join('') || '<p class="empty-state">Nenhuma data excluída neste mês.</p>'}</div>${local ? `<hr style="border:0;border-top:1px solid var(--border);margin:18px 0"><div style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:8px"><h3 style="font-size:.9rem">Bloqueios de horário</h3><select id="cBlockScope" class="form-select" style="max-width:190px"><option value="__persist__">Todos os meses</option><option value="${selectedMonth}">Somente este mês</option></select></div><div id="cBlocks">${blockGrid(local, scope)}</div>` : ''}`
+  root().innerHTML = `${periodControls()}<div class="form-group"><label class="form-label">Link do grupo do WhatsApp</label><input id="cGroup" class="form-input" value="${esc(settings.groupWhatsAppLink ?? '')}"></div><div class="form-group"><label class="form-label">Tamanho máximo no PDF: <strong id="cFontValue">${font}pt</strong></label><input id="cFont" type="range" min="8" max="18" value="${font}" style="width:100%"><p class="form-help">O app reduz a partir deste teto até encontrar a maior letra que caiba sem quebrar nomes.</p></div><div class="form-group"><label class="form-label">Mensagem para pessoa</label><textarea id="cPerson" class="form-input">${esc(greetings.participant ?? '')}</textarea></div><div class="form-group"><label class="form-label">Mensagem do dia</label><textarea id="cDay" class="form-input">${esc(greetings.date ?? '')}</textarea></div><div class="form-group"><label class="form-label">Confirmação de disponibilidade</label><textarea id="cConfirm" class="form-input">${esc(greetings.confirm ?? '')}</textarea></div><button id="cSave" class="btn btn-primary">Salvar textos e impressão</button><hr style="border:0;border-top:1px solid var(--border);margin:18px 0"><h3 style="font-size:.9rem;margin-bottom:8px">Exceções de ${esc(monthLabel(selectedMonth))}</h3><div style="display:flex;gap:8px;margin-bottom:8px"><input id="cExclusion" class="form-input" type="date" min="${selectedMonth}-01" max="${selectedMonth}-31"><button id="cAddExclusion" class="btn btn-ghost">Adicionar</button></div><div class="module-option-list">${(exclusions[selectedMonth] ?? []).map(date => `<div class="module-menu-btn" style="cursor:default"><div><div class="mod-label">${esc(dayLabel(date))}</div><div class="mod-desc">Sem carrinho em todos os locais</div></div><button class="btn btn-danger" data-remove-exclusion="${date}">Remover</button></div>`).join('') || '<p class="empty-state">Nenhuma data excluída neste mês.</p>'}</div>${hasLocals ? `<hr style="border:0;border-top:1px solid var(--border);margin:18px 0"><div class="module-form-grid" style="margin-bottom:8px"><div class="form-group"><label class="form-label">Bloqueios</label><select id="cBlockScope" class="form-select"><option value="__persist__">Todos os meses</option><option value="${selectedMonth}">Somente este mês</option></select></div><div class="form-group"><label class="form-label">Vale para</label><select id="cBlockTarget" class="form-select"><option value="__all__">Todos os locais</option>${orderedLocals().map(([id, local]) => `<option value="${esc(id)}" ${id === selectedLocalId ? 'selected' : ''}>${esc(local.name ?? id)}</option>`).join('')}</select></div></div><div id="cBlocks">${blockGrid(selectedLocalId, scope)}</div>` : ''}`
   bindPeriod(renderConfig)
   document.getElementById('cFont')!.addEventListener('input', e => { document.getElementById('cFontValue')!.textContent = `${(e.target as HTMLInputElement).value}pt` })
   document.getElementById('cSave')!.addEventListener('click', () => void saveConfig())
   document.getElementById('cAddExclusion')!.addEventListener('click', () => void addExclusion())
   document.querySelectorAll<HTMLButtonElement>('[data-remove-exclusion]').forEach(button => button.addEventListener('click', () => void removeExclusion(button.dataset['removeExclusion']!)))
-  document.getElementById('cBlockScope')?.addEventListener('change', event => { document.getElementById('cBlocks')!.innerHTML = blockGrid(local, (event.target as HTMLSelectElement).value); bindBlockInputs() })
+  const refreshBlocks = () => {
+    const target = (document.getElementById('cBlockTarget') as HTMLSelectElement).value
+    const selectedScope = (document.getElementById('cBlockScope') as HTMLSelectElement).value
+    document.getElementById('cBlocks')!.innerHTML = blockGrid(target, selectedScope)
+    bindBlockInputs()
+  }
+  document.getElementById('cBlockScope')?.addEventListener('change', refreshBlocks)
+  document.getElementById('cBlockTarget')?.addEventListener('change', refreshBlocks)
   bindBlockInputs()
 }
-function blockGrid(local: EscalaLocal, scope: string): string {
-  const labels = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'], selected = blocks[scope]?.[selectedLocalId] ?? []
-  return `<p class="form-help" style="margin-bottom:8px">Marque horários em que não deve haver carrinho.</p><div class="availability-wrap"><table class="availability-table"><thead><tr><th>Dia</th>${localSlots(local).map(time => `<th>${time}</th>`).join('')}</tr></thead><tbody>${(local.daysActive ?? []).map(dow => `<tr><th>${labels[dow]}</th>${localSlots(local).map(time => { const key = availabilityKey(dow, time); return `<td><input type="checkbox" data-block="${key}" data-scope="${scope}" ${selected.includes(key) ? 'checked' : ''}></td>` }).join('')}</tr>`).join('')}</tbody></table></div>`
+function blockGrid(target: string, scope: string): string {
+  const labels = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
+  const targets = target === '__all__' ? orderedLocals().map(([, local]) => local) : [locals[target]].filter(Boolean) as EscalaLocal[]
+  const days = [...new Set(targets.flatMap(local => local.daysActive ?? []))].sort((a, b) => a - b)
+  const slots = [...new Set(targets.flatMap(local => localSlots(local)))].sort()
+  const selected = blocks[scope]?.[target] ?? []
+  return `<p class="form-help" style="margin-bottom:8px">Marque horários em que não deve haver carrinho.</p><div class="availability-wrap"><table class="availability-table"><thead><tr><th>Dia</th>${slots.map(time => `<th>${time}</th>`).join('')}</tr></thead><tbody>${days.map(dow => `<tr><th>${labels[dow]}</th>${slots.map(time => { const key = availabilityKey(dow, time); return `<td><input type="checkbox" data-block="${key}" data-block-target="${target}" data-scope="${scope}" ${selected.includes(key) ? 'checked' : ''}></td>` }).join('')}</tr>`).join('')}</tbody></table></div>`
 }
 function bindBlockInputs(): void {
-  document.querySelectorAll<HTMLInputElement>('[data-block]').forEach(box => box.addEventListener('change', () => void toggleBlock(box.dataset['scope']!, box.dataset['block']!, box.checked)))
+  document.querySelectorAll<HTMLInputElement>('[data-block]').forEach(box => box.addEventListener('change', () => void toggleBlock(box.dataset['scope']!, box.dataset['blockTarget']!, box.dataset['block']!, box.checked)))
 }
-async function toggleBlock(scope: string, key: string, enabled: boolean): Promise<void> {
-  const current = blocks[scope]?.[selectedLocalId] ?? []
+async function toggleBlock(scope: string, target: string, key: string, enabled: boolean): Promise<void> {
+  const current = blocks[scope]?.[target] ?? []
   const next = enabled ? [...new Set([...current, key])] : current.filter(item => item !== key)
-  try { await update(escalaRef, { [`monthSlotBlocks/${scope}/${selectedLocalId}`]: next.length ? next : null }); blocks[scope] ??= {}; blocks[scope][selectedLocalId] = next; toast('Bloqueio atualizado') } catch { toast('Não foi possível atualizar o bloqueio'); renderConfig() }
+  try { await update(escalaRef, { [`monthSlotBlocks/${scope}/${target}`]: next.length ? next : null }); blocks[scope] ??= {}; blocks[scope][target] = next; toast('Bloqueio atualizado') } catch { toast('Não foi possível atualizar o bloqueio'); renderConfig() }
 }
 async function addExclusion(): Promise<void> {
   const date = (document.getElementById('cExclusion') as HTMLInputElement).value

@@ -154,8 +154,9 @@ export function participantName(person: EscalaParticipant | undefined, fallback 
 export function isBlocked(blocks: EscalaBlocks, month: string, localId: string, dow: number, time: string): boolean {
   const key = availabilityKey(dow, time)
   const has = (layer?: Record<string, string[]>): boolean => {
-    const list = layer?.[localId] ?? layer?.['__all__'] ?? []
-    return Array.isArray(list) && list.includes(key)
+    const local = layer?.[localId] ?? []
+    const all = layer?.['__all__'] ?? []
+    return (Array.isArray(local) && local.includes(key)) || (Array.isArray(all) && all.includes(key))
   }
   return has(blocks['__persist__']) || has(blocks[month])
 }
