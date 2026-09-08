@@ -77,6 +77,13 @@ interface TarefasSettings {
   }
 }
 
+interface PendingTarget {
+  periodId?: string
+  meetingId?: string
+  role?: TaskRole
+  personId?: string
+}
+
 let activeTab: TarefasTab = 'indice'
 let pessoas: Record<string, TarefasPessoa> = {}
 let periods: Record<string, TarefasPeriod> = {}
@@ -93,6 +100,8 @@ let onlyPendingMeetings = false
 let participantSearch = ''
 let participantMeetingRule = ''
 let participantRoleFilter = ''
+let pendingTarget: PendingTarget | null = null
+let messagePersonSelection = ''
 
 function monthNow(): string {
   const date = new Date()
@@ -398,6 +407,10 @@ function renderEscala(): void {
   document.getElementById('tarefasNextPeriod')?.addEventListener('click', () => navigate(1))
 
   bindAssignmentEditors()
+  if (pendingTarget?.meetingId) {
+    document.querySelector<HTMLElement>(`[data-task-meeting-id="${pendingTarget.meetingId}"]`)
+      ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }
 }
 
 async function toggleTaskLock(periodId: string): Promise<void> {
@@ -516,6 +529,7 @@ function renderParticipantes(): void {
       if (id && id in usage) usage[id] += 1
     })
   })
+  const targetPersonId = pendingTarget?.personId
   const query = participantSearch.trim().toLocaleLowerCase('pt-BR')
   const rows = Object.entries(pessoas)
     .filter(([id, person]) => !query || pessoaNome(person, id).toLocaleLowerCase('pt-BR').includes(query))
@@ -537,7 +551,7 @@ function renderParticipantes(): void {
     </div>
     <div style="display:flex;flex-direction:column;gap:6px">
       ${rows.length
-        ? rows.map(([id, p]) => pessoaRow(id, p, usage[id] ?? 0)).join('')
+        ? rows.map(([id, p]) => pessoaRow(id, p, usage[id] ?? 0, id === targetPersonId)).join('')
         : emptyState('Nenhum participante. Adicione pelo módulo Admin.')}
     </div>`
   document.getElementById('btnAddTaskPerson')?.addEventListener('click', () => openTaskPersonModal(null))
@@ -548,13 +562,15 @@ function renderParticipantes(): void {
   document.getElementById('taskPersonMeetingFilter')?.addEventListener('change', event => { participantMeetingRule = (event.target as HTMLSelectElement).value; renderParticipantes() })
   document.getElementById('taskPersonRoleFilter')?.addEventListener('change', event => { participantRoleFilter = (event.target as HTMLSelectElement).value; renderParticipantes() })
   document.getElementById('taskClearPersonFilters')?.addEventListener('click', () => { participantSearch = ''; participantMeetingRule = ''; participantRoleFilter = ''; renderParticipantes() })
+  if (targetPersonId && pessoas[targetPersonId] && context.usuario.apps.mestre) openTaskPersonModal(targetPersonId)
 }
 
 function renderPendencias(): void {
   const content = document.getElementById('tarefasContent')
   if (!content) return
 
-  const items: Array<{ title: string; detail: string; tab: TarefasTab }> = []
+  const items: Array<{ title: string; detail: string; tab: TarefasTab; target?: PendingTarget }> = []
+  const unnotified = new Map<string, { dates: Set<string>; roles: Set<string> }>()
   const futureEntries = scaleMeetingEntries()
     .filter(entry => entry.meeting.date && entry.meeting.date >= todayStr() && canonicalMeetingType(entry.meeting.type) && !meetingIsBlocked(domainContext(), entry.meeting))
   if (!futureEntries.length) {
@@ -577,6 +593,7 @@ function renderPendencias(): void {
           : `Reunião de ${formatDate(meeting.date)} incompleta`,
         detail: `Funções sem pessoa: ${missing.join(', ')}`,
         tab: 'escala',
+        target: { periodId: entry.periodId, meetingId: entry.meetingId },
       })
     }
     GENERATED_ROLES.forEach(role => {
@@ -588,6 +605,7 @@ function renderPendencias(): void {
           title: `${roleLabel(role)} aponta para pessoa inexistente`,
           detail: `${formatDate(meeting.date)} · ID ${personId}.`,
           tab: 'participantes',
+          target: { personId },
         })
         return
       }
@@ -597,15 +615,26 @@ function renderPendencias(): void {
           title: `${roleLabel(role)} com conflito`,
           detail: `${formatDate(meeting.date)} · ${pessoaNome(person, personId)}: ${conflict}.`,
           tab: 'escala',
+          target: { periodId: entry.periodId, meetingId: entry.meetingId, role },
         })
       }
       if (!meeting.avisados?.[role]) {
-        items.push({
-          title: 'Mensagem ainda não aberta',
-          detail: `${formatDate(meeting.date)} · ${roleLabel(role)} · ${pessoaNome(person, personId)}.`,
-          tab: 'mensagens',
-        })
+        const item = unnotified.get(personId) ?? { dates: new Set<string>(), roles: new Set<string>() }
+        item.dates.add(formatDate(meeting.date))
+        item.roles.add(roleLabel(role))
+        unnotified.set(personId, item)
       }
+    })
+  })
+
+  unnotified.forEach(({ dates, roles }, personId) => {
+    const person = pessoas[personId]
+    if (!person) return
+    items.push({
+      title: `Mensagem ainda não aberta para ${pessoaNome(person, personId)}`,
+      detail: `${[...dates].join(', ')} · ${[...roles].join(', ')}.`,
+      tab: 'mensagens',
+      target: { personId },
     })
   })
 
@@ -630,6 +659,7 @@ function renderPendencias(): void {
         title: 'Participante escalado sem telefone',
         detail: `${pessoaNome(person, id)} tem designação em ${formatDate(date)} e só poderá receber o texto por cópia.`,
         tab: 'participantes',
+        target: { personId: id },
       })
     }
   })
@@ -637,12 +667,17 @@ function renderPendencias(): void {
   content.innerHTML = `
     ${sectionTitle('Pendências', items.length ? 'Resolva estes itens antes de confirmar a escala.' : 'A escala atual não tem pendências identificadas.')}
     ${items.length
-      ? `<div style="display:flex;flex-direction:column;gap:8px">${items.map(item => `<button class="module-menu-btn" type="button" data-target-tab="${item.tab}" style="border-radius:8px;padding:12px 14px"><div style="flex:1;min-width:0"><div class="mod-label">${escapeHtml(item.title)}</div><div class="mod-desc">${escapeHtml(item.detail)}</div></div><span style="font-size:1.1rem;color:#B3261E">›</span></button>`).join('')}</div>`
+      ? `<div style="display:flex;flex-direction:column;gap:8px">${items.map((item, index) => `<button class="module-menu-btn" type="button" data-pending-index="${index}" style="border-radius:8px;padding:12px 14px"><div style="flex:1;min-width:0"><div class="mod-label">${escapeHtml(item.title)}</div><div class="mod-desc">${escapeHtml(item.detail)}</div></div><span style="font-size:1.1rem;color:#B3261E">›</span></button>`).join('')}</div>`
       : '<div style="padding:18px;border:1px solid #B7DEC7;background:#F1FAF4;border-radius:8px;color:#1A6B3C;font-size:.84rem">Tudo certo por enquanto.</div>'}`
 
-  content.querySelectorAll<HTMLButtonElement>('[data-target-tab]').forEach(button => {
+  content.querySelectorAll<HTMLButtonElement>('[data-pending-index]').forEach(button => {
     button.addEventListener('click', () => {
-      activeTab = button.dataset['targetTab'] as TarefasTab
+      const item = items[Number(button.dataset['pendingIndex'])]
+      if (!item) return
+      pendingTarget = item.target ?? null
+      if (item.target?.periodId) selectedPeriodMonth = item.target.periodId
+      if (item.tab === 'mensagens') messagePersonSelection = item.target?.personId ?? ''
+      activeTab = item.tab
       renderContent()
     })
   })
@@ -668,7 +703,7 @@ function renderMensagens(): void {
       <div class="form-group">
         <label class="form-label" for="messageType">Modelo</label>
         <select id="messageType" class="form-select">
-          <option value="person">Para uma pessoa</option>
+          <option value="person" selected>Para uma pessoa</option>
           <option value="day">Da reunião</option>
           <option value="confirm">Confirmar escala</option>
         </select>
@@ -677,7 +712,7 @@ function renderMensagens(): void {
         <label class="form-label" for="messagePerson">Pessoa</label>
         <select id="messagePerson" class="form-select">
           <option value="">Selecione uma pessoa</option>
-          ${peopleWithAssignments.map(([id, person]) => `<option value="${escapeHtml(id)}">${escapeHtml(pessoaNome(person, id))}</option>`).join('')}
+          ${peopleWithAssignments.map(([id, person]) => `<option value="${escapeHtml(id)}" ${messagePersonSelection === id ? 'selected' : ''}>${escapeHtml(pessoaNome(person, id))}</option>`).join('')}
         </select>
       </div>
       <div class="form-group">
@@ -890,7 +925,7 @@ function meetingCard(meeting: TarefasMeeting): string {
     : ''
 
   return `
-    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 12px">
+    <div data-task-meeting-id="${escapeHtml(ref?.meetingId)}" style="background:var(--surface);border:1px solid ${pendingTarget?.meetingId === ref?.meetingId ? '#7E3AF2' : 'var(--border)'};box-shadow:${pendingTarget?.meetingId === ref?.meetingId ? '0 0 0 3px #EAE1FA' : 'none'};border-radius:8px;padding:10px 12px">
       <div style="display:flex;justify-content:space-between;gap:8px;align-items:center">
         <div style="min-width:0">
           <div style="font-size:.9rem;font-weight:700;color:var(--ink)">${formatDate(meeting.date)}</div>
@@ -967,12 +1002,12 @@ async function saveAssignment(periodId: string, meetingId: string, role: string,
   }
 }
 
-function pessoaRow(id: string, p: TarefasPessoa, recentUsage: number): string {
+function pessoaRow(id: string, p: TarefasPessoa, recentUsage: number, focused = false): string {
   const linked = Boolean(p.masterId)
   const active = isActive(p)
 
   return `
-    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;
+    <div data-task-person-id="${escapeHtml(id)}" style="background:var(--surface);border:1px solid ${focused ? '#7E3AF2' : 'var(--border)'};box-shadow:${focused ? '0 0 0 3px #EAE1FA' : 'none'};border-radius:8px;
       padding:9px 12px;display:flex;align-items:center;gap:8px">
       <div style="flex:1;min-width:0">
         <div style="font-size:.88rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
