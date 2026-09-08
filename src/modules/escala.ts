@@ -73,7 +73,7 @@ export default function mount(ctx: AppContext): void {
   void load()
 }
 async function load(): Promise<void> {
-  root().innerHTML = '<p class="empty-state">Carregando Escala...</p>'
+  root().innerHTML = '<p class="empty-state">Carregando Escala TPL...</p>'
   try {
     const [snap, peopleSnap] = await Promise.all([get(escalaRef), get(pessoasRef)])
     const data = snap.exists() ? snap.val() as Data : {}
@@ -94,7 +94,7 @@ async function load(): Promise<void> {
     const savedLocal = localStorage.getItem(ESCALA_LOCAL_KEY) ?? ''
     selectedLocalId = locals[savedLocal] ? savedLocal : orderedLocals()[0]?.[0] ?? ''
     selectedParticipantId = orderedPeople(true)[0]?.[0] ?? ''
-  } catch (error) { console.error(error); toast('Não foi possível carregar a Escala') }
+  } catch (error) { console.error(error); toast('Não foi possível carregar a Escala TPL') }
   render()
 }
 function go(next: Tab): void { tab = next; render() }
@@ -109,7 +109,7 @@ function render(): void {
   else renderConfig()
 }
 function renderIndex(): void {
-  root().innerHTML = '<div style="margin-bottom:14px"><h2 style="font-size:1.05rem;color:#1A6B3C">Escala</h2></div><div id="escalaMenu"></div>'
+  root().innerHTML = '<div style="margin-bottom:14px"><h2 style="font-size:1.05rem;color:#1A6B3C">Escala TPL</h2></div><div id="escalaMenu"></div>'
   const items: ItemMenu[] = [
     { id: 'escalaAtual', titulo: 'Escala do mês', subtitulo: 'Gerar, revisar, editar e publicar', icone: '▣', corFundo: '#003F72' },
     { id: 'participantes', titulo: 'Participantes', subtitulo: 'Cadastro e regras de participação', icone: '♙', corFundo: '#1A6B3C' },

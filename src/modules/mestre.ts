@@ -133,7 +133,7 @@ function sexLabel(sex: Sex | null): string {
 
 function appsList(apps: Usuario['apps']): string {
   const labels: Record<string, string> = {
-    mestre:'Admin', tarefas:'Tarefas', limpeza:'Limpeza', oradores:'Oradores', escala:'Escala',
+    mestre:'Admin', tarefas:'Tarefas', limpeza:'Limpeza', oradores:'Oradores', escala:'Escala TPL',
     programacao:'Programação', secretario:'Secretário', individual:'Minha agenda',
   }
   return (Object.keys(apps) as Array<keyof typeof apps>)
@@ -870,7 +870,7 @@ function findMasterReferences(data: Record<string, unknown>, mid: string): strin
   const collections = linkCollections(data)
   const found = new Set<string>()
   const labels: Record<string, string> = {
-    tarefas: 'Tarefas', escala: 'Escala', oradores: 'Oradores',
+    tarefas: 'Tarefas', escala: 'Escala TPL', oradores: 'Oradores',
     secretario: 'Secretário', programacao: 'Programação',
   }
   Object.entries(collections).forEach(([module, collection]) => {
@@ -988,7 +988,7 @@ function openUsuarioModal(uid: string | null): void {
         ${appCheck('tarefas',     'Tarefas',      apps.tarefas)}
         ${appCheck('limpeza',     'Limpeza',      apps.limpeza ?? false)}
         ${appCheck('oradores',    'Oradores',     apps.oradores ?? false)}
-        ${appCheck('escala',      'Escala',       apps.escala)}
+        ${appCheck('escala',      'Escala TPL',   apps.escala)}
         ${appCheck('programacao', 'Programação',  apps.programacao)}
         ${appCheck('secretario',  'Secretário',   apps.secretario)}
         <div id="uAgendaPermission">${appCheck('individual', 'Minha agenda', apps.individual ?? false)}</div>

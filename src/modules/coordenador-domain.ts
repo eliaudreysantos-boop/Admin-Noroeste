@@ -11,7 +11,7 @@ export interface CoordinatorExportDefinition {
 
 export const COORDINATOR_EXPORTS: CoordinatorExportDefinition[] = [
   { id: 'tarefas-pdf', module: 'tarefas', label: 'PDF de Tarefas' },
-  { id: 'escala-pdf', module: 'escala', label: 'PDF da Escala' },
+  { id: 'escala-pdf', module: 'escala', label: 'PDF da Escala TPL' },
   { id: 'limpeza-pdf', module: 'limpeza', label: 'PDF da limpeza' },
   { id: 's89-semana', module: 'programacao', label: 'S-89 da semana' },
   { id: 's140-pdf', module: 'programacao', label: 'S-140 PDF' },

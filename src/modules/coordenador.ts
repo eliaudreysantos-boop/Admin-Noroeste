@@ -7,7 +7,7 @@ import { participantDirectoryForHistory, type EscalaAvailability, type EscalaLoc
 
 const META: Array<{ id: CoordinatorModule; title: string; description: string; color: string }> = [
   { id: 'tarefas', title: 'Tarefas', description: 'Escala das reuniões', color: '#7E3AF2' },
-  { id: 'escala', title: 'Escala', description: 'Escala de campo', color: '#1A6B3C' },
+  { id: 'escala', title: 'Escala TPL', description: 'Escala de campo', color: '#1A6B3C' },
   { id: 'limpeza', title: 'Limpeza', description: 'Períodos já gerados', color: '#006EB6' },
   { id: 'programacao', title: 'Programação', description: 'S-89 e S-140', color: '#003F72' },
 ]
