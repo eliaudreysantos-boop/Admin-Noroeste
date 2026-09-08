@@ -458,7 +458,7 @@ function renderParticipantes(): void {
     <div style="display:flex;flex-direction:column;gap:6px">
       ${rows.length
         ? rows.map(([id, p]) => pessoaRow(id, p)).join('')
-        : emptyState('Nenhum participante. Adicione pelo módulo Mestre no Admin SPA.')}
+        : emptyState('Nenhum participante. Adicione pelo módulo Admin.')}
     </div>`
   document.getElementById('btnAddTaskPerson')?.addEventListener('click', () => openTaskPersonModal(null))
   content.querySelectorAll<HTMLButtonElement>('[data-edit-task-person]').forEach(button => {

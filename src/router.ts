@@ -61,6 +61,7 @@ function emitRouteState(): void {
 
 export async function navigateTo(modulo: ModuleName): Promise<void> {
   if (!_ctx) return
+  if (!_accessList.includes(modulo)) return
   _currentModule = modulo
   emitRouteState()
   const content = document.getElementById('appContent')!
