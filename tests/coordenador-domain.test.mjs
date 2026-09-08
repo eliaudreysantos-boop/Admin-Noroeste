@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { canExportDocument, canViewCoordinatorCard, isCoordinator } from '../src/modules/coordenador-domain.ts'
+import { canExportDocument, canViewCoordinatorCard, coordinatorPermissions, isCoordinator } from '../src/modules/coordenador-domain.ts'
 
 const user = { nome: 'Coord', senha: 'x', ativo: true, secretarioPapel: 'coordenador', apps: { mestre: false, tarefas: true, limpeza: true, oradores: true, escala: true, programacao: true, secretario: true } }
 
@@ -16,4 +16,11 @@ test('card e exportação exigem permissão do módulo', () => {
   assert.equal(canExportDocument(user, 'tarefas-pdf'), true)
   assert.equal(canExportDocument(user, 'escala-pdf'), true)
   assert.equal(canExportDocument({ ...user, apps: { ...user.apps, limpeza: false } }, 'limpeza-pdf'), false)
+})
+
+test('perfil coordenador nunca recebe Admin nem Minha Agenda', () => {
+  const apps = coordinatorPermissions({ ...user.apps, mestre: true, individual: true })
+  assert.equal(apps.mestre, false)
+  assert.equal(apps.individual, false)
+  assert.equal(apps.tarefas, true)
 })

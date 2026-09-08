@@ -20,6 +20,7 @@ import {
   rootRef,
 } from '../firebase'
 import { renderMenuCards, type ItemMenu } from '../ui/menu-cards'
+import { coordinatorPermissions } from './coordenador-domain'
 
 // ─── Estado do módulo ────────────────────────────────────────────────────────
 
@@ -937,6 +938,7 @@ function usuarioCard(uid: string, u: Usuario): string {
           ${escapeHtml(u.nome)} ${badge}
         </div>
         <div style="font-size:.75rem;color:var(--ink-3);margin-top:2px">Apps: ${escapeHtml(appsList(u.apps))}</div>
+        ${u.secretarioPapel === 'coordenador' ? '<div style="font-size:.72rem;color:#006EB6;font-weight:700;margin-top:2px">Coordenador</div>' : ''}
         <div style="font-size:.7rem;color:var(--ink-3);margin-top:1px;font-family:monospace">${escapeHtml(uid)}</div>
       </div>
       <button class="btn btn-ghost" data-edit-usuario="${escapeHtml(uid)}"
@@ -974,15 +976,22 @@ function openUsuarioModal(uid: string | null): void {
         </label>
       </div>
       <div class="form-group">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+          <input type="checkbox" id="uCoordenador" ${u?.secretarioPapel === 'coordenador' ? 'checked' : ''}>
+          <span class="form-label" style="margin:0">Acesso do coordenador</span>
+        </label>
+        <p class="form-help">Acesso somente aos períodos e documentos dos módulos selecionados.</p>
+      </div>
+      <div class="form-group">
         <span class="form-label" style="display:block;margin-bottom:6px">Módulos</span>
-        ${appCheck('mestre',      'Admin',        apps.mestre)}
+        <div id="uAdminPermission">${appCheck('mestre', 'Admin', apps.mestre)}</div>
         ${appCheck('tarefas',     'Tarefas',      apps.tarefas)}
         ${appCheck('limpeza',     'Limpeza',      apps.limpeza ?? false)}
         ${appCheck('oradores',    'Oradores',     apps.oradores ?? false)}
         ${appCheck('escala',      'Escala',       apps.escala)}
         ${appCheck('programacao', 'Programação',  apps.programacao)}
         ${appCheck('secretario',  'Secretário',   apps.secretario)}
-        ${appCheck('individual',  'Minha agenda', apps.individual ?? false)}
+        <div id="uAgendaPermission">${appCheck('individual', 'Minha agenda', apps.individual ?? false)}</div>
       </div>
       <div style="display:flex;gap:8px;margin-top:8px">
         <button id="btnCancelUsuario" class="btn btn-ghost" style="flex:1">Cancelar</button>
@@ -991,6 +1000,15 @@ function openUsuarioModal(uid: string | null): void {
     </div>`
 
   document.body.appendChild(overlay)
+
+  const syncCoordinator = () => {
+    const enabled = (document.getElementById('uCoordenador') as HTMLInputElement).checked
+    ;['mestre', 'individual'].forEach(app => { const input = document.getElementById(`uApp_${app}`) as HTMLInputElement; input.disabled = enabled; if (enabled) input.checked = false })
+    document.getElementById('uAdminPermission')?.classList.toggle('hidden', enabled)
+    document.getElementById('uAgendaPermission')?.classList.toggle('hidden', enabled)
+  }
+  document.getElementById('uCoordenador')!.addEventListener('change', syncCoordinator)
+  syncCoordinator()
 
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove() })
   document.getElementById('btnCancelUsuario')!.addEventListener('click', () => overlay.remove())
@@ -1002,6 +1020,7 @@ async function saveUsuario(uid: string | null, overlay: HTMLElement): Promise<vo
   const nome     = (document.getElementById('uNome')     as HTMLInputElement).value.trim()
   const senha    = (document.getElementById('uSenha')    as HTMLInputElement).value
   const ativo    = (document.getElementById('uAtivo')    as HTMLInputElement).checked
+  const coordenador = (document.getElementById('uCoordenador') as HTMLInputElement).checked
 
   if (!nome)  { toast('Preencha o nome');  return }
   if (!senha) { toast('Preencha a senha'); return }
@@ -1009,20 +1028,22 @@ async function saveUsuario(uid: string | null, overlay: HTMLElement): Promise<vo
   const checkApp = (id: string) =>
     (document.getElementById(`uApp_${id}`) as HTMLInputElement).checked
 
+  const selectedApps = {
+    mestre: checkApp('mestre'), tarefas: checkApp('tarefas'), limpeza: checkApp('limpeza'),
+    oradores: checkApp('oradores'), escala: checkApp('escala'), programacao: checkApp('programacao'),
+    secretario: checkApp('secretario'), individual: checkApp('individual'),
+  }
+  const apps = coordenador ? coordinatorPermissions(selectedApps) : selectedApps
+  if (coordenador && ![apps.tarefas, apps.limpeza, apps.oradores, apps.escala, apps.programacao, apps.secretario].some(Boolean)) { toast('Selecione ao menos um módulo para o Coordenador'); return }
+  const existing = uid ? usuarios[uid] : undefined
   const usuario: Usuario = {
     ...(uid && usuarios[uid] ? usuarios[uid] : {}),
     nome, senha, ativo,
-    apps: {
-      mestre:      checkApp('mestre'),
-      tarefas:     checkApp('tarefas'),
-      limpeza:     checkApp('limpeza'),
-      oradores:    checkApp('oradores'),
-      escala:      checkApp('escala'),
-      programacao: checkApp('programacao'),
-      secretario:  checkApp('secretario'),
-      individual:  checkApp('individual'),
-    },
+    apps,
+    ...(coordenador ? { secretarioPapel: 'coordenador' as const } : existing?.secretarioPapel && existing.secretarioPapel !== 'coordenador' ? { secretarioPapel: existing.secretarioPapel } : {}),
   }
+  if (coordenador) delete usuario.masterId
+  else if (existing?.secretarioPapel === 'coordenador') delete usuario.secretarioPapel
   const finalUid = uid ?? genId('u_')
   const proposedUsuarios: RawUsuarios = { ...usuarios, [finalUid]: usuario }
   if (!hasActiveAdmin(proposedUsuarios)) {

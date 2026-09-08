@@ -1,4 +1,4 @@
-import type { Usuario } from '../types'
+import type { AppPermissions, Usuario } from '../types'
 
 export type CoordinatorModule = 'tarefas' | 'escala' | 'limpeza' | 'oradores' | 'programacao' | 'secretario'
 export type CoordinatorDocument = 'tarefas-pdf' | 'escala-pdf' | 'limpeza-pdf' | 's89-semana' | 's140-pdf' | 's140-docx'
@@ -29,4 +29,8 @@ export function canViewCoordinatorCard(usuario: Usuario, module: CoordinatorModu
 export function canExportDocument(usuario: Usuario, documentId: CoordinatorDocument): boolean {
   const definition = COORDINATOR_EXPORTS.find(item => item.id === documentId)
   return Boolean(definition && canViewCoordinatorCard(usuario, definition.module))
+}
+
+export function coordinatorPermissions(apps: AppPermissions): AppPermissions {
+  return { ...apps, mestre: false, individual: false }
 }
