@@ -14,5 +14,6 @@ test('card e exportação exigem permissão do módulo', () => {
   assert.equal(canViewCoordinatorCard(user, 'limpeza'), true)
   assert.equal(canExportDocument(user, 'limpeza-pdf'), true)
   assert.equal(canExportDocument(user, 'tarefas-pdf'), true)
+  assert.equal(canExportDocument(user, 'escala-pdf'), true)
   assert.equal(canExportDocument({ ...user, apps: { ...user.apps, limpeza: false } }, 'limpeza-pdf'), false)
 })

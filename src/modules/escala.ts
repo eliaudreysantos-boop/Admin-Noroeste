@@ -10,8 +10,9 @@ import {
 } from './escala-domain'
 import {
   assignmentsForDay, assignmentsForPerson, confirmationMessage, dayLabel, dayMessage,
-  monthLabel, personMessage, printRowsForLocal,
+  monthLabel, personMessage,
 } from './escala-output'
+import { printScaleSchedule } from './escala-documents'
 
 type Tab = 'indice' | 'locais' | 'participantes' | 'disponibilidade' | 'escalaAtual' | 'mensagens' | 'pendencias' | 'config'
 type Participants = Record<string, EscalaParticipant>
@@ -434,16 +435,6 @@ async function saveConfig(): Promise<void> {
 }
 
 function printPdf(): void {
-  document.querySelector('.escala-print-doc')?.remove()
-  const printable = document.createElement('div'); printable.className = 'escala-print-doc'; printable.dataset['printing'] = 'true'; printable.style.setProperty('--escala-print-font', `${Math.min(18, Math.max(8, Number(settings.printFontPt ?? 12)))}pt`)
-  printable.innerHTML = orderedLocals().map(([localId, local]) => { const slots = localSlots(local), rows = printRowsForLocal(localId, selectedMonth, local, tables, participants, exclusions[selectedMonth] ?? []); return `<section class="escala-print-page"><header><strong>${esc(local.name ?? localId)}</strong><span>${esc(monthLabel(selectedMonth))}</span></header><table><thead><tr><th>Dia</th>${slots.map(time => `<th>${time}</th>`).join('')}</tr></thead><tbody>${rows.map(row => `<tr><th>${esc(dayLabel(row.date))}</th>${row.cells.map(names => `<td>${names.map(person => `<span>${esc(person)}</span>`).join('') || '&nbsp;'}</td>`).join('')}</tr>`).join('')}</tbody></table></section>` }).join('')
-  printable.dataset['measuring'] = 'true'; document.body.appendChild(printable)
-  for (let pt = Math.min(18, Math.max(8, Number(settings.printFontPt ?? 12))); pt >= 8; pt -= 1) {
-    printable.style.setProperty('--escala-print-font', `${pt}pt`)
-    const overflow = [...printable.querySelectorAll<HTMLElement>('.escala-print-page')].some(page => page.scrollWidth > page.clientWidth || page.scrollHeight > 735)
-    if (!overflow || pt === 8) break
-  }
-  delete printable.dataset['measuring']
-  const title = document.title; document.title = `Escala do carrinho - ${monthLabel(selectedMonth)}`
-  window.addEventListener('afterprint', () => { document.title = title; printable.remove() }, { once: true }); window.print()
+  const chosen = printScaleSchedule({ month: selectedMonth, locals, tables, participants, exclusions: exclusions[selectedMonth] ?? [], requestedFontPt: Number(settings.printFontPt ?? 12) })
+  toast(`PDF em ${chosen} pt`)
 }

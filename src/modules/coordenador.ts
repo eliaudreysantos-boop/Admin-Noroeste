@@ -1,8 +1,9 @@
 import type { AppContext, LimpezaPeriodoGerado, RawPessoas } from '../types'
-import { configCongregacaoRef, get, limpezaPeriodosRef, pessoasRef, programacaoRef, tarefasPeopleRef, tarefasScaleRef } from '../firebase'
+import { configCongregacaoRef, escalaRef, get, limpezaPeriodosRef, pessoasRef, programacaoRef, tarefasPeopleRef, tarefasScaleRef } from '../firebase'
 import { canExportDocument, canViewCoordinatorCard, type CoordinatorDocument, type CoordinatorModule } from './coordenador-domain'
 import type { AssignmentPermission, MeetingProgram, ProgramPart, ProgramPerson } from './programacao-domain'
 import { canonicalMeetingType, type TaskMeeting, type TaskPeriod, type TaskPerson } from './tarefas-domain'
+import type { EscalaAvailability, EscalaLocal, EscalaParticipant, EscalaTables } from './escala-domain'
 
 const META: Array<{ id: CoordinatorModule; title: string; description: string; color: string }> = [
   { id: 'tarefas', title: 'Tarefas', description: 'Escala das reuniões', color: '#7E3AF2' },
@@ -29,10 +30,29 @@ async function loadCard(module: CoordinatorModule, body: HTMLElement): Promise<v
   body.innerHTML = '<p class="empty-state">Carregando...</p>'
   try {
     if (module === 'tarefas') await loadTasks(body)
+    else if (module === 'escala') await loadScale(body)
     else if (module === 'limpeza') await loadCleaning(body)
     else if (module === 'programacao') await loadProgramacao(body)
     else body.innerHTML = '<p class="empty-state">Nenhum documento desacoplado disponível neste módulo.</p>'
   } catch (error) { console.error(error); body.innerHTML = '<p class="empty-state">Não foi possível carregar os documentos.</p>' }
+}
+
+async function loadScale(body: HTMLElement): Promise<void> {
+  const [scaleSnap, peopleSnap] = await Promise.all([get(escalaRef), get(pessoasRef)])
+  const data = scaleSnap.exists() ? scaleSnap.val() as { participants?: Record<string, EscalaParticipant>; scales?: Record<string, EscalaLocal>; availability?: EscalaAvailability; tables?: EscalaTables; monthExclusions?: Record<string, string[]>; settings?: { printFontPt?: number } } : {}
+  const master = peopleSnap.exists() ? peopleSnap.val() as RawPessoas : {}
+  const participants = Object.fromEntries(Object.entries(data.participants ?? {}).map(([id, profile]) => { const mid = profile.masterId ?? (master[id] ? id : ''); const person = master[mid]; return [id, person ? { ...profile, name: person.name, sex: person.sex ?? profile.sex, phone: person.whatsapp } : profile] }))
+  const locals = data.scales ?? {}, tables = data.tables ?? {}
+  const months = [...new Set(Object.values(tables).flatMap(byMonth => Object.keys(byMonth)))].sort().reverse()
+  const localEntries = Object.entries(locals).sort((a, b) => Number(a[1].sortOrder ?? 0) - Number(b[1].sortOrder ?? 0))
+  body.innerHTML = months.length && localEntries.length ? `<div class="module-form-grid"><div class="form-group"><label class="form-label">Mês</label><select id="coordScaleMonth" class="form-select">${months.map(month => `<option value="${esc(month)}">${esc(month)}</option>`).join('')}</select></div><div class="form-group"><label class="form-label">Local</label><select id="coordScaleLocal" class="form-select">${localEntries.map(([id, local]) => `<option value="${esc(id)}">${esc(local.name ?? id)}</option>`).join('')}</select></div></div><label class="form-label">Tamanho máximo da letra</label><input id="coordScaleFont" type="range" min="8" max="18" value="${Number(data.settings?.printFontPt ?? 12)}" style="width:100%"><button id="coordScalePdf" class="btn btn-primary btn-full" style="margin-top:12px">Gerar PDF</button>` : '<p class="empty-state">Nenhuma escala mensal gerada.</p>'
+  body.querySelector('#coordScalePdf')?.addEventListener('click', async () => {
+    if (!requireExport('escala-pdf')) return
+    const month = (body.querySelector('#coordScaleMonth') as HTMLSelectElement).value, localId = (body.querySelector('#coordScaleLocal') as HTMLSelectElement).value
+    if (!tables[localId]?.[month]) { toast('Este local não possui escala no mês selecionado'); return }
+    const { printScaleSchedule } = await import('./escala-documents')
+    const chosen = printScaleSchedule({ month, locals, tables, participants, exclusions: data.monthExclusions?.[month] ?? [], requestedFontPt: Number((body.querySelector('#coordScaleFont') as HTMLInputElement).value), localIds: [localId] }); toast(`PDF em ${chosen} pt`)
+  })
 }
 
 async function loadTasks(body: HTMLElement): Promise<void> {
