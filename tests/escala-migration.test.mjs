@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { planEscalaIdMigration } from '../src/modules/escala-migration.ts'
+import { participantDirectoryForHistory } from '../src/modules/escala-domain.ts'
 import database from '../NAO FAZER COMMIT DESSA PASTA/oradoress2-default-rtdb-export (1).json' with { type: 'json' }
 
 test('une disponibilidade, preserva só participa com e remapeia histórico', () => {
@@ -42,4 +43,25 @@ test('export real gera prévia sem modificar a origem', () => {
   assert.deepEqual(plan.conflicts, [])
   assert.ok(plan.stats.tableReferencesRemapped > 0)
   assert.ok(Object.keys(plan.migrated.participants).every(id => id.startsWith('m_')))
+})
+
+test('snapshot publicado resolve participantes removidos do cadastro atual', () => {
+  const plan = planEscalaIdMigration(database.escala)
+  const directory = participantDirectoryForHistory(
+    plan.migrated.participants,
+    database.escala.publishedSnapshots,
+  )
+  const missing = []
+  for (const [localId, byMonth] of Object.entries(plan.migrated.tables ?? {})) {
+    for (const [month, table] of Object.entries(byMonth)) {
+      for (const [date, row] of Object.entries(table.rows ?? {})) {
+        for (const [time, cell] of Object.entries(row.slots ?? {})) {
+          for (const id of [cell.p1, cell.p2].filter(Boolean)) {
+            if (!directory[id]) missing.push(`${localId}/${month}/${date}/${time}/${id}`)
+          }
+        }
+      }
+    }
+  }
+  assert.deepEqual(missing, [])
 })

@@ -5,8 +5,9 @@ import { renderMenuCards, type ItemMenu } from '../ui/menu-cards'
 import {
   ESCALA_RULE_LABELS, activeDates, analyzeCell, availabilityKey, generateAll,
   isBlocked, localSlots, participantName, validatePair,
+  participantDirectoryForHistory,
   type EscalaAvailability, type EscalaBlocks, type EscalaGenerationInput,
-  type EscalaLocal, type EscalaParticipant, type EscalaTable, type EscalaTables,
+  type EscalaLocal, type EscalaParticipant, type EscalaPublishedSnapshot, type EscalaTable, type EscalaTables,
 } from './escala-domain'
 import {
   assignmentsForDay, assignmentsForPerson, confirmationMessage, dayLabel, dayMessage,
@@ -23,10 +24,12 @@ interface Data {
   participants?: Participants; scales?: Locals; availability?: EscalaAvailability
   tables?: EscalaTables; monthSlotBlocks?: EscalaBlocks; monthExclusions?: Record<string, string[]>
   settings?: Settings; greetings?: Greetings; publishedMonth?: string; editingMonth?: string
+  publishedSnapshots?: Record<string, EscalaPublishedSnapshot>
 }
 
 let context: AppContext
 let participants: Participants = {}, pessoas: RawPessoas = {}, locals: Locals = {}
+let historicalSnapshots: Record<string, EscalaPublishedSnapshot> = {}
 let availability: EscalaAvailability = {}, tables: EscalaTables = {}, blocks: EscalaBlocks = {}
 let exclusions: Record<string, string[]> = {}, settings: Settings = {}, greetings: Greetings = {}
 let publishedMonth = '', selectedMonth = monthNow(), selectedLocalId = '', selectedParticipantId = ''
@@ -36,7 +39,8 @@ const root = () => document.getElementById('escalaContent')!
 const orderedLocals = () => Object.entries(locals).sort((a, b) => Number(a[1].sortOrder ?? 0) - Number(b[1].sortOrder ?? 0))
 const orderedPeople = (active = false) => Object.entries(participants).filter(([, p]) => !active || p.active !== false).sort((a, b) => name(a[0]).localeCompare(name(b[0]), 'pt-BR'))
 const centralId = (id: string) => participants[id]?.masterId ?? (pessoas[id] ? id : '')
-const name = (id: string) => pessoas[centralId(id)]?.name ?? participantName(participants[id], id)
+const participantDirectory = () => participantDirectoryForHistory(participants, historicalSnapshots)
+const name = (id: string) => pessoas[centralId(id)]?.name ?? participantName(participantDirectory()[id], id)
 const phoneOf = (id: string) => pessoas[centralId(id)]?.whatsapp ?? participants[id]?.phone ?? ''
 const now = () => new Date().toISOString()
 const isAdmin = () => context.usuario.apps.mestre === true
@@ -78,6 +82,7 @@ async function load(): Promise<void> {
       const central = pessoas[mid]
       return [id, central ? { ...profile, name: central.name, sex: central.sex ?? profile.sex, phone: central.whatsapp ?? profile.phone } : profile]
     }))
+    historicalSnapshots = data.publishedSnapshots ?? {}
     selectedLocalId = orderedLocals()[0]?.[0] ?? ''; selectedParticipantId = orderedPeople(true)[0]?.[0] ?? ''
   } catch (error) { console.error(error); toast('Não foi possível carregar a Escala') }
   render()
@@ -359,7 +364,8 @@ function renderMessages(): void {
 }
 function fillMessage(): void {
   const type = (document.getElementById('mType') as HTMLSelectElement).value, target = (document.getElementById('mTarget') as HTMLSelectElement)?.value ?? ''
-  const text = type === 'day' ? dayMessage(greetings.date ?? '', target, assignmentsForDay(target, selectedMonth, tables, locals, participants)) : type === 'confirm' ? confirmationMessage(greetings.confirm ?? '', target, participants[target], locals, availability) : personMessage(greetings.participant ?? '', participants[target], selectedMonth, assignmentsForPerson(target, selectedMonth, tables, locals, participants))
+  const directory = participantDirectory()
+  const text = type === 'day' ? dayMessage(greetings.date ?? '', target, assignmentsForDay(target, selectedMonth, tables, locals, directory)) : type === 'confirm' ? confirmationMessage(greetings.confirm ?? '', target, participants[target], locals, availability) : personMessage(greetings.participant ?? '', participants[target], selectedMonth, assignmentsForPerson(target, selectedMonth, tables, locals, directory))
   ;(document.getElementById('mText') as HTMLTextAreaElement).value = text
 }
 async function copyMessage(): Promise<void> {
@@ -435,6 +441,6 @@ async function saveConfig(): Promise<void> {
 }
 
 function printPdf(): void {
-  const chosen = printScaleSchedule({ month: selectedMonth, locals, tables, participants, exclusions: exclusions[selectedMonth] ?? [], requestedFontPt: Number(settings.printFontPt ?? 12) })
+  const chosen = printScaleSchedule({ month: selectedMonth, locals, tables, participants: participantDirectory(), exclusions: exclusions[selectedMonth] ?? [], requestedFontPt: Number(settings.printFontPt ?? 12) })
   toast(`PDF em ${chosen} pt`)
 }

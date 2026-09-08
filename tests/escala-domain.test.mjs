@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   activeDates, analyzeCell, availabilityKey, generateAll, generateLocal,
-  isBlocked, localSlots, pairRule, validatePair,
+  isBlocked, localSlots, pairRule, participantDirectoryForHistory, validatePair,
 } from '../src/modules/escala-domain.ts'
 import {
   assignmentsForPerson, confirmationMessage, personMessage,
@@ -18,6 +18,15 @@ const base = (participants, extra = {}) => ({ month: '2026-09', localId: 'l1', l
 test('calendário usa dias ativos e respeita exceções', () => {
   const dates = activeDates('2026-09', [4], ['2026-09-10'])
   assert.deepEqual(dates, ['2026-09-03', '2026-09-17', '2026-09-24'])
+})
+
+test('histórico usa snapshot apenas como fallback e mantém cadastro atual como prioridade', () => {
+  const directory = participantDirectoryForHistory(
+    { m1: person({ name: 'Nome atual' }) },
+    { '2026-08': { participants: { antigo: person({ name: 'Nome histórico' }), m1: person({ name: 'Nome antigo' }) } } },
+  )
+  assert.equal(directory.antigo.name, 'Nome histórico')
+  assert.equal(directory.m1.name, 'Nome atual')
 })
 
 test('horários rejeitam intervalo inválido sem entrar em repetição', () => {

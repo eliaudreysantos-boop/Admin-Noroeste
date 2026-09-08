@@ -69,6 +69,24 @@ export interface EscalaGenerationInput {
   exclusions: string[]
 }
 
+export interface EscalaPublishedSnapshot {
+  participants?: Record<string, EscalaParticipant>
+  [key: string]: unknown
+}
+
+export function participantDirectoryForHistory(
+  current: Record<string, EscalaParticipant>,
+  snapshots: Record<string, EscalaPublishedSnapshot> = {},
+): Record<string, EscalaParticipant> {
+  const historical: Record<string, EscalaParticipant> = {}
+  for (const snapshot of Object.values(snapshots)) {
+    for (const [id, participant] of Object.entries(snapshot.participants ?? {})) {
+      historical[id] = participant
+    }
+  }
+  return { ...historical, ...current }
+}
+
 export interface EmptySlot {
   date: string
   time: string

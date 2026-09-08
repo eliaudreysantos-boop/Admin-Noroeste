@@ -3,7 +3,7 @@ import { configCongregacaoRef, escalaRef, get, limpezaPeriodosRef, pessoasRef, p
 import { canExportDocument, canViewCoordinatorCard, type CoordinatorDocument, type CoordinatorModule } from './coordenador-domain'
 import type { AssignmentPermission, MeetingProgram, ProgramPart, ProgramPerson } from './programacao-domain'
 import { canonicalMeetingType, type TaskMeeting, type TaskPeriod, type TaskPerson } from './tarefas-domain'
-import type { EscalaAvailability, EscalaLocal, EscalaParticipant, EscalaTables } from './escala-domain'
+import { participantDirectoryForHistory, type EscalaAvailability, type EscalaLocal, type EscalaParticipant, type EscalaPublishedSnapshot, type EscalaTables } from './escala-domain'
 
 const META: Array<{ id: CoordinatorModule; title: string; description: string; color: string }> = [
   { id: 'tarefas', title: 'Tarefas', description: 'Escala das reuniões', color: '#7E3AF2' },
@@ -39,9 +39,10 @@ async function loadCard(module: CoordinatorModule, body: HTMLElement): Promise<v
 
 async function loadScale(body: HTMLElement): Promise<void> {
   const [scaleSnap, peopleSnap] = await Promise.all([get(escalaRef), get(pessoasRef)])
-  const data = scaleSnap.exists() ? scaleSnap.val() as { participants?: Record<string, EscalaParticipant>; scales?: Record<string, EscalaLocal>; availability?: EscalaAvailability; tables?: EscalaTables; monthExclusions?: Record<string, string[]>; settings?: { printFontPt?: number } } : {}
+  const data = scaleSnap.exists() ? scaleSnap.val() as { participants?: Record<string, EscalaParticipant>; publishedSnapshots?: Record<string, EscalaPublishedSnapshot>; scales?: Record<string, EscalaLocal>; availability?: EscalaAvailability; tables?: EscalaTables; monthExclusions?: Record<string, string[]>; settings?: { printFontPt?: number } } : {}
   const master = peopleSnap.exists() ? peopleSnap.val() as RawPessoas : {}
-  const participants = Object.fromEntries(Object.entries(data.participants ?? {}).map(([id, profile]) => { const mid = profile.masterId ?? (master[id] ? id : ''); const person = master[mid]; return [id, person ? { ...profile, name: person.name, sex: person.sex ?? profile.sex, phone: person.whatsapp } : profile] }))
+  const currentParticipants = Object.fromEntries(Object.entries(data.participants ?? {}).map(([id, profile]) => { const mid = profile.masterId ?? (master[id] ? id : ''); const person = master[mid]; return [id, person ? { ...profile, name: person.name, sex: person.sex ?? profile.sex, phone: person.whatsapp } : profile] }))
+  const participants = participantDirectoryForHistory(currentParticipants, data.publishedSnapshots)
   const locals = data.scales ?? {}, tables = data.tables ?? {}
   const months = [...new Set(Object.values(tables).flatMap(byMonth => Object.keys(byMonth)))].sort().reverse()
   const localEntries = Object.entries(locals).sort((a, b) => Number(a[1].sortOrder ?? 0) - Number(b[1].sortOrder ?? 0))
