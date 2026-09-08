@@ -89,6 +89,10 @@ let congregationName = 'Noroeste'
 let masterPeople: Record<string, { name?: string; whatsapp?: string; active?: boolean }> = {}
 let context: AppContext
 let selectedPeriodMonth = monthNow()
+let onlyPendingMeetings = false
+let participantSearch = ''
+let participantMeetingRule = ''
+let participantRoleFilter = ''
 
 function monthNow(): string {
   const date = new Date()
@@ -255,7 +259,7 @@ function renderContent(): void {
     renderIndex()
     return
   }
-  if (activeTab === 'resumo') renderResumo()
+  if (activeTab === 'resumo') renderIndex()
   else if (activeTab === 'escala') renderEscala()
   else if (activeTab === 'participantes') renderParticipantes()
   else if (activeTab === 'mensagens') renderMensagens()
@@ -267,7 +271,6 @@ function renderIndex(): void {
   if (!content) return
   content.innerHTML = `<div style="margin-bottom:14px"><h2 style="font-size:1.05rem;color:#7E3AF2;margin-bottom:2px">Tarefas</h2></div><div id="tarefasMenu"></div>`
   const items: ItemMenu[] = [
-    { id: 'resumo', titulo: 'Resumo', subtitulo: 'Visão geral da escala de tarefas', icone: '▦', corFundo: '#7E3AF2' },
     { id: 'escala', titulo: 'Escala', subtitulo: 'Escolha o período, gere e revise a escala', icone: '▣', corFundo: '#003F72' },
     { id: 'participantes', titulo: 'Pessoas', subtitulo: 'Participantes e vínculos com Admin', icone: '♙', corFundo: '#006EB6' },
     { id: 'mensagens', titulo: 'Mensagens', subtitulo: 'Textos para confirmação e envio', icone: '✉', corFundo: '#1A6B3C' },
@@ -276,48 +279,24 @@ function renderIndex(): void {
   renderMenuCards(content.querySelector<HTMLElement>('#tarefasMenu')!, items, id => { activeTab = id as TarefasTab; renderContent() })
 }
 
-function renderResumo(): void {
-  const content = document.getElementById('tarefasContent')
-  if (!content) return
-
-  const pessoasList = Object.entries(pessoas)
-  const ativos = pessoasList.filter(([, p]) => isActive(p))
-  const semVinculo = ativos.filter(([, p]) => !p.masterId).length
-  const reunioes = allMeetings()
-  const futuras = futureMeetings()
-  const proximasDesignacoes = futuras.reduce((sum, meeting) => sum + assignmentCount(meeting), 0)
-
-  content.innerHTML = `
-    ${sectionTitle('Tarefas', 'Funções da reunião, participantes e mensagens.')}
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
-      ${metricCard('Pessoas ativas', String(ativos.length), '#7E3AF2')}
-      ${metricCard('Sem vínculo', String(semVinculo), semVinculo ? '#B3261E' : '#1A6B3C')}
-      ${metricCard('Reuniões', String(reunioes.length), '#003F72')}
-      ${metricCard('Próximas funções', String(proximasDesignacoes), '#1A6B3C')}
-    </div>
-    <div style="display:flex;flex-direction:column;gap:8px">
-      ${flowCard('Escala', `${futuras.length} reunião${futuras.length === 1 ? '' : 'ões'} futura${futuras.length === 1 ? '' : 's'}`, 'escala')}
-      ${flowCard('Participantes', `${semVinculo} pessoa${semVinculo === 1 ? '' : 's'} sem vínculo com Admin`, 'participantes')}
-      ${flowCard('Mensagens', 'Textos para pessoa, reunião e confirmação', 'mensagens')}
-      ${flowCard('Pendências', 'Funções vazias e vínculos que precisam de atenção', 'pendencias')}
-    </div>`
-
-  bindFlowCards()
-}
-
 function renderEscala(): void {
   const content = document.getElementById('tarefasContent')
   if (!content) return
 
   const periodMode = planning.periodMode === 'month' ? 'month' : 'bimester'
   const selectedPeriodId = periodKeyForDate(`${selectedPeriodMonth}-01`, periodMode)
-  const reunioes = Object.values(periods[selectedPeriodId]?.meetings ?? {})
+  const locked = periods[selectedPeriodId]?.locked === true
+  const allPeriodMeetings = Object.values(periods[selectedPeriodId]?.meetings ?? {})
     .filter(meeting => canonicalMeetingType(meeting.type))
     .sort((a, b) => String(a.date ?? '').localeCompare(String(b.date ?? '')))
+  const reunioes = onlyPendingMeetings
+    ? allPeriodMeetings.filter(meeting => GENERATED_ROLES.some(role => meetingAllowsRole(meeting, role) && !assignmentForRole(meeting, role)))
+    : allPeriodMeetings
   const font = printFont()
 
   content.innerHTML = `
-    ${sectionTitle('Escala de tarefas', 'Confira as próximas reuniões antes de enviar mensagens.')}
+    ${sectionTitle('Escala de tarefas', '')}
+    ${locked ? '<div class="notice warning" style="margin-bottom:12px">Esta escala está travada. Destrave para gerar, limpar ou editar.</div>' : ''}
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:12px">
       <div class="module-form-grid">
         <div class="form-group" style="margin:0"><label class="form-label" for="tarefasPeriodMode">Formato</label><select id="tarefasPeriodMode" class="form-select"><option value="month" ${periodMode === 'month' ? 'selected' : ''}>Mensal</option><option value="bimester" ${periodMode === 'bimester' ? 'selected' : ''}>Bimestral</option></select></div>
@@ -325,14 +304,21 @@ function renderEscala(): void {
       </div>
       <div class="module-form-grid" style="margin-top:8px">
         <div style="display:flex;gap:8px"><button id="tarefasPreviousPeriod" class="btn btn-ghost" type="button" style="flex:1">Anterior</button><button id="tarefasNextPeriod" class="btn btn-ghost" type="button" style="flex:1">Próximo</button></div>
-        <select id="tarefasGenerateRole" class="form-select">
-          <option value="">Todas as funções</option>
-          ${TASK_ROLES.map(role => `<option value="${role}">${escapeHtml(TASK_ROLE_LABELS[role])}</option>`).join('')}
-        </select>
+        <div></div>
       </div>
-      <div style="margin-top:8px">
-        <button id="btnGenerateScale" class="btn btn-primary" type="button" style="white-space:nowrap">Gerar escala</button>
+      <div class="scale-actions" style="margin-top:8px">
+        <button id="btnGenerateScale" class="btn btn-primary" type="button" ${locked ? 'disabled' : ''}>Gerar escala</button>
+        <button id="btnToggleTaskLock" class="btn btn-ghost" type="button">${locked ? 'Destravar escala' : 'Travar escala'}</button>
+        <button id="btnClearTaskScale" class="btn btn-danger" type="button" ${locked || !allPeriodMeetings.length ? 'disabled' : ''}>Limpar escala</button>
       </div>
+    </div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:12px">
+      <label class="form-label" for="tarefasGenerateRole">Refazer uma função</label>
+      <div class="module-form-grid">
+        <select id="tarefasGenerateRole" class="form-select"><option value="">Escolha a função</option>${TASK_ROLES.map(role => `<option value="${role}">${escapeHtml(TASK_ROLE_LABELS[role])}</option>`).join('')}</select>
+        <div class="scale-actions"><button id="btnGenerateTaskRole" class="btn btn-ghost" type="button" ${locked ? 'disabled' : ''}>Gerar função</button><button id="btnClearTaskRole" class="btn btn-danger" type="button" ${locked ? 'disabled' : ''}>Limpar função</button></div>
+      </div>
+      <label style="display:flex;align-items:center;gap:7px;margin-top:12px;font-size:.84rem;color:var(--ink-2)"><input id="tarefasOnlyPending" type="checkbox" ${onlyPendingMeetings ? 'checked' : ''}> Apenas reuniões pendentes</label>
     </div>
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;
       padding:12px;margin-bottom:12px">
@@ -351,7 +337,7 @@ function renderEscala(): void {
     <div style="display:flex;flex-direction:column;gap:8px">
       ${reunioes.length
         ? reunioes.map(meeting => meetingCard(meeting)).join('')
-        : emptyState('Nenhuma reunião cadastrada neste período.')}
+        : emptyState(onlyPendingMeetings ? 'Não há reuniões pendentes neste período.' : 'Nenhuma reunião cadastrada neste período.')}
     </div>`
 
   document.getElementById('tarefasPrintFont')?.addEventListener('input', (event) => {
@@ -372,8 +358,23 @@ function renderEscala(): void {
     if (!monthInput || !/^\d{4}-\d{2}$/.test(monthInput.value)) { toast('Selecione um período válido'); return }
     selectedPeriodMonth = monthInput.value
     const mode = modeInput?.value === 'month' ? 'month' : 'bimester'
-    const roleValue = (document.getElementById('tarefasGenerateRole') as HTMLSelectElement | null)?.value ?? ''
-    void generateScale(`${selectedPeriodMonth}-01`, mode, roleValue ? roleValue as TaskRole : null)
+    void generateScale(`${selectedPeriodMonth}-01`, mode, null)
+  })
+  document.getElementById('btnGenerateTaskRole')?.addEventListener('click', () => {
+    const role = (document.getElementById('tarefasGenerateRole') as HTMLSelectElement).value as TaskRole
+    if (!role) { toast('Escolha a função que deseja gerar'); return }
+    void generateScale(`${selectedPeriodMonth}-01`, periodMode, role)
+  })
+  document.getElementById('btnClearTaskRole')?.addEventListener('click', () => {
+    const role = (document.getElementById('tarefasGenerateRole') as HTMLSelectElement).value as TaskRole
+    if (!role) { toast('Escolha a função que deseja limpar'); return }
+    void clearTaskRole(selectedPeriodId, role)
+  })
+  document.getElementById('btnToggleTaskLock')?.addEventListener('click', () => void toggleTaskLock(selectedPeriodId))
+  document.getElementById('btnClearTaskScale')?.addEventListener('click', () => void clearTaskScale(selectedPeriodId))
+  document.getElementById('tarefasOnlyPending')?.addEventListener('change', event => {
+    onlyPendingMeetings = (event.target as HTMLInputElement).checked
+    renderEscala()
   })
   document.getElementById('tarefasPeriodMonth')?.addEventListener('change', event => {
     const value = (event.target as HTMLInputElement).value
@@ -397,6 +398,61 @@ function renderEscala(): void {
   document.getElementById('tarefasNextPeriod')?.addEventListener('click', () => navigate(1))
 
   bindAssignmentEditors()
+}
+
+async function toggleTaskLock(periodId: string): Promise<void> {
+  const locked = periods[periodId]?.locked === true
+  try {
+    await update(tarefasScaleRef, { [`${periodId}/locked`]: !locked })
+    periods[periodId] ??= {}
+    periods[periodId].locked = !locked
+    toast(locked ? 'Escala destravada' : 'Escala travada')
+    renderEscala()
+  } catch { toast('Não foi possível alterar o travamento') }
+}
+
+async function clearTaskScale(periodId: string): Promise<void> {
+  if (periods[periodId]?.locked) { toast('Destrave a escala antes de limpar'); return }
+  if (!confirm('Limpar todas as designações deste período?')) return
+  const period = periods[periodId]
+  if (!period) return
+  const patch: Record<string, unknown> = {}
+  Object.keys(period.meetings ?? {}).forEach(meetingId => {
+    patch[`${periodId}/meetings/${meetingId}/assignments`] = null
+    patch[`${periodId}/meetings/${meetingId}/manualEdits`] = null
+    patch[`${periodId}/meetings/${meetingId}/avisados`] = null
+  })
+  try {
+    await update(tarefasScaleRef, patch)
+    Object.values(period.meetings ?? {}).forEach(meeting => { meeting.assignments = {}; meeting.manualEdits = {}; meeting.avisados = {} })
+    toast('Escala do período limpa')
+    renderEscala()
+  } catch { toast('Não foi possível limpar a escala') }
+}
+
+async function clearTaskRole(periodId: string, role: TaskRole): Promise<void> {
+  if (periods[periodId]?.locked) { toast('Destrave a escala antes de limpar'); return }
+  if (!confirm(`Limpar ${TASK_ROLE_LABELS[role]} em todo o período?`)) return
+  const period = periods[periodId]
+  if (!period) return
+  const patch: Record<string, unknown> = {}
+  Object.entries(period.meetings ?? {}).forEach(([meetingId, meeting]) => {
+    if (!meetingAllowsRole(meeting, role)) return
+    patch[`${periodId}/meetings/${meetingId}/assignments/${role}`] = null
+    patch[`${periodId}/meetings/${meetingId}/manualEdits/${role}`] = null
+    patch[`${periodId}/meetings/${meetingId}/avisados/${role}`] = null
+  })
+  try {
+    await update(tarefasScaleRef, patch)
+    Object.values(period.meetings ?? {}).forEach(meeting => {
+      if (!meetingAllowsRole(meeting, role)) return
+      delete meeting.assignments?.[role]
+      delete meeting.manualEdits?.[role]
+      delete meeting.avisados?.[role]
+    })
+    toast(`${TASK_ROLE_LABELS[role]} limpa`)
+    renderEscala()
+  } catch { toast('Não foi possível limpar a função') }
 }
 
 async function generateScale(startDate: string, mode: 'month' | 'bimester', role: TaskRole | null): Promise<void> {
@@ -449,21 +505,49 @@ function renderParticipantes(): void {
   const content = document.getElementById('tarefasContent')
   if (!content) return
 
+  const usageSince = new Date()
+  usageSince.setMonth(usageSince.getMonth() - 6)
+  const usageFloor = usageSince.toISOString().slice(0, 10)
+  const usage = Object.fromEntries(Object.keys(pessoas).map(id => [id, 0])) as Record<string, number>
+  scaleMeetingEntries().forEach(({ meeting }) => {
+    if (!meeting.date || meeting.date < usageFloor) return
+    GENERATED_ROLES.forEach(role => {
+      const id = assignmentForRole(meeting, role)
+      if (id && id in usage) usage[id] += 1
+    })
+  })
+  const query = participantSearch.trim().toLocaleLowerCase('pt-BR')
   const rows = Object.entries(pessoas)
+    .filter(([id, person]) => !query || pessoaNome(person, id).toLocaleLowerCase('pt-BR').includes(query))
+    .filter(([, person]) => {
+      const rule = person.rule ?? 'both'
+      return !participantMeetingRule || rule === participantMeetingRule || (participantMeetingRule !== 'both' && rule === 'both')
+    })
+    .filter(([, person]) => !participantRoleFilter || person.roles?.[participantRoleFilter as TaskRole] === true)
     .sort(([, a], [, b]) => pessoaNome(a, '').localeCompare(pessoaNome(b, ''), 'pt-BR'))
 
   content.innerHTML = `
     ${sectionTitle('Participantes', 'Pessoas gerenciadas pelo Admin. Edite funções, folga e vínculo.')}
     ${context.usuario.apps.mestre ? '<div style="display:flex;justify-content:flex-end;margin-bottom:10px"><button id="btnAddTaskPerson" class="btn btn-primary" type="button">Vincular pessoa</button></div>' : ''}
+    <div class="module-form-grid" style="margin-bottom:10px">
+      <div class="form-group" style="margin:0"><label class="form-label" for="taskPersonSearch">Buscar</label><input id="taskPersonSearch" class="form-input" value="${escapeHtml(participantSearch)}" placeholder="Nome da pessoa"></div>
+      <div class="form-group" style="margin:0"><label class="form-label" for="taskPersonMeetingFilter">Reuniões</label><select id="taskPersonMeetingFilter" class="form-select"><option value="">Todas</option><option value="midweek" ${participantMeetingRule === 'midweek' ? 'selected' : ''}>Meio de semana</option><option value="weekend" ${participantMeetingRule === 'weekend' ? 'selected' : ''}>Fim de semana</option><option value="both" ${participantMeetingRule === 'both' ? 'selected' : ''}>Todas as reuniões</option></select></div>
+      <div class="form-group" style="margin:0"><label class="form-label" for="taskPersonRoleFilter">Função</label><select id="taskPersonRoleFilter" class="form-select"><option value="">Todas</option>${TASK_ROLES.map(role => `<option value="${role}" ${participantRoleFilter === role ? 'selected' : ''}>${escapeHtml(TASK_ROLE_LABELS[role])}</option>`).join('')}</select></div>
+      <div style="display:flex;align-items:end"><button id="taskClearPersonFilters" class="btn btn-ghost" type="button" style="width:100%">Limpar filtros</button></div>
+    </div>
     <div style="display:flex;flex-direction:column;gap:6px">
       ${rows.length
-        ? rows.map(([id, p]) => pessoaRow(id, p)).join('')
+        ? rows.map(([id, p]) => pessoaRow(id, p, usage[id] ?? 0)).join('')
         : emptyState('Nenhum participante. Adicione pelo módulo Admin.')}
     </div>`
   document.getElementById('btnAddTaskPerson')?.addEventListener('click', () => openTaskPersonModal(null))
   content.querySelectorAll<HTMLButtonElement>('[data-edit-task-person]').forEach(button => {
     button.addEventListener('click', () => openTaskPersonModal(button.dataset['editTaskPerson'] ?? null))
   })
+  document.getElementById('taskPersonSearch')?.addEventListener('input', event => { participantSearch = (event.target as HTMLInputElement).value; renderParticipantes() })
+  document.getElementById('taskPersonMeetingFilter')?.addEventListener('change', event => { participantMeetingRule = (event.target as HTMLSelectElement).value; renderParticipantes() })
+  document.getElementById('taskPersonRoleFilter')?.addEventListener('change', event => { participantRoleFilter = (event.target as HTMLSelectElement).value; renderParticipantes() })
+  document.getElementById('taskClearPersonFilters')?.addEventListener('click', () => { participantSearch = ''; participantMeetingRule = ''; participantRoleFilter = ''; renderParticipantes() })
 }
 
 function renderPendencias(): void {
@@ -794,37 +878,6 @@ function sectionTitle(title: string, desc: string): string {
     </div>`
 }
 
-function metricCard(label: string, value: string, color: string): string {
-  return `
-    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 12px">
-      <div style="font-size:1.15rem;font-weight:800;color:${color};line-height:1"><span data-kpi-value="${escapeHtml(value)}">0</span></div>
-      <div style="font-size:.72rem;color:var(--ink-3);margin-top:4px;text-transform:uppercase;font-weight:700">
-        ${escapeHtml(label)}
-      </div>
-    </div>`
-}
-
-function flowCard(title: string, desc: string, tab: TarefasTab): string {
-  return `
-    <button class="module-menu-btn tarefas-flow-card" type="button" data-target-tab="${tab}"
-      style="border-radius:8px;padding:12px 14px">
-      <div style="flex:1;min-width:0">
-        <div class="mod-label">${escapeHtml(title)}</div>
-        <div class="mod-desc">${escapeHtml(desc)}</div>
-      </div>
-      <span style="font-size:1.1rem;color:var(--ink-3)">›</span>
-    </button>`
-}
-
-function bindFlowCards(): void {
-  document.querySelectorAll<HTMLButtonElement>('.tarefas-flow-card').forEach(btn => {
-    btn.addEventListener('click', () => {
-      activeTab = btn.dataset['targetTab'] as TarefasTab
-      renderContent()
-    })
-  })
-}
-
 function meetingCard(meeting: TarefasMeeting): string {
   const count = assignmentCount(meeting)
   const type = canonicalMeetingType(meeting.type) === 'midweek' ? 'Meio de semana' : 'Fim de semana'
@@ -914,7 +967,7 @@ async function saveAssignment(periodId: string, meetingId: string, role: string,
   }
 }
 
-function pessoaRow(id: string, p: TarefasPessoa): string {
+function pessoaRow(id: string, p: TarefasPessoa, recentUsage: number): string {
   const linked = Boolean(p.masterId)
   const active = isActive(p)
 
@@ -926,7 +979,7 @@ function pessoaRow(id: string, p: TarefasPessoa): string {
           ${escapeHtml(pessoaNome(p, id))}
         </div>
         <div style="font-size:.72rem;color:var(--ink-3)">
-          ${active ? 'Ativo' : 'Inativo'} · ${linked ? 'Vinculado ao Admin' : 'Sem vínculo'}
+          ${active ? 'Ativo' : 'Inativo'} · ${linked ? 'Vinculado ao Admin' : 'Sem vínculo'} · ${recentUsage} função${recentUsage === 1 ? '' : 'ões'} em 6 meses
         </div>
       </div>
       <span style="width:9px;height:9px;border-radius:50%;background:${linked ? '#1A6B3C' : '#B3261E'}"></span>

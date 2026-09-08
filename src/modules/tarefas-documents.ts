@@ -1,9 +1,9 @@
-import { TASK_ROLES, TASK_ROLE_LABELS, assignmentForRole, personName, roleApplies, type TaskMeeting, type TaskPerson, type TaskRole } from './tarefas-domain'
+import { TASK_ROLES, TASK_ROLE_LABELS, assignmentForRole, personName, roleApplies, type TaskMeeting, type TaskPerson } from './tarefas-domain'
 import { formatTaskDate, paginateItems, rowsPerPrintPage } from './tarefas-output'
 
 const MIN_PT = 8, MAX_PT = 22
-const A4_WIDTH = ((297 - 16) / 25.4) * 96
-const A4_HEIGHT = ((210 - 16) / 25.4) * 96
+const A4_WIDTH = ((210 - 16) / 25.4) * 96
+const A4_HEIGHT = ((297 - 16) / 25.4) * 96
 const esc = (value: unknown) => String(value ?? '').replace(/[&<>'"]/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[char]!)
 
 function assignmentName(value: unknown, people: Record<string, TaskPerson>): string {
@@ -17,9 +17,8 @@ function assignmentName(value: unknown, people: Record<string, TaskPerson>): str
 }
 
 export function taskPrintHtml(meetings: TaskMeeting[], congregation: string, people: Record<string, TaskPerson>, pageSize = meetings.length): string {
-  const roles = TASK_ROLES.filter(role => meetings.some(meeting => roleApplies(role, meeting)))
   const last = meetings[meetings.length - 1]
-  return paginateItems(meetings, pageSize).map((page, index, pages) => `<div class="tarefas-print-page"><header class="tarefas-print-header"><div><div class="tarefas-print-title">Escala de Tarefas</div><div class="tarefas-print-subtitle">${esc(congregation)}</div></div><div class="tarefas-print-period">${formatTaskDate(meetings[0]?.date)} - ${formatTaskDate(last?.date)}${pages.length > 1 ? ` · ${index + 1}/${pages.length}` : ''}</div></header><table class="tarefas-print-table"><thead><tr><th>Data</th>${roles.map(role => `<th>${esc(TASK_ROLE_LABELS[role])}</th>`).join('')}</tr></thead><tbody>${page.map(meeting => `<tr><td>${formatTaskDate(meeting.date)}</td>${roles.map(role => `<td>${esc(assignmentName(assignmentForRole(meeting, role as TaskRole), people))}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`).join('')
+  return paginateItems(meetings, pageSize).map((page, index, pages) => `<div class="tarefas-print-page"><header class="tarefas-print-header"><div><div class="tarefas-print-title">Escala de Tarefas</div><div class="tarefas-print-subtitle">${esc(congregation)}</div></div><div class="tarefas-print-period">${formatTaskDate(meetings[0]?.date)} - ${formatTaskDate(last?.date)}${pages.length > 1 ? ` · ${index + 1}/${pages.length}` : ''}</div></header><div class="tarefas-print-meetings">${page.map(meeting => { const roles = TASK_ROLES.filter(role => roleApplies(role, meeting)); return `<section class="tarefas-print-meeting"><h2>${formatTaskDate(meeting.date)} · ${meeting.type === 'midweek' ? 'Meio de semana' : 'Fim de semana'}</h2><table class="tarefas-print-table"><tbody>${roles.map(role => `<tr><th>${esc(TASK_ROLE_LABELS[role])}</th><td>${esc(assignmentName(assignmentForRole(meeting, role), people))}</td></tr>`).join('')}</tbody></table></section>` }).join('')}</div></div>`).join('')
 }
 
 export function printTaskSchedule(meetings: TaskMeeting[], congregation: string, people: Record<string, TaskPerson>, preferredFontPt: number): number {

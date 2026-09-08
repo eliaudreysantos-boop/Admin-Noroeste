@@ -593,7 +593,7 @@ textarea.form-input {
   position: absolute;
   left: -10000px;
   top: 0;
-  width: 281mm;
+  width: 194mm;
   padding: 0;
 }
 
@@ -637,9 +637,7 @@ textarea.form-input {
   border: .2mm solid #777;
   padding: .9mm 1.2mm;
   text-align: left;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: clip;
+  vertical-align:top;
 }
 
 .tarefas-print-table th {
@@ -647,6 +645,12 @@ textarea.form-input {
   color: #fff;
   font-weight: 800;
 }
+
+.tarefas-print-meetings { display:grid; grid-template-columns:1fr 1fr; gap:4mm; }
+.tarefas-print-meeting { border:.2mm solid #777; break-inside:avoid; page-break-inside:avoid; }
+.tarefas-print-meeting h2 { margin:0; padding:1.8mm 2.5mm; font-size:1em; color:#fff; background:#7E3AF2; }
+.tarefas-print-meeting .tarefas-print-table th { width:40%; color:#222; background:#ECE6F8; white-space:nowrap; }
+.tarefas-print-meeting .tarefas-print-table td { overflow-wrap:anywhere; }
 
 .tarefas-print-table tbody tr:nth-child(even) {
   background: #F2F4F8;
@@ -659,7 +663,7 @@ textarea.form-input {
 
 @media print {
   @page {
-    size: A4 landscape;
+    size: A4 portrait;
     margin: 8mm;
   }
 
