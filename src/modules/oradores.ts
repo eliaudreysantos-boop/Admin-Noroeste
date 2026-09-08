@@ -2,7 +2,7 @@ import type { AppContext, RawPessoas } from '../types'
 import { get, pessoasRef, update, tarefasDiscursosRef, tarefasScaleRef } from '../firebase'
 import { renderMenuCards, type ItemMenu } from '../ui/menu-cards'
 import { moduleBackButton, moduleTitle } from '../ui/module-header'
-import { allowedTheme, confirmationPatch, deriveStatus, eventBlocksLocal, needsReconfirmation, talkConflicts, type Congregation, type Speaker, type Talk, type Theme } from './oradores-domain'
+import { allowedTheme, confirmationPatch, deriveStatus, emergencyCandidates, eventBlocksLocal, needsReconfirmation, talkConflicts, type Congregation, type Speaker, type Talk, type Theme } from './oradores-domain'
 
 interface LegacyOrador extends Speaker {}
 interface LegacyProgramacao extends Talk {}
@@ -20,7 +20,7 @@ interface LegacyDiscursos {
 let discursos: LegacyDiscursos = {}
 let pessoas: RawPessoas = {}
 let taskMeetings: { date?: string; assignments?: Record<string, unknown> }[] = []
-type OradoresTab = 'indice' | 'resumo' | 'cadastro' | 'programacao' | 'temas' | 'congregacoes' | 'intercambios' | 'eventos' | 'pendencias'
+type OradoresTab = 'indice' | 'resumo' | 'cadastro' | 'programacao' | 'temas' | 'congregacoes' | 'intercambios' | 'emergencia' | 'eventos' | 'pendencias'
 let activeTab: OradoresTab = 'indice'
 
 function toast(msg: string, ms = 2600): void {
@@ -130,6 +130,7 @@ function render(): void {
         { id: 'temas', titulo: 'Temas', subtitulo: 'Catálogo dos discursos públicos', icone: '▤', corFundo: '#1A6B3C' },
         { id: 'congregacoes', titulo: 'Congregações', subtitulo: 'Locais, visitantes e intercâmbios', icone: '⌂', corFundo: '#006EB6' },
         { id: 'intercambios', titulo: 'Intercâmbios', subtitulo: 'Entradas, saídas e mensagens', icone: '⇄', corFundo: '#7E3AF2' },
+        { id: 'emergencia', titulo: 'Emergência', subtitulo: 'Substitutos e temas disponíveis', icone: '!', corFundo: '#B3261E' },
         { id: 'eventos', titulo: 'Eventos', subtitulo: 'Datas sem discurso público local', icone: '◆', corFundo: '#8A5B00' },
         { id: 'pendencias', titulo: 'Pendências', subtitulo: `${aConfirmar} compromisso${aConfirmar === 1 ? '' : 's'} a confirmar`, icone: '!', corFundo: '#B3261E' },
       ]
@@ -172,6 +173,7 @@ function render(): void {
   el.querySelectorAll<HTMLButtonElement>('[data-edit-evento]').forEach(button => button.addEventListener('click', () => openEventoModal(button.dataset['editEvento'] ?? null)))
   el.querySelectorAll<HTMLButtonElement>('[data-delete-evento]').forEach(button => button.addEventListener('click', () => void deleteEvento(button.dataset['deleteEvento'] ?? '')))
   el.querySelectorAll<HTMLButtonElement>('[data-intercambio-message]').forEach(button => button.addEventListener('click', () => openIntercambioMessage(button.dataset['intercambioMessage'] ?? '')))
+  el.querySelectorAll<HTMLButtonElement>('[data-emergency]').forEach(button => button.addEventListener('click', () => openEmergencyModal(button.dataset['emergency'] ?? '')))
 }
 
 function renderTabContent(tab: OradoresTab): string {
@@ -180,8 +182,74 @@ function renderTabContent(tab: OradoresTab): string {
   if (tab === 'temas') return temasView()
   if (tab === 'congregacoes') return congregacoesView()
   if (tab === 'intercambios') return intercambiosView()
+  if (tab === 'emergencia') return emergenciaView()
   if (tab === 'eventos') return eventosView()
   return pendenciasView()
+}
+
+function candidatesFor(id: string, talk: LegacyProgramacao) {
+  return emergencyCandidates(id, talk, discursos.programacao ?? {}, taskMeetings, discursos.oradores ?? {}, discursos.temas ?? {}, todayStr())
+}
+
+function emergenciaView(): string {
+  const pending = Object.entries(discursos.programacao ?? {}).filter(([, talk]) => (!talk.data || talk.data >= todayStr()) && (!talk.oradorId || (talk.desistiu && !talk.substitutoId)))
+  return `<div style="margin-top:14px"><h3 style="font-size:.95rem;color:#5C6062;margin-bottom:8px">Emergência</h3><div class="module-option-list">${pending.length ? pending.map(([id, talk]) => {
+    const candidates = candidatesFor(id, talk)
+    return `<div class="module-menu-btn" style="cursor:default"><div class="mod-icon" style="background:#B3261E20;color:#B3261E">!</div><div style="flex:1"><div class="mod-label">${escapeHtml(formatDate(talk.data))} · ${escapeHtml(talk.temaTitulo ?? 'tema a definir')}</div><div class="mod-desc">${candidates.length} candidato(s) sem conflito e com tema disponível</div></div><button class="btn btn-primary" data-emergency="${escapeHtml(id)}" ${candidates.length ? '' : 'disabled'}>Substituir</button></div>`
+  }).join('') : '<p class="empty-state">Nenhuma substituição emergencial pendente.</p>'}</div></div>`
+}
+
+function openEmergencyModal(id: string): void {
+  const talk = discursos.programacao?.[id]; if (!talk) return
+  const candidates = candidatesFor(id, talk); if (!candidates.length) { toast('Nenhum candidato elegível'); return }
+  const overlay = document.createElement('div'); overlay.className = 'modal-overlay'
+  overlay.innerHTML = `<div class="modal"><h2>Substituição de emergência</h2><div class="form-group"><label class="form-label">Candidato</label><select id="emergencySpeaker" class="form-select">${candidates.map(candidate => `<option value="${escapeHtml(candidate.speakerId)}">${escapeHtml(oradorNome(candidate.speakerId, discursos.oradores?.[candidate.speakerId]))}</option>`).join('')}</select></div><div class="form-group"><label class="form-label">Tema disponível</label><select id="emergencyTheme" class="form-select"></select></div><div style="display:flex;gap:8px"><button id="emergencyCancel" class="btn btn-ghost">Cancelar</button><button id="emergencyApply" class="btn btn-primary">Aplicar substituição</button></div></div>`
+  document.body.appendChild(overlay)
+  const renderThemes = () => {
+    const speakerId = (overlay.querySelector('#emergencySpeaker') as HTMLSelectElement).value
+    const candidate = candidates.find(item => item.speakerId === speakerId)
+    ;(overlay.querySelector('#emergencyTheme') as HTMLSelectElement).innerHTML = (candidate?.themeIds ?? []).map(themeId => `<option value="${escapeHtml(themeId)}">${escapeHtml(`${discursos.temas?.[themeId]?.numero ?? ''} ${discursos.temas?.[themeId]?.titulo ?? ''}`.trim())}</option>`).join('')
+  }
+  renderThemes()
+  overlay.querySelector('#emergencySpeaker')?.addEventListener('change', renderThemes)
+  overlay.querySelector('#emergencyCancel')?.addEventListener('click', () => overlay.remove())
+  overlay.addEventListener('click', event => { if (event.target === overlay) overlay.remove() })
+  overlay.querySelector('#emergencyApply')?.addEventListener('click', () => void applyEmergency(id, overlay))
+}
+
+async function applyEmergency(id: string, overlay: HTMLElement): Promise<void> {
+  const talk = discursos.programacao?.[id]; if (!talk) return
+  const speakerId = (overlay.querySelector('#emergencySpeaker') as HTMLSelectElement).value
+  const themeId = (overlay.querySelector('#emergencyTheme') as HTMLSelectElement).value
+  const speaker = discursos.oradores?.[speakerId], theme = discursos.temas?.[themeId]
+  const replacement = Boolean(talk.oradorId)
+  const patch: Record<string, unknown> = {
+    [`programacao/${id}/${replacement ? 'substitutoId' : 'oradorId'}`]: speakerId,
+    [`programacao/${id}/${replacement ? 'substitutoNome' : 'oradorNome'}`]: oradorNome(speakerId, speaker),
+    [`programacao/${id}/temaId`]: themeId,
+    [`programacao/${id}/temaNumero`]: theme?.numero ?? null,
+    [`programacao/${id}/temaTitulo`]: theme?.titulo ?? null,
+    [`programacao/${id}/status`]: 'por_confirmar',
+    [`programacao/${id}/confirmacao`]: { status: false, confirmadoEm: '' },
+    [`programacao/${id}/reconfirmacao`]: null,
+  }
+  try {
+    await update(tarefasDiscursosRef, patch)
+    Object.assign(talk, replacement ? { substitutoId: speakerId, substitutoNome: oradorNome(speakerId, speaker) } : { oradorId: speakerId, oradorNome: oradorNome(speakerId, speaker) }, { temaId: themeId, temaNumero: theme?.numero, temaTitulo: theme?.titulo, status: 'por_confirmar', confirmacao: { status: false, confirmadoEm: '' }, reconfirmacao: undefined })
+    overlay.remove(); toast('Substituição aplicada'); render(); openSubstitutionMessage(id)
+  } catch { toast('Não foi possível aplicar a substituição') }
+}
+
+function openSubstitutionMessage(id: string): void {
+  const talk = discursos.programacao?.[id]; if (!talk) return
+  const speakerId = talk.substitutoId ?? talk.oradorId ?? '', speaker = discursos.oradores?.[speakerId]
+  const phone = digits(oradorTelefone(speaker))
+  const text = `Olá, ${oradorNome(speakerId, speaker)}! Você poderia substituir o discurso do dia ${formatDate(talk.data)}? Tema ${talk.temaNumero ?? ''} ${talk.temaTitulo ?? ''}. Por favor, confirme sua disponibilidade.`
+  const overlay = document.createElement('div'); overlay.className = 'modal-overlay'
+  overlay.innerHTML = `<div class="modal"><h2>Mensagem ao substituto</h2><div class="form-group"><label class="form-label">Texto</label><textarea id="exchangeText" class="form-input" rows="9">${escapeHtml(text)}</textarea></div><input id="exchangeTarget" type="hidden" value="${escapeHtml(phone)}"><div style="display:flex;gap:8px"><button id="exchangeCancel" class="btn btn-ghost">Fechar</button><button id="exchangeWhats" class="btn btn-primary">Abrir WhatsApp</button></div></div>`
+  document.body.appendChild(overlay)
+  overlay.querySelector('#exchangeCancel')?.addEventListener('click', () => overlay.remove())
+  overlay.querySelector('#exchangeWhats')?.addEventListener('click', () => void sendIntercambioMessage(id, overlay))
 }
 
 function intercambiosView(): string {

@@ -94,3 +94,39 @@ export function needsReconfirmation(talk: Talk, today: string, days = 7): boolea
   const remaining = Math.round((new Date(`${talk.data}T12:00:00`).getTime() - new Date(`${today}T12:00:00`).getTime()) / 86_400_000)
   return remaining <= days
 }
+
+export interface EmergencyCandidate { speakerId: string; themeIds: string[] }
+
+export function emergencyCandidates(
+  talkId: string,
+  talk: Talk,
+  talks: Record<string, Talk>,
+  taskMeetings: { date?: string; assignments?: Record<string, unknown> }[],
+  speakers: Record<string, Speaker>,
+  themes: Record<string, Theme>,
+  today: string,
+  recentMonths = 6,
+): EmergencyCandidate[] {
+  const cutoffDate = new Date(`${today}T12:00:00`)
+  cutoffDate.setMonth(cutoffDate.getMonth() - recentMonths)
+  const cutoff = cutoffDate.toISOString().slice(0, 10)
+  const history = themeHistory(talks, today)
+  const otherTalks = Object.fromEntries(Object.entries(talks).filter(([id]) => id !== talkId))
+
+  return Object.entries(speakers).flatMap(([speakerId, speaker]) => {
+    if (speaker.ativo === false || speakerId === talk.oradorId) return []
+    if (talk.tipo === 'discurso_visitante' && speaker.tipo !== 'visitante') return []
+    if (talk.tipo !== 'discurso_visitante' && speaker.tipo === 'visitante') return []
+    if (talk.tipo === 'saida_orador' && speaker.aprovadoParaSaida === false) return []
+    const candidate = talk.oradorId
+      ? { ...talk, substitutoId: speakerId, substitutoNome: speakerName(speaker, speakerId) }
+      : { ...talk, oradorId: speakerId, oradorNome: speakerName(speaker, speakerId) }
+    if (talkConflicts(talkId, candidate, otherTalks, taskMeetings, speakers).length) return []
+    const themeIds = (speaker.temaIds ?? []).filter(themeId => {
+      if (!allowedTheme(themeId, speaker, themes)) return false
+      const usage = history[themeId]
+      return !usage?.future.length && (!usage?.lastPerformed || usage.lastPerformed < cutoff)
+    })
+    return themeIds.length ? [{ speakerId, themeIds }] : []
+  })
+}

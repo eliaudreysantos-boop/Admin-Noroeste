@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { allowedTheme, confirmationPatch, congregationIdOf, deriveStatus, eventBlocksLocal, needsReconfirmation, realizedSpeakerId, talkConflicts, themeHistory } from '../src/modules/oradores-domain.ts'
+import { allowedTheme, confirmationPatch, congregationIdOf, deriveStatus, emergencyCandidates, eventBlocksLocal, needsReconfirmation, realizedSpeakerId, talkConflicts, themeHistory } from '../src/modules/oradores-domain.ts'
 
 test('origem e destino seguem o tipo da programação', () => {
   assert.equal(congregationIdOf({ tipo: 'saida_orador', congregacaoDestinoId: 'destino', congregacaoOrigemId: 'origem' }), 'destino')
@@ -32,4 +32,18 @@ test('eventos especiais bloqueiam discurso local e reconfirmação vence em sete
   assert.equal(eventBlocksLocal({ e: { data: '2026-09-12', tipo: 'celebracao' } }, '2026-09-12'), true)
   assert.equal(needsReconfirmation({ data: '2026-09-13', status: 'confirmado' }, '2026-09-06'), true)
   assert.equal(needsReconfirmation({ data: '2026-09-14', status: 'confirmado' }, '2026-09-06'), false)
+})
+
+test('emergência filtra conflitos e temas recentes', () => {
+  const talk = { data: '2026-09-20', tipo: 'discurso_local', oradorId: 'original', desistiu: true }
+  const candidates = emergencyCandidates('alvo', talk, {
+    alvo: talk,
+    antigo: { data: '2026-08-01', tipo: 'discurso_local', oradorId: 'outro', temaId: 'recente', status: 'confirmado' },
+  }, [{ date: '2026-09-20', assignments: { mic1: 'p2' } }], {
+    original: { ativo: true, tipo: 'local', pessoaId: 'p0', temaIds: ['livre'] },
+    livre: { ativo: true, tipo: 'local', pessoaId: 'p1', temaIds: ['livre', 'recente'] },
+    ocupado: { ativo: true, tipo: 'local', pessoaId: 'p2', temaIds: ['livre'] },
+    visitante: { ativo: true, tipo: 'visitante', pessoaId: 'p3', temaIds: ['livre'] },
+  }, { livre: { ativo: true }, recente: { ativo: true } }, '2026-09-07')
+  assert.deepEqual(candidates, [{ speakerId: 'livre', themeIds: ['livre'] }])
 })
