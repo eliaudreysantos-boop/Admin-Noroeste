@@ -20,7 +20,7 @@ interface LegacyDiscursos {
 let discursos: LegacyDiscursos = {}
 let pessoas: RawPessoas = {}
 let taskMeetings: { date?: string; assignments?: Record<string, unknown> }[] = []
-type OradoresTab = 'indice' | 'resumo' | 'cadastro' | 'programacao' | 'temas' | 'congregacoes' | 'eventos' | 'pendencias'
+type OradoresTab = 'indice' | 'resumo' | 'cadastro' | 'programacao' | 'temas' | 'congregacoes' | 'intercambios' | 'eventos' | 'pendencias'
 let activeTab: OradoresTab = 'indice'
 
 function toast(msg: string, ms = 2600): void {
@@ -129,6 +129,7 @@ function render(): void {
         { id: 'programacao', titulo: 'Programação', subtitulo: `${programacoesFuturas} compromisso${programacoesFuturas === 1 ? '' : 's'} futuro${programacoesFuturas === 1 ? '' : 's'}`, icone: '▣', corFundo: '#7E3AF2' },
         { id: 'temas', titulo: 'Temas', subtitulo: 'Catálogo dos discursos públicos', icone: '▤', corFundo: '#1A6B3C' },
         { id: 'congregacoes', titulo: 'Congregações', subtitulo: 'Locais, visitantes e intercâmbios', icone: '⌂', corFundo: '#006EB6' },
+        { id: 'intercambios', titulo: 'Intercâmbios', subtitulo: 'Entradas, saídas e mensagens', icone: '⇄', corFundo: '#7E3AF2' },
         { id: 'eventos', titulo: 'Eventos', subtitulo: 'Datas sem discurso público local', icone: '◆', corFundo: '#8A5B00' },
         { id: 'pendencias', titulo: 'Pendências', subtitulo: `${aConfirmar} compromisso${aConfirmar === 1 ? '' : 's'} a confirmar`, icone: '!', corFundo: '#B3261E' },
       ]
@@ -170,6 +171,7 @@ function render(): void {
   el.querySelector<HTMLButtonElement>('[data-add-evento]')?.addEventListener('click', () => openEventoModal(null))
   el.querySelectorAll<HTMLButtonElement>('[data-edit-evento]').forEach(button => button.addEventListener('click', () => openEventoModal(button.dataset['editEvento'] ?? null)))
   el.querySelectorAll<HTMLButtonElement>('[data-delete-evento]').forEach(button => button.addEventListener('click', () => void deleteEvento(button.dataset['deleteEvento'] ?? '')))
+  el.querySelectorAll<HTMLButtonElement>('[data-intercambio-message]').forEach(button => button.addEventListener('click', () => openIntercambioMessage(button.dataset['intercambioMessage'] ?? '')))
 }
 
 function renderTabContent(tab: OradoresTab): string {
@@ -177,8 +179,59 @@ function renderTabContent(tab: OradoresTab): string {
   if (tab === 'programacao') return programacaoView()
   if (tab === 'temas') return temasView()
   if (tab === 'congregacoes') return congregacoesView()
+  if (tab === 'intercambios') return intercambiosView()
   if (tab === 'eventos') return eventosView()
   return pendenciasView()
+}
+
+function intercambiosView(): string {
+  const rows = Object.entries(discursos.programacao ?? {}).filter(([, talk]) => talk.data && talk.data >= todayStr() && canonicalTalkType(talk.tipo) !== 'discurso_local').sort(([, a], [, b]) => String(a.data).localeCompare(String(b.data)))
+  return `<div style="margin-top:14px"><h3 style="font-size:.95rem;color:#5C6062;margin-bottom:8px">Intercâmbios</h3><div class="module-option-list">${rows.length ? rows.map(([id, talk]) => {
+    const outgoing = canonicalTalkType(talk.tipo) === 'saida_orador'
+    const congregationId = outgoing ? talk.congregacaoDestinoId ?? talk.congregacaoId : talk.congregacaoOrigemId ?? talk.congregacaoId
+    const congregation = discursos.congregacoes?.[congregationId ?? '']
+    const speaker = discursos.oradores?.[talk.substitutoId ?? talk.oradorId ?? '']
+    return `<div class="module-menu-btn" style="cursor:default"><div class="mod-icon" style="background:#7E3AF220;color:#7E3AF2">${outgoing ? '→' : '←'}</div><div style="flex:1"><div class="mod-label">${outgoing ? 'Saída para' : 'Entrada de'} ${escapeHtml(congregation?.nome ?? 'congregação não informada')}</div><div class="mod-desc">${escapeHtml(formatDate(talk.data))} · ${escapeHtml(oradorNome(talk.oradorId ?? '', speaker))} · ${escapeHtml(talk.temaTitulo ?? 'tema a definir')}</div></div><button class="btn btn-primary" type="button" data-intercambio-message="${escapeHtml(id)}">Mensagem</button></div>`
+  }).join('') : '<p class="empty-state">Nenhum intercâmbio futuro.</p>'}</div></div>`
+}
+
+function digits(value: unknown): string {
+  const phone = String(value ?? '').replace(/\D/g, '')
+  return phone.length === 11 ? `55${phone}` : phone
+}
+
+function openIntercambioMessage(id: string): void {
+  const talk = discursos.programacao?.[id]; if (!talk) return
+  const outgoing = canonicalTalkType(talk.tipo) === 'saida_orador'
+  const congregationId = outgoing ? talk.congregacaoDestinoId ?? talk.congregacaoId : talk.congregacaoOrigemId ?? talk.congregacaoId
+  const congregation = discursos.congregacoes?.[congregationId ?? '']
+  const speakerId = talk.substitutoId ?? talk.oradorId ?? ''
+  const speaker = discursos.oradores?.[speakerId]
+  const speakerPhone = digits(oradorTelefone(speaker)), congregationPhone = digits(congregation?.telefone)
+  const message = outgoing
+    ? `Olá! Confirmamos o discurso de ${oradorNome(speakerId, speaker)} em ${congregation?.nome ?? 'sua congregação'}, no dia ${formatDate(talk.data)}, com o tema ${talk.temaNumero ?? ''} ${talk.temaTitulo ?? ''}.`
+    : `Olá, ${oradorNome(speakerId, speaker)}! Confirmamos seu discurso em nossa congregação no dia ${formatDate(talk.data)}, com o tema ${talk.temaNumero ?? ''} ${talk.temaTitulo ?? ''}.`
+  const overlay = document.createElement('div'); overlay.className = 'modal-overlay'
+  overlay.innerHTML = `<div class="modal"><h2>Mensagem de intercâmbio</h2><div class="form-group"><label class="form-label">Destinatário</label><select id="exchangeTarget" class="form-select"><option value="${speakerPhone}">Orador: ${escapeHtml(oradorNome(speakerId, speaker))}</option>${congregationPhone ? `<option value="${congregationPhone}">Congregação: ${escapeHtml(congregation?.nome ?? '')}</option>` : ''}</select></div><div class="form-group"><label class="form-label">Texto</label><textarea id="exchangeText" class="form-input" rows="10">${escapeHtml(message)}</textarea></div><div style="display:flex;gap:8px"><button id="exchangeCancel" class="btn btn-ghost">Cancelar</button><button id="exchangeWhats" class="btn btn-primary">Abrir WhatsApp</button></div></div>`
+  document.body.appendChild(overlay)
+  overlay.querySelector('#exchangeCancel')?.addEventListener('click', () => overlay.remove())
+  overlay.addEventListener('click', event => { if (event.target === overlay) overlay.remove() })
+  overlay.querySelector('#exchangeWhats')?.addEventListener('click', () => void sendIntercambioMessage(id, overlay))
+}
+
+async function sendIntercambioMessage(id: string, overlay: HTMLElement): Promise<void> {
+  const phone = (overlay.querySelector('#exchangeTarget') as HTMLSelectElement).value
+  const message = (overlay.querySelector('#exchangeText') as HTMLTextAreaElement).value.trim()
+  if (!phone) { toast('Cadastre o WhatsApp no Admin ou na congregação'); return }
+  if (!message) { toast('Escreva a mensagem'); return }
+  const popup = window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer')
+  if (!popup) { toast('Permita pop-ups para abrir o WhatsApp'); return }
+  const stamp = new Date().toISOString()
+  try {
+    await update(tarefasDiscursosRef, { [`programacao/${id}/avisadoEm`]: stamp })
+    if (discursos.programacao?.[id]) discursos.programacao[id].avisadoEm = stamp
+    overlay.remove(); toast('WhatsApp aberto; revise antes de enviar'); render()
+  } catch { toast('WhatsApp aberto, mas não foi possível registrar o aviso') }
 }
 
 const EVENT_LABELS: Record<string, string> = {
