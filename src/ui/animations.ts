@@ -4,11 +4,16 @@ function numericParts(value: string): number[] | null {
 }
 
 export function animateKpis(root: ParentNode): void {
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
   root.querySelectorAll<HTMLElement>('[data-kpi-value]:not([data-kpi-animated])').forEach(element => {
     const finalValue = element.dataset.kpiValue ?? element.textContent ?? '0'
     const target = numericParts(finalValue)
     if (!target) return
     element.dataset.kpiAnimated = 'true'
+    if (reduceMotion) {
+      element.textContent = finalValue
+      return
+    }
     const initial = target.map(() => 0)
     const started = performance.now()
     const cssDuration = getComputedStyle(document.documentElement).getPropertyValue('--anim-duration').trim()
