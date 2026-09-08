@@ -145,7 +145,7 @@ test('geração de uma função não exige que as outras colunas já estejam pre
   assert.equal(result.patch['2026-09/meetings/m1/assignments/leitor'], undefined)
 })
 
-test('geração somente de lacunas preserva as designações já preenchidas', () => {
+test('geração somente de datas pendentes ignora reuniões anteriores', () => {
   const people = Object.fromEntries(Array.from({ length: 8 }, (_, index) => [
     `p${index + 1}`,
     basePerson({ name: `Pessoa ${index + 1}` }),
@@ -153,10 +153,12 @@ test('geração somente de lacunas preserva as designações já preenchidas', (
   const context = baseContext(people, {
     date: '2026-09-12', type: 'weekend', assignments: { leitor: 'p1' }, manualEdits: {},
   })
-  const result = computeGeneration(context, '2026-09-01', null, '2026-09-01T12:00:00.000Z', '2026-09', true)
+  context.periods['2026-09'].meetings.old = { date: '2026-09-05', type: 'weekend', assignments: {}, manualEdits: {} }
+  const result = computeGeneration(context, '2026-09-01', null, '2026-09-01T12:00:00.000Z', '2026-09', true, '2026-09-10')
   assert.equal(result.aborted, false)
-  assert.equal(result.patch['2026-09/meetings/m1/assignments/leitor'], undefined)
+  assert.ok(result.patch['2026-09/meetings/m1/assignments/leitor'])
   assert.ok(result.patch['2026-09/meetings/m1/assignments/mic1'])
+  assert.equal(result.patch['2026-09/meetings/old/assignments/leitor'], undefined)
 })
 
 test('mensagem individual reúne todas as designações em ordem cronológica', () => {

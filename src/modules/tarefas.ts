@@ -126,7 +126,8 @@ function escapeHtml(v: unknown): string {
 }
 
 function todayStr(): string {
-  return new Date().toISOString().slice(0, 10)
+  const date = new Date()
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 }
 
 function pessoaNome(p: TarefasPessoa, fallback: string): string {
@@ -313,7 +314,7 @@ function renderEscala(): void {
           <div class="form-group" style="margin:0"><label class="form-label" for="tarefasGenerateRole">Função</label><select id="tarefasGenerateRole" class="form-select"><option value="">Escolha a função</option>${TASK_ROLES.map(role => `<option value="${role}">${escapeHtml(TASK_ROLE_LABELS[role])}</option>`).join('')}</select></div>
           <div class="scale-actions" style="align-items:end"><button id="btnGenerateTaskRole" class="btn btn-ghost" type="button" ${locked ? 'disabled' : ''}>Gerar função</button><button id="btnClearTaskRole" class="btn btn-danger" type="button" ${locked ? 'disabled' : ''}>Limpar função</button></div>
         </div>
-        <label style="display:flex;align-items:center;gap:7px;margin-top:12px;font-size:.84rem;color:var(--ink-2)"><input id="tarefasOnlyPending" type="checkbox" ${onlyPendingMeetings ? 'checked' : ''}> Gerar somente lacunas pendentes</label>
+        <label style="display:flex;align-items:center;gap:7px;margin-top:12px;font-size:.84rem;color:var(--ink-2)"><input id="tarefasOnlyPending" type="checkbox" ${onlyPendingMeetings ? 'checked' : ''}> Apenas datas pendentes</label>
         <div style="display:flex;gap:8px;align-items:center;margin-top:12px"><label class="form-label" for="tarefasPrintFont" style="margin:0;white-space:nowrap">Letra do PDF</label><input id="tarefasPrintFont" class="form-input" type="range" min="${PRINT_MIN_PT}" max="${PRINT_MAX_PT}" step="1" value="${font}" style="padding:0;flex:1"><span id="tarefasPrintFontValue" style="min-width:42px;text-align:right;font-size:.82rem;font-weight:700;color:var(--ink-2)">${font} pt</span><button id="btnTarefasPdf" class="btn btn-ghost" type="button">Gerar PDF</button></div>
       </details>
     </div>
@@ -444,7 +445,7 @@ async function generateScale(startDate: string, mode: 'month' | 'bimester', role
       return
     }
     const context = { ...domainContext(), periods: canonical.periods }
-    const result = computeGeneration(context, startDate, role, generatedAt, canonical.periodId, onlyPending)
+    const result = computeGeneration(context, startDate, role, generatedAt, canonical.periodId, onlyPending, todayStr())
     if (result.aborted) {
       showGenerationErrors(result.errors)
       return

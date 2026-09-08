@@ -381,14 +381,11 @@ export function computeGeneration(
   generatedAt: string,
   targetPeriodId?: string,
   onlyPending = false,
+  pendingFromDate = '',
 ): GenerationResult {
   const targets = meetingEntries(context.periods)
     .filter(entry => (!targetPeriodId || entry.periodId === targetPeriodId) && entry.meeting.date && entry.meeting.date >= startDate && canonicalMeetingType(entry.meeting.type) && !meetingIsBlocked(context, entry.meeting))
-    .filter(entry => !onlyPending || TASK_ROLES.some(role =>
-      roleApplies(role, entry.meeting) &&
-      (roleFilter === null || roleFilter === role) &&
-      !assignmentForRole(entry.meeting, role),
-    ))
+    .filter(entry => !onlyPending || Boolean(entry.meeting.date && entry.meeting.date >= pendingFromDate))
     .sort((a, b) => String(a.meeting.date).localeCompare(String(b.meeting.date)) || a.meetingId.localeCompare(b.meetingId))
   if (!targets.length) return { aborted: true, patch: {}, generated: 0, errors: ['Nenhuma reunião válida encontrada a partir da data informada.'] }
   const locked = [...new Set(targets.filter(entry => context.periods[entry.periodId]?.locked).map(entry => entry.periodId))]
@@ -403,8 +400,7 @@ export function computeGeneration(
   }
   meetingEntries(context.periods).forEach(entry => TASK_ROLES.forEach(role => {
     const regenerates = targetKeys.has(`${entry.periodId}/${entry.meetingId}`) &&
-      (roleFilter === null || roleFilter === role) && entry.meeting.manualEdits?.[role] !== true &&
-      (!onlyPending || !assignmentForRole(entry.meeting, role))
+      (roleFilter === null || roleFilter === role) && entry.meeting.manualEdits?.[role] !== true
     const id = assignmentForRole(entry.meeting, role)
     if (id && !regenerates) addStat(id, role)
   }))
@@ -426,8 +422,7 @@ export function computeGeneration(
     const finalAssignments = assignmentsWithout(entry.meeting)
     const inScope = (role: TaskRole) =>
       (roleFilter === null || roleFilter === role) &&
-      entry.meeting.manualEdits?.[role] !== true &&
-      (!onlyPending || !assignmentForRole(entry.meeting, role))
+      entry.meeting.manualEdits?.[role] !== true
     TASK_ROLES.forEach(role => { if (inScope(role)) delete finalAssignments[role] })
     TASK_ROLES.forEach(role => {
       if (inScope(role) && !roleApplies(role, entry.meeting) && assignmentForRole(entry.meeting, role)) {
