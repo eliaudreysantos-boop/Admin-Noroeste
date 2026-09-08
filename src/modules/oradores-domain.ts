@@ -108,6 +108,13 @@ export function watchtowerIssues(speakers: Record<string, Speaker>): string[] {
   return issues
 }
 
+export function assignmentsForSpeaker(talks: Record<string, Talk>, speakerId: string, today: string): Array<[string, Talk]> {
+  return Object.entries(talks)
+    .filter(([, talk]) => Boolean(talk.data && talk.data >= today))
+    .filter(([, talk]) => (talk.desistiu && talk.substitutoId ? talk.substitutoId : talk.oradorId) === speakerId)
+    .sort(([, a], [, b]) => String(a.data).localeCompare(String(b.data)))
+}
+
 export function emergencyCandidates(
   talkId: string,
   talk: Talk,

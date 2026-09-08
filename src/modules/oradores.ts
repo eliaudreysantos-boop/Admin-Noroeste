@@ -2,7 +2,7 @@ import type { AppContext, RawPessoas } from '../types'
 import { get, pessoasRef, update, tarefasDiscursosRef, tarefasScaleRef } from '../firebase'
 import { renderMenuCards, type ItemMenu } from '../ui/menu-cards'
 import { moduleBackButton, moduleTitle } from '../ui/module-header'
-import { allowedTheme, confirmationPatch, deriveStatus, emergencyCandidates, eventBlocksLocal, needsReconfirmation, talkConflicts, themeHistory, watchtowerIssues, type Congregation, type Speaker, type Talk, type Theme } from './oradores-domain'
+import { allowedTheme, assignmentsForSpeaker, confirmationPatch, deriveStatus, emergencyCandidates, eventBlocksLocal, needsReconfirmation, talkConflicts, themeHistory, watchtowerIssues, type Congregation, type Speaker, type Talk, type Theme } from './oradores-domain'
 
 interface LegacyOrador extends Speaker {}
 interface LegacyProgramacao extends Talk {}
@@ -20,8 +20,9 @@ interface LegacyDiscursos {
 let discursos: LegacyDiscursos = {}
 let pessoas: RawPessoas = {}
 let taskMeetings: { date?: string; assignments?: Record<string, unknown> }[] = []
-type OradoresTab = 'indice' | 'resumo' | 'cadastro' | 'programacao' | 'temas' | 'congregacoes' | 'intercambios' | 'emergencia' | 'eventos' | 'pendencias'
+type OradoresTab = 'indice' | 'resumo' | 'cadastro' | 'programacao' | 'designacoes' | 'temas' | 'congregacoes' | 'intercambios' | 'emergencia' | 'eventos' | 'pendencias'
 let activeTab: OradoresTab = 'indice'
+let selectedSpeakerId = ''
 
 function toast(msg: string, ms = 2600): void {
   const el = document.getElementById('toast')
@@ -127,6 +128,7 @@ function render(): void {
       const items: ItemMenu[] = [
         { id: 'cadastro', titulo: 'Cadastro', subtitulo: 'Oradores da congregação', icone: '♙', corFundo: '#003F72' },
         { id: 'programacao', titulo: 'Programação', subtitulo: `${programacoesFuturas} compromisso${programacoesFuturas === 1 ? '' : 's'} futuro${programacoesFuturas === 1 ? '' : 's'}`, icone: '▣', corFundo: '#7E3AF2' },
+        { id: 'designacoes', titulo: 'Designações por orador', subtitulo: 'Agenda individual e mensagens', icone: '☷', corFundo: '#003F72' },
         { id: 'temas', titulo: 'Temas', subtitulo: 'Catálogo dos discursos públicos', icone: '▤', corFundo: '#1A6B3C' },
         { id: 'congregacoes', titulo: 'Congregações', subtitulo: 'Locais, visitantes e intercâmbios', icone: '⌂', corFundo: '#006EB6' },
         { id: 'intercambios', titulo: 'Intercâmbios', subtitulo: 'Entradas, saídas e mensagens', icone: '⇄', corFundo: '#7E3AF2' },
@@ -174,17 +176,58 @@ function render(): void {
   el.querySelectorAll<HTMLButtonElement>('[data-delete-evento]').forEach(button => button.addEventListener('click', () => void deleteEvento(button.dataset['deleteEvento'] ?? '')))
   el.querySelectorAll<HTMLButtonElement>('[data-intercambio-message]').forEach(button => button.addEventListener('click', () => openIntercambioMessage(button.dataset['intercambioMessage'] ?? '')))
   el.querySelectorAll<HTMLButtonElement>('[data-emergency]').forEach(button => button.addEventListener('click', () => openEmergencyModal(button.dataset['emergency'] ?? '')))
+  el.querySelector<HTMLSelectElement>('#designationSpeaker')?.addEventListener('change', event => { selectedSpeakerId = (event.target as HTMLSelectElement).value; render() })
+  el.querySelector<HTMLButtonElement>('#designationWhats')?.addEventListener('click', () => void sendDesignationMessage())
 }
 
 function renderTabContent(tab: OradoresTab): string {
   if (tab === 'cadastro') return cadastroView()
   if (tab === 'programacao') return programacaoView()
+  if (tab === 'designacoes') return designacoesView()
   if (tab === 'temas') return temasView()
   if (tab === 'congregacoes') return congregacoesView()
   if (tab === 'intercambios') return intercambiosView()
   if (tab === 'emergencia') return emergenciaView()
   if (tab === 'eventos') return eventosView()
   return pendenciasView()
+}
+
+function talkPlace(talk: LegacyProgramacao): string {
+  const type = canonicalTalkType(talk.tipo)
+  if (type === 'discurso_local') return 'Nossa congregação'
+  const congregationId = type === 'saida_orador' ? talk.congregacaoDestinoId ?? talk.congregacaoId : talk.congregacaoOrigemId ?? talk.congregacaoId
+  return discursos.congregacoes?.[congregationId ?? '']?.nome ?? (type === 'saida_orador' ? 'Destino não informado' : 'Origem não informada')
+}
+
+function designationLines(entries: Array<[string, LegacyProgramacao]>): string[] {
+  return entries.map(([, talk]) => `${formatDate(talk.data)} · ${talkPlace(talk)} · Tema ${talk.temaNumero ?? ''} ${talk.temaTitulo ?? 'a definir'} · ${deriveStatus(talk) === 'confirmado' ? 'Confirmado' : 'A confirmar'}`)
+}
+
+function designacoesView(): string {
+  const speakers = Object.entries(discursos.oradores ?? {}).filter(([, speaker]) => speaker.ativo !== false).sort(([idA, a], [idB, b]) => oradorNome(idA, a).localeCompare(oradorNome(idB, b), 'pt-BR'))
+  if (!selectedSpeakerId || !discursos.oradores?.[selectedSpeakerId]) selectedSpeakerId = speakers[0]?.[0] ?? ''
+  const entries = assignmentsForSpeaker(discursos.programacao ?? {}, selectedSpeakerId, todayStr())
+  const speaker = discursos.oradores?.[selectedSpeakerId]
+  const draft = entries.length ? `Olá, ${oradorNome(selectedSpeakerId, speaker)}! Estas são suas próximas designações:\n\n${designationLines(entries).map(line => `• ${line}`).join('\n')}\n\nPor favor, confirme se está tudo certo.` : ''
+  return `<div style="margin-top:14px"><div class="form-group"><label class="form-label">Orador</label><select id="designationSpeaker" class="form-select">${speakers.map(([id, item]) => `<option value="${escapeHtml(id)}" ${id === selectedSpeakerId ? 'selected' : ''}>${escapeHtml(oradorNome(id, item))}</option>`).join('')}</select></div><div class="module-option-list">${entries.length ? entries.map(([, talk]) => `<div class="module-menu-btn" style="cursor:default"><div style="flex:1"><div class="mod-label">${escapeHtml(formatDate(talk.data))} · ${escapeHtml(talkPlace(talk))}</div><div class="mod-desc">Tema ${escapeHtml(talk.temaNumero ?? '')} ${escapeHtml(talk.temaTitulo ?? 'a definir')} · ${deriveStatus(talk) === 'confirmado' ? 'Confirmado' : 'A confirmar'}${talk.avisadoEm ? ' · Avisado' : ''}</div></div></div>`).join('') : '<p class="empty-state">Nenhuma designação futura para este orador.</p>'}</div>${entries.length ? `<div class="form-group" style="margin-top:14px"><label class="form-label">Mensagem</label><textarea id="designationText" class="form-input" rows="11">${escapeHtml(draft)}</textarea></div><button id="designationWhats" class="btn btn-primary">Abrir WhatsApp</button>` : ''}</div>`
+}
+
+async function sendDesignationMessage(): Promise<void> {
+  const speaker = discursos.oradores?.[selectedSpeakerId]
+  const phone = digits(oradorTelefone(speaker))
+  const message = (document.getElementById('designationText') as HTMLTextAreaElement | null)?.value.trim() ?? ''
+  if (!phone) { toast('Cadastre o WhatsApp desta pessoa no Admin'); return }
+  if (!message) { toast('Escreva a mensagem'); return }
+  const popup = window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer')
+  if (!popup) { toast('Permita pop-ups para abrir o WhatsApp'); return }
+  const entries = assignmentsForSpeaker(discursos.programacao ?? {}, selectedSpeakerId, todayStr())
+  const stamp = new Date().toISOString()
+  const patch = Object.fromEntries(entries.map(([id]) => [`programacao/${id}/avisadoEm`, stamp]))
+  try {
+    await update(tarefasDiscursosRef, patch)
+    entries.forEach(([id, talk]) => { talk.avisadoEm = stamp; if (discursos.programacao?.[id]) discursos.programacao[id] = talk })
+    toast('WhatsApp aberto; revise antes de enviar'); render()
+  } catch { toast('WhatsApp aberto, mas não foi possível registrar os avisos') }
 }
 
 function candidatesFor(id: string, talk: LegacyProgramacao) {

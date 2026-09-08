@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { allowedTheme, confirmationPatch, congregationIdOf, deriveStatus, emergencyCandidates, eventBlocksLocal, needsReconfirmation, realizedSpeakerId, talkConflicts, themeHistory, watchtowerIssues } from '../src/modules/oradores-domain.ts'
+import { allowedTheme, assignmentsForSpeaker, confirmationPatch, congregationIdOf, deriveStatus, emergencyCandidates, eventBlocksLocal, needsReconfirmation, realizedSpeakerId, talkConflicts, themeHistory, watchtowerIssues } from '../src/modules/oradores-domain.ts'
 
 test('origem e destino seguem o tipo da programação', () => {
   assert.equal(congregationIdOf({ tipo: 'saida_orador', congregacaoDestinoId: 'destino', congregacaoOrigemId: 'origem' }), 'destino')
@@ -55,4 +55,14 @@ test('Sentinela exige dirigente e substituto locais, ativos e diferentes', () =>
     v: { tipo: 'visitante', ativo: true, sentinelaDirigente: true },
   }), [])
   assert.equal(watchtowerIssues({ d: { tipo: 'local', ativo: true, sentinelaDirigente: true, sentinelaSubstituto: true } }).length, 1)
+})
+
+test('designações futuras passam ao substituto sem apagar o original', () => {
+  const talks = {
+    normal: { data: '2026-09-20', oradorId: 'a' },
+    troca: { data: '2026-09-21', oradorId: 'a', desistiu: true, substitutoId: 'b' },
+    passado: { data: '2026-08-01', oradorId: 'b' },
+  }
+  assert.deepEqual(assignmentsForSpeaker(talks, 'a', '2026-09-08').map(([id]) => id), ['normal'])
+  assert.deepEqual(assignmentsForSpeaker(talks, 'b', '2026-09-08').map(([id]) => id), ['troca'])
 })
