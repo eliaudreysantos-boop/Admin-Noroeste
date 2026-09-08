@@ -38,6 +38,9 @@ let notified: Record<string, Record<string, string>> = {}
 let tab: Tab = 'indice'
 let pendingParticipantId = ''
 
+const ESCALA_MONTH_KEY = 'noroeste:escala:month'
+const ESCALA_LOCAL_KEY = 'noroeste:escala:local'
+
 const root = () => document.getElementById('escalaContent')!
 const orderedLocals = () => Object.entries(locals).sort((a, b) => Number(a[1].sortOrder ?? 0) - Number(b[1].sortOrder ?? 0))
 const orderedPeople = (active = false) => Object.entries(participants).filter(([, p]) => !active || p.active !== false).sort((a, b) => name(a[0]).localeCompare(name(b[0]), 'pt-BR'))
@@ -78,7 +81,8 @@ async function load(): Promise<void> {
     tables = data.tables ?? {}; blocks = data.monthSlotBlocks ?? {}; exclusions = data.monthExclusions ?? {}
     settings = data.settings ?? {}; greetings = data.greetings ?? {}; publishedMonth = data.publishedMonth ?? ''
     notified = data.notified ?? {}
-    selectedMonth = /^\d{4}-\d{2}$/.test(data.editingMonth ?? '') ? data.editingMonth! : monthNow()
+    const savedMonth = localStorage.getItem(ESCALA_MONTH_KEY) ?? data.editingMonth
+    selectedMonth = /^\d{4}-\d{2}$/.test(savedMonth ?? '') ? savedMonth! : monthNow()
     pessoas = peopleSnap.exists() ? peopleSnap.val() as RawPessoas : {}
     const rawProfiles = data.participants ?? {}
     participants = Object.fromEntries(Object.entries(rawProfiles).map(([id, profile]) => {
@@ -87,7 +91,9 @@ async function load(): Promise<void> {
       return [id, central ? { ...profile, name: central.name, sex: central.sex ?? profile.sex, phone: central.whatsapp ?? profile.phone } : profile]
     }))
     historicalSnapshots = data.publishedSnapshots ?? {}
-    selectedLocalId = orderedLocals()[0]?.[0] ?? ''; selectedParticipantId = orderedPeople(true)[0]?.[0] ?? ''
+    const savedLocal = localStorage.getItem(ESCALA_LOCAL_KEY) ?? ''
+    selectedLocalId = locals[savedLocal] ? savedLocal : orderedLocals()[0]?.[0] ?? ''
+    selectedParticipantId = orderedPeople(true)[0]?.[0] ?? ''
   } catch (error) { console.error(error); toast('Não foi possível carregar a Escala') }
   render()
 }
@@ -122,9 +128,9 @@ function periodControls(local = true): string {
 function bindPeriod(rerender: () => void): void {
   document.getElementById('eMonth')?.addEventListener('change', event => {
     const value = (event.target as HTMLInputElement).value
-    if (/^\d{4}-\d{2}$/.test(value)) { selectedMonth = value; void update(escalaRef, { editingMonth: value }); rerender() }
+    if (/^\d{4}-\d{2}$/.test(value)) { selectedMonth = value; localStorage.setItem(ESCALA_MONTH_KEY, value); rerender() }
   })
-  document.getElementById('eLocal')?.addEventListener('change', event => { selectedLocalId = (event.target as HTMLSelectElement).value; rerender() })
+  document.getElementById('eLocal')?.addEventListener('change', event => { selectedLocalId = (event.target as HTMLSelectElement).value; localStorage.setItem(ESCALA_LOCAL_KEY, selectedLocalId); rerender() })
 }
 
 const DOW_LABELS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']

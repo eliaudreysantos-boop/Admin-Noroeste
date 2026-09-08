@@ -95,8 +95,15 @@ let settings: TarefasSettings = {}
 let congregationName = 'Noroeste'
 let masterPeople: Record<string, { name?: string; whatsapp?: string; active?: boolean }> = {}
 let context: AppContext
+const TAREFAS_PERIOD_KEY = 'noroeste:tarefas:period'
+const TAREFAS_PERIOD_MODE_KEY = 'noroeste:tarefas:period-mode'
+const TAREFAS_PENDING_DATES_KEY = 'noroeste:tarefas:pending-dates'
+const TAREFAS_ROLE_KEY = 'noroeste:tarefas:generate-role'
+
 let selectedPeriodMonth = monthNow()
-let onlyPendingMeetings = false
+let selectedPeriodMode: 'month' | 'bimester' = 'bimester'
+let onlyPendingMeetings = localStorage.getItem(TAREFAS_PENDING_DATES_KEY) === 'true'
+let selectedGenerateRole = localStorage.getItem(TAREFAS_ROLE_KEY) ?? ''
 let participantSearch = ''
 let participantMeetingRule = ''
 let participantRoleFilter = ''
@@ -237,8 +244,12 @@ async function loadTarefas(): Promise<void> {
     pessoas = peopleSnap.exists() ? (peopleSnap.val() as Record<string, TarefasPessoa>) : {}
     periods = scaleSnap.exists() ? (scaleSnap.val() as Record<string, TarefasPeriod>) : {}
     planning = planningSnap.exists() ? (planningSnap.val() as TarefasPlanning) : {}
-    const savedPeriod = planning.editingPeriod ?? planning.scaleStartDate?.slice(0, 7)
+    const savedPeriod = localStorage.getItem(TAREFAS_PERIOD_KEY) ?? planning.editingPeriod ?? planning.scaleStartDate?.slice(0, 7)
     selectedPeriodMonth = /^\d{4}-\d{2}$/.test(savedPeriod ?? '') ? savedPeriod! : monthNow()
+    const savedPeriodMode = localStorage.getItem(TAREFAS_PERIOD_MODE_KEY)
+    selectedPeriodMode = savedPeriodMode === 'month' || savedPeriodMode === 'bimester'
+      ? savedPeriodMode
+      : planning.periodMode === 'month' ? 'month' : 'bimester'
     events = eventsSnap.exists() ? (eventsSnap.val() as Record<string, TaskEvent>) : {}
     const discursos = discursosSnap.exists() ? (discursosSnap.val() as Record<string, unknown>) : {}
     speakers = (discursos['oradores'] ?? {}) as Record<string, TaskSpeaker>
@@ -287,7 +298,7 @@ function renderEscala(): void {
   const content = document.getElementById('tarefasContent')
   if (!content) return
 
-  const periodMode = planning.periodMode === 'month' ? 'month' : 'bimester'
+  const periodMode = selectedPeriodMode
   const selectedPeriodId = periodKeyForDate(`${selectedPeriodMonth}-01`, periodMode)
   const locked = periods[selectedPeriodId]?.locked === true
   const allPeriodMeetings = Object.values(periods[selectedPeriodId]?.meetings ?? {})
@@ -311,7 +322,7 @@ function renderEscala(): void {
       <details style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border)">
         <summary style="cursor:pointer;font-size:.86rem;font-weight:700;color:var(--ink-2)">Refazer uma função ou ajustar a impressão</summary>
         <div class="module-form-grid" style="margin-top:10px">
-          <div class="form-group" style="margin:0"><label class="form-label" for="tarefasGenerateRole">Função</label><select id="tarefasGenerateRole" class="form-select"><option value="">Escolha a função</option>${TASK_ROLES.map(role => `<option value="${role}">${escapeHtml(TASK_ROLE_LABELS[role])}</option>`).join('')}</select></div>
+          <div class="form-group" style="margin:0"><label class="form-label" for="tarefasGenerateRole">Função</label><select id="tarefasGenerateRole" class="form-select"><option value="">Escolha a função</option>${TASK_ROLES.map(role => `<option value="${role}" ${role === selectedGenerateRole ? 'selected' : ''}>${escapeHtml(TASK_ROLE_LABELS[role])}</option>`).join('')}</select></div>
           <div class="scale-actions" style="align-items:end"><button id="btnGenerateTaskRole" class="btn btn-ghost" type="button" ${locked ? 'disabled' : ''}>Gerar função</button><button id="btnClearTaskRole" class="btn btn-danger" type="button" ${locked ? 'disabled' : ''}>Limpar função</button></div>
         </div>
         <label style="display:flex;align-items:center;gap:7px;margin-top:12px;font-size:.84rem;color:var(--ink-2)"><input id="tarefasOnlyPending" type="checkbox" ${onlyPendingMeetings ? 'checked' : ''}> Apenas datas pendentes</label>
@@ -341,6 +352,7 @@ function renderEscala(): void {
     const modeInput = document.getElementById('tarefasPeriodMode') as HTMLSelectElement | null
     if (!monthInput || !/^\d{4}-\d{2}$/.test(monthInput.value)) { toast('Selecione um período válido'); return }
     selectedPeriodMonth = monthInput.value
+    localStorage.setItem(TAREFAS_PERIOD_KEY, selectedPeriodMonth)
     const mode = modeInput?.value === 'month' ? 'month' : 'bimester'
     void generateScale(`${selectedPeriodMonth}-01`, mode, null, onlyPendingMeetings)
   })
@@ -358,17 +370,27 @@ function renderEscala(): void {
   document.getElementById('btnClearTaskScale')?.addEventListener('click', () => void clearTaskScale(selectedPeriodId))
   document.getElementById('tarefasOnlyPending')?.addEventListener('change', event => {
     onlyPendingMeetings = (event.target as HTMLInputElement).checked
+    localStorage.setItem(TAREFAS_PENDING_DATES_KEY, String(onlyPendingMeetings))
+  })
+  document.getElementById('tarefasGenerateRole')?.addEventListener('change', event => {
+    selectedGenerateRole = (event.target as HTMLSelectElement).value
+    localStorage.setItem(TAREFAS_ROLE_KEY, selectedGenerateRole)
   })
   document.getElementById('tarefasPeriodMonth')?.addEventListener('change', event => {
     const value = (event.target as HTMLInputElement).value
     const mode = (document.getElementById('tarefasPeriodMode') as HTMLSelectElement | null)?.value === 'month' ? 'month' : 'bimester'
-    if (/^\d{4}-\d{2}$/.test(value)) selectedPeriodMonth = periodKeyForDate(`${value}-01`, mode)
+    if (/^\d{4}-\d{2}$/.test(value)) {
+      selectedPeriodMonth = periodKeyForDate(`${value}-01`, mode)
+      localStorage.setItem(TAREFAS_PERIOD_KEY, selectedPeriodMonth)
+    }
     renderEscala()
   })
   document.getElementById('tarefasPeriodMode')?.addEventListener('change', event => {
     const mode = (event.target as HTMLSelectElement).value === 'month' ? 'month' : 'bimester'
-    planning = { ...planning, periodMode: mode }
+    selectedPeriodMode = mode
+    localStorage.setItem(TAREFAS_PERIOD_MODE_KEY, mode)
     selectedPeriodMonth = periodKeyForDate(`${selectedPeriodMonth}-01`, mode)
+    localStorage.setItem(TAREFAS_PERIOD_KEY, selectedPeriodMonth)
     renderEscala()
   })
   bindAssignmentEditors()
