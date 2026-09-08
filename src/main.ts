@@ -169,13 +169,16 @@ async function init(): Promise<void> {
     loginError.textContent = ''
   })
 
+  const usuariosPromise = loadUsuarios()
+
   try {
     usuariosDisponiveis = await Promise.race([
-      loadUsuarios(),
+      usuariosPromise,
       new Promise<RawUsuarios>((_, reject) => {
         setTimeout(() => reject(new Error('Tempo excedido ao carregar usuários')), 8000)
       }),
     ])
+    carregandoUsuarios = false
     setStatus('Conectado ao Firebase ✓')
   } catch (err) {
     setStatus('Erro de conexão com Firebase')
@@ -185,9 +188,19 @@ async function init(): Promise<void> {
     } else {
       loginError.textContent = 'Conexão lenta. A lista anterior está disponível; confirme o login quando a conexão voltar.'
     }
-  } finally {
-    carregandoUsuarios = false
   }
+
+  // O timeout informa lentidao, mas nao cancela a leitura. Quando o Firebase
+  // responder, recupera automaticamente o login sem exigir recarregar a pagina.
+  void usuariosPromise.then(usuarios => {
+    usuariosDisponiveis = usuarios
+    populateUsuarioSelect(usuariosDisponiveis)
+    carregandoUsuarios = false
+    loginError.textContent = ''
+    setStatus('Conectado ao Firebase ✓')
+  }).catch(() => {
+    carregandoUsuarios = false
+  })
 
   // Tenta restaurar sessão
   const restored = await tryRestoreSession(usuariosDisponiveis)
@@ -223,5 +236,10 @@ if ('serviceWorker' in navigator) {
     // Evita que o shell PWA publicado interfira no desenvolvimento local.
     void navigator.serviceWorker.getRegistrations()
       .then(registrations => Promise.all(registrations.map(registration => registration.unregister())))
+    if ('caches' in window) {
+      void caches.keys().then(keys => Promise.all(
+        keys.filter(key => key.startsWith('noroeste-admin-')).map(key => caches.delete(key)),
+      ))
+    }
   }
 }
