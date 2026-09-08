@@ -43,9 +43,8 @@ import {
   buildTaskDayMessage,
   buildTaskPersonMessage,
   formatTaskDate,
-  paginateItems,
-  rowsPerPrintPage,
 } from './tarefas-output'
+import { printTaskSchedule } from './tarefas-documents'
 
 type TarefasTab = 'indice' | 'resumo' | 'escala' | 'participantes' | 'mensagens' | 'pendencias'
 
@@ -53,8 +52,6 @@ const PRINT_FONT_KEY = 'noroeste_tarefas_print_font_pt'
 const PRINT_MIN_PT = 8
 const PRINT_MAX_PT = 22
 const PRINT_DEFAULT_PT = 14
-const A4_LANDSCAPE_WIDTH_PX = ((297 - 16) / 25.4) * 96
-const A4_LANDSCAPE_HEIGHT_PX = ((210 - 16) / 25.4) * 96
 
 type TarefasPessoa = TaskPerson
 type TarefasMeeting = TaskMeeting
@@ -198,20 +195,6 @@ function roleLabel(key: string): string {
   return labels[key] ?? key
     .replace(/[_-]+/g, ' ')
     .replace(/\b\w/g, ch => ch.toUpperCase())
-}
-
-function assignmentName(value: unknown): string {
-  if (typeof value === 'string') return pessoas[value] ? pessoaNome(pessoas[value], value) : value
-  if (!value || typeof value !== 'object') return ''
-
-  const item = value as Record<string, unknown>
-  const direct = item['name'] ?? item['nome'] ?? item['label']
-  if (typeof direct === 'string' && direct.trim()) return direct
-
-  const id = item['personId'] ?? item['pessoaId'] ?? item['peopleId'] ?? item['id']
-  if (typeof id === 'string') return pessoas[id] ? pessoaNome(pessoas[id], id) : id
-
-  return ''
 }
 
 export default function mount(ctx: AppContext): void {
@@ -1044,75 +1027,6 @@ function gerarPdfTarefas(preferredFontPt: number): void {
     return
   }
 
-  const doc = document.createElement('div')
-  doc.className = 'tarefas-print-doc'
-  doc.innerHTML = printDocumentHtml(meetings)
-  document.body.appendChild(doc)
-
-  let chosen = Math.min(PRINT_MAX_PT, Math.max(PRINT_MIN_PT, Math.round(preferredFontPt)))
-  let fitsHeight = false
-  doc.dataset['measuring'] = 'true'
-
-  for (let size = chosen; size >= PRINT_MIN_PT; size -= 1) {
-    doc.style.fontSize = `${size}pt`
-    chosen = size
-    const fitsWidth = doc.scrollWidth <= A4_LANDSCAPE_WIDTH_PX
-    fitsHeight = doc.scrollHeight <= A4_LANDSCAPE_HEIGHT_PX
-    if (fitsWidth && fitsHeight) break
-  }
-
-  if (!fitsHeight) {
-    const headerHeight = doc.querySelector<HTMLElement>('.tarefas-print-header')?.offsetHeight ?? 0
-    const tableHeaderHeight = doc.querySelector<HTMLElement>('thead')?.offsetHeight ?? 0
-    const rows = [...doc.querySelectorAll<HTMLElement>('tbody tr')]
-    const rowHeight = Math.max(1, ...rows.map(row => row.offsetHeight))
-    const pageSize = rowsPerPrintPage(A4_LANDSCAPE_HEIGHT_PX, headerHeight, tableHeaderHeight, rowHeight)
-    doc.innerHTML = printDocumentHtml(meetings, pageSize)
-  }
-
-  delete doc.dataset['measuring']
-  doc.dataset['printing'] = 'true'
-  doc.style.fontSize = `${chosen}pt`
+  const chosen = printTaskSchedule(meetings, congregationName, pessoas, preferredFontPt)
   toast(`PDF em ${chosen} pt`)
-
-  const cleanup = () => {
-    window.removeEventListener('afterprint', cleanup)
-    doc.remove()
-  }
-  window.addEventListener('afterprint', cleanup)
-  window.print()
-  setTimeout(cleanup, 2000)
-}
-
-function printDocumentHtml(meetings: TarefasMeeting[], pageSize = meetings.length): string {
-  const roles = TASK_ROLES.filter(role => meetings.some(meeting => roleApplies(role, meeting)))
-  const lastMeeting = meetings[meetings.length - 1]
-  const pages = paginateItems(meetings, pageSize)
-
-  return pages.map((page, pageIndex) => `
-    <div class="tarefas-print-page">
-      <header class="tarefas-print-header">
-        <div>
-          <div class="tarefas-print-title">Escala de Tarefas</div>
-          <div class="tarefas-print-subtitle">${escapeHtml(congregationName)}</div>
-        </div>
-        <div class="tarefas-print-period">${formatDate(meetings[0]?.date)} - ${formatDate(lastMeeting?.date)}${pages.length > 1 ? ` · ${pageIndex + 1}/${pages.length}` : ''}</div>
-      </header>
-      <table class="tarefas-print-table">
-        <thead>
-          <tr>
-            <th>Data</th>
-            ${roles.map(role => `<th>${escapeHtml(roleLabel(role))}</th>`).join('')}
-          </tr>
-        </thead>
-        <tbody>
-          ${page.map(meeting => `
-            <tr>
-              <td>${formatDate(meeting.date)}</td>
-              ${roles.map(role => `<td>${escapeHtml(assignmentName(assignmentForRole(meeting, role as TaskRole)))}</td>`).join('')}
-            </tr>
-          `).join('')}
-        </tbody>
-      </table>
-    </div>`).join('')
 }

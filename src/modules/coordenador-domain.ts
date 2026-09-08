@@ -1,7 +1,7 @@
 import type { Usuario } from '../types'
 
 export type CoordinatorModule = 'tarefas' | 'escala' | 'limpeza' | 'oradores' | 'programacao' | 'secretario'
-export type CoordinatorDocument = 'limpeza-pdf' | 's89-semana' | 's140-pdf' | 's140-docx'
+export type CoordinatorDocument = 'tarefas-pdf' | 'limpeza-pdf' | 's89-semana' | 's140-pdf' | 's140-docx'
 
 export interface CoordinatorExportDefinition {
   id: CoordinatorDocument
@@ -10,6 +10,7 @@ export interface CoordinatorExportDefinition {
 }
 
 export const COORDINATOR_EXPORTS: CoordinatorExportDefinition[] = [
+  { id: 'tarefas-pdf', module: 'tarefas', label: 'PDF de Tarefas' },
   { id: 'limpeza-pdf', module: 'limpeza', label: 'PDF da limpeza' },
   { id: 's89-semana', module: 'programacao', label: 'S-89 da semana' },
   { id: 's140-pdf', module: 'programacao', label: 'S-140 PDF' },

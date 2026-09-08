@@ -1,7 +1,8 @@
 import type { AppContext, LimpezaPeriodoGerado, RawPessoas } from '../types'
-import { configCongregacaoRef, get, limpezaPeriodosRef, pessoasRef, programacaoRef } from '../firebase'
+import { configCongregacaoRef, get, limpezaPeriodosRef, pessoasRef, programacaoRef, tarefasPeopleRef, tarefasScaleRef } from '../firebase'
 import { canExportDocument, canViewCoordinatorCard, type CoordinatorDocument, type CoordinatorModule } from './coordenador-domain'
 import type { AssignmentPermission, MeetingProgram, ProgramPart, ProgramPerson } from './programacao-domain'
+import { canonicalMeetingType, type TaskMeeting, type TaskPeriod, type TaskPerson } from './tarefas-domain'
 
 const META: Array<{ id: CoordinatorModule; title: string; description: string; color: string }> = [
   { id: 'tarefas', title: 'Tarefas', description: 'Escala das reuniões', color: '#7E3AF2' },
@@ -27,10 +28,30 @@ export default function mount(ctx: AppContext): void {
 async function loadCard(module: CoordinatorModule, body: HTMLElement): Promise<void> {
   body.innerHTML = '<p class="empty-state">Carregando...</p>'
   try {
-    if (module === 'limpeza') await loadCleaning(body)
+    if (module === 'tarefas') await loadTasks(body)
+    else if (module === 'limpeza') await loadCleaning(body)
     else if (module === 'programacao') await loadProgramacao(body)
     else body.innerHTML = '<p class="empty-state">Nenhum documento desacoplado disponível neste módulo.</p>'
   } catch (error) { console.error(error); body.innerHTML = '<p class="empty-state">Não foi possível carregar os documentos.</p>' }
+}
+
+async function loadTasks(body: HTMLElement): Promise<void> {
+  const [periodSnap, profileSnap, peopleSnap, congregationSnap] = await Promise.all([get(tarefasScaleRef), get(tarefasPeopleRef), get(pessoasRef), get(configCongregacaoRef)])
+  const periods = periodSnap.exists() ? periodSnap.val() as Record<string, TaskPeriod> : {}
+  const profiles = profileSnap.exists() ? profileSnap.val() as Record<string, TaskPerson> : {}
+  const master = peopleSnap.exists() ? peopleSnap.val() as RawPessoas : {}
+  const people = Object.fromEntries(Object.entries(profiles).map(([id, profile]) => { const central = profile.masterId ? master[profile.masterId] : undefined; return [id, central ? { ...profile, name: central.name, phone: central.whatsapp } : profile] }))
+  const congregation = congregationSnap.exists() ? (congregationSnap.val() as { nome?: string }).nome || 'Noroeste' : 'Noroeste'
+  const entries = Object.entries(periods).filter(([, period]) => Object.values(period.meetings ?? {}).some(meeting => canonicalMeetingType(meeting.type))).sort(([a], [b]) => b.localeCompare(a))
+  body.innerHTML = entries.length ? `<label class="form-label">Período</label><select id="coordTaskPeriod" class="form-select">${entries.map(([id]) => `<option value="${esc(id)}">${esc(id)}</option>`).join('')}</select><label class="form-label" style="margin-top:10px">Tamanho máximo da letra</label><input id="coordTaskFont" type="range" min="8" max="22" value="14" style="width:100%"><button id="coordTaskPdf" class="btn btn-primary btn-full" style="margin-top:12px">Gerar PDF</button>` : '<p class="empty-state">Nenhum período de Tarefas gerado.</p>'
+  body.querySelector('#coordTaskPdf')?.addEventListener('click', async () => {
+    if (!requireExport('tarefas-pdf')) return
+    const period = periods[(body.querySelector('#coordTaskPeriod') as HTMLSelectElement).value]
+    const meetings = Object.values(period?.meetings ?? {}).filter((meeting): meeting is TaskMeeting => Boolean(canonicalMeetingType(meeting.type))).sort((a, b) => String(a.date).localeCompare(String(b.date)))
+    if (!meetings.length) { toast('Este período não possui reuniões geradas'); return }
+    const { printTaskSchedule } = await import('./tarefas-documents')
+    const chosen = printTaskSchedule(meetings, congregation, people, Number((body.querySelector('#coordTaskFont') as HTMLInputElement).value)); toast(`PDF em ${chosen} pt`)
+  })
 }
 
 function requireExport(id: CoordinatorDocument): boolean {
