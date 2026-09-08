@@ -18,12 +18,18 @@ export const COORDINATOR_EXPORTS: CoordinatorExportDefinition[] = [
   { id: 's140-docx', module: 'programacao', label: 'S-140 DOCX' },
 ]
 
+export function coordinatorDocumentModules(usuario: Usuario): CoordinatorModule[] {
+  return [...new Set(COORDINATOR_EXPORTS
+    .filter(item => usuario.apps[item.module] === true)
+    .map(item => item.module))]
+}
+
 export function isCoordinator(usuario: Usuario): boolean {
   return usuario.ativo && usuario.secretarioPapel === 'coordenador'
 }
 
 export function canViewCoordinatorCard(usuario: Usuario, module: CoordinatorModule): boolean {
-  return isCoordinator(usuario) && usuario.apps[module] === true
+  return isCoordinator(usuario) && coordinatorDocumentModules(usuario).includes(module)
 }
 
 export function canExportDocument(usuario: Usuario, documentId: CoordinatorDocument): boolean {

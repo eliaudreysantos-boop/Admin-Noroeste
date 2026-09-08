@@ -1,6 +1,6 @@
 import type { AppContext, LimpezaPeriodoGerado, RawPessoas } from '../types'
 import { configCongregacaoRef, escalaRef, get, limpezaPeriodosRef, pessoasRef, programacaoRef, tarefasPeopleRef, tarefasScaleRef } from '../firebase'
-import { canExportDocument, canViewCoordinatorCard, type CoordinatorDocument, type CoordinatorModule } from './coordenador-domain'
+import { canExportDocument, canViewCoordinatorCard, coordinatorDocumentModules, type CoordinatorDocument, type CoordinatorModule } from './coordenador-domain'
 import type { AssignmentPermission, MeetingProgram, ProgramPart, ProgramPerson } from './programacao-domain'
 import { canonicalMeetingType, type TaskMeeting, type TaskPeriod, type TaskPerson } from './tarefas-domain'
 import { participantDirectoryForHistory, type EscalaAvailability, type EscalaLocal, type EscalaParticipant, type EscalaPublishedSnapshot, type EscalaTables } from './escala-domain'
@@ -9,9 +9,7 @@ const META: Array<{ id: CoordinatorModule; title: string; description: string; c
   { id: 'tarefas', title: 'Tarefas', description: 'Escala das reuniões', color: '#7E3AF2' },
   { id: 'escala', title: 'Escala', description: 'Escala de campo', color: '#1A6B3C' },
   { id: 'limpeza', title: 'Limpeza', description: 'Períodos já gerados', color: '#006EB6' },
-  { id: 'oradores', title: 'Oradores', description: 'Discursos públicos', color: '#5C6062' },
   { id: 'programacao', title: 'Programação', description: 'S-89 e S-140', color: '#003F72' },
-  { id: 'secretario', title: 'Secretário', description: 'Documentos autorizados', color: '#B3261E' },
 ]
 
 let context: AppContext
@@ -21,8 +19,9 @@ const toast = (message: string) => { const el = document.getElementById('toast')
 export default function mount(ctx: AppContext): void {
   context = ctx
   const root = document.getElementById('appContent')!
-  const cards = META.filter(item => canViewCoordinatorCard(ctx.usuario, item.id))
-  root.innerHTML = `<div class="coordinator-page"><h2 style="font-size:1.1rem;margin-bottom:14px">Coordenador</h2><div class="coordinator-grid">${cards.map(item => `<details class="coordinator-card" data-coordinator-card="${item.id}"><summary><span class="mod-icon" style="background:${item.color}20;color:${item.color}">▤</span><span><strong>${item.title}</strong><small>${item.description}</small></span><span aria-hidden="true">⌄</span></summary><div class="coordinator-card-body"><p class="empty-state">Abra para carregar os documentos.</p></div></details>`).join('')}</div></div>`
+  const available = new Set(coordinatorDocumentModules(ctx.usuario))
+  const cards = META.filter(item => available.has(item.id) && canViewCoordinatorCard(ctx.usuario, item.id))
+  root.innerHTML = `<div class="coordinator-page"><h2 style="font-size:1.1rem;margin-bottom:14px">Documentos</h2><div class="coordinator-grid">${cards.map(item => `<details class="coordinator-card" data-coordinator-card="${item.id}"><summary><span class="mod-icon" style="background:${item.color}20;color:${item.color}">▤</span><span><strong>${item.title}</strong><small>${item.description}</small></span><span aria-hidden="true">⌄</span></summary><div class="coordinator-card-body"><p class="empty-state">Abra para escolher o documento.</p></div></details>`).join('') || '<p class="empty-state">Nenhum documento está autorizado para este usuário.</p>'}</div></div>`
   root.querySelectorAll<HTMLDetailsElement>('[data-coordinator-card]').forEach(card => card.addEventListener('toggle', () => { if (card.open && !card.dataset['loaded']) { card.dataset['loaded'] = 'true'; void loadCard(card.dataset['coordinatorCard'] as CoordinatorModule, card.querySelector<HTMLElement>('.coordinator-card-body')!) } }))
 }
 
