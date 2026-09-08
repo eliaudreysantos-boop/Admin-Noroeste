@@ -2,7 +2,7 @@ import type { AppContext, RawPessoas } from '../types'
 import { get, pessoasRef, update, tarefasDiscursosRef, tarefasScaleRef } from '../firebase'
 import { renderMenuCards, type ItemMenu } from '../ui/menu-cards'
 import { moduleBackButton, moduleTitle } from '../ui/module-header'
-import { allowedTheme, confirmationPatch, eventBlocksLocal, talkConflicts, type Congregation, type Speaker, type Talk, type Theme } from './oradores-domain'
+import { allowedTheme, confirmationPatch, deriveStatus, eventBlocksLocal, needsReconfirmation, talkConflicts, type Congregation, type Speaker, type Talk, type Theme } from './oradores-domain'
 
 interface LegacyOrador extends Speaker {}
 interface LegacyProgramacao extends Talk {}
@@ -312,7 +312,7 @@ function programacaoView(): string {
 function openProgramacaoModal(id: string | null): void {
   const current = id ? discursos.programacao?.[id] : undefined
   const speakers = Object.entries(discursos.oradores ?? {}).sort(([idA, a], [idB, b]) => oradorNome(idA, a).localeCompare(oradorNome(idB, b), 'pt-BR'))
-  const options = speakers.map(([speakerId, speaker]) => `<option value="${escapeHtml(speakerId)}" ${speakerId === current?.oradorId ? 'selected' : ''}>${escapeHtml(oradorNome(speakerId, speaker))}</option>`).join('')
+  const speakerOptions = (selected?: string) => speakers.map(([speakerId, speaker]) => `<option value="${escapeHtml(speakerId)}" ${speakerId === selected ? 'selected' : ''}>${escapeHtml(oradorNome(speakerId, speaker))}</option>`).join('')
   const congregacoes = Object.entries(discursos.congregacoes ?? {}).filter(([, c]) => c.ativa !== false).sort(([, a], [, b]) => (a.nome ?? '').localeCompare(b.nome ?? '', 'pt-BR'))
   const currentCongregationId = canonicalTalkType(current?.tipo) === 'saida_orador' ? current?.congregacaoDestinoId ?? current?.congregacaoId : current?.congregacaoOrigemId ?? current?.congregacaoId
   const congregationOptions = congregacoes.map(([congId, congregation]) => `<option value="${escapeHtml(congId)}" ${congId === currentCongregationId ? 'selected' : ''}>${escapeHtml(congregation.nome ?? congId)}</option>`).join('')
@@ -320,7 +320,7 @@ function openProgramacaoModal(id: string | null): void {
   const currentType = canonicalTalkType(current?.tipo)
   const overlay = document.createElement('div')
   overlay.className = 'modal-overlay'
-  overlay.innerHTML = `<div class="modal"><h2>${id ? 'Editar programação' : 'Nova programação'}</h2><div class="form-group"><label class="form-label" for="progData">Data</label><input id="progData" class="form-input" type="date" value="${escapeHtml(current?.data ?? '')}"></div><div class="form-group"><label class="form-label" for="progTipo">Tipo</label><select id="progTipo" class="form-select"><option value="discurso_local" ${currentType === 'discurso_local' ? 'selected' : ''}>Discurso local</option><option value="discurso_visitante" ${currentType === 'discurso_visitante' ? 'selected' : ''}>Orador visitante</option><option value="saida_orador" ${currentType === 'saida_orador' ? 'selected' : ''}>Saída de orador</option></select></div><div class="form-group"><label class="form-label" for="progOrador">Orador</label><select id="progOrador" class="form-select"><option value="">A definir</option>${options}</select></div><div class="form-group"><label class="form-label" for="progCongregacao">Congregação de origem ou destino</label><select id="progCongregacao" class="form-select"><option value="">Nenhuma</option>${congregationOptions}</select></div><div class="form-group"><label class="form-label" for="progTema">Tema aprovado</label><select id="progTema" class="form-select"><option value="">A definir</option>${themeOptions}</select></div><div class="form-group"><label class="form-label" for="progStatus">Status</label><select id="progStatus" class="form-select"><option value="por_definir" ${current?.status === 'por_definir' ? 'selected' : ''}>Por definir</option><option value="por_confirmar" ${current?.status !== 'confirmado' && current?.status !== 'por_definir' ? 'selected' : ''}>A confirmar</option><option value="confirmado" ${current?.status === 'confirmado' ? 'selected' : ''}>Confirmado</option></select></div><div style="display:flex;gap:8px;margin-top:8px"><button id="cancelProg" class="btn btn-ghost" type="button" style="flex:1">Cancelar</button><button id="saveProg" class="btn btn-primary" type="button" style="flex:1">Salvar</button></div></div>`
+  overlay.innerHTML = `<div class="modal"><h2>${id ? 'Editar programação' : 'Nova programação'}</h2><div class="form-group"><label class="form-label" for="progData">Data</label><input id="progData" class="form-input" type="date" value="${escapeHtml(current?.data ?? '')}"></div><div class="form-group"><label class="form-label" for="progTipo">Tipo</label><select id="progTipo" class="form-select"><option value="discurso_local" ${currentType === 'discurso_local' ? 'selected' : ''}>Discurso local</option><option value="discurso_visitante" ${currentType === 'discurso_visitante' ? 'selected' : ''}>Orador visitante</option><option value="saida_orador" ${currentType === 'saida_orador' ? 'selected' : ''}>Saída de orador</option></select></div><div class="form-group"><label class="form-label" for="progOrador">Orador original</label><select id="progOrador" class="form-select"><option value="">A definir</option>${speakerOptions(current?.oradorId)}</select></div><label style="display:flex;gap:8px;margin-bottom:12px"><input id="progDesistiu" type="checkbox" ${current?.desistiu ? 'checked' : ''}> O orador original desistiu</label><div class="form-group"><label class="form-label" for="progSubstituto">Substituto</label><select id="progSubstituto" class="form-select"><option value="">Ainda não definido</option>${speakerOptions(current?.substitutoId)}</select></div><div class="form-group"><label class="form-label" for="progRealizado">Quem realizou</label><select id="progRealizado" class="form-select"><option value="">Registrar depois</option>${speakerOptions(current?.realizadoPorId)}</select></div><div class="form-group"><label class="form-label" for="progCongregacao">Congregação de origem ou destino</label><select id="progCongregacao" class="form-select"><option value="">Nenhuma</option>${congregationOptions}</select></div><div class="form-group"><label class="form-label" for="progTema">Tema aprovado</label><select id="progTema" class="form-select"><option value="">A definir</option>${themeOptions}</select></div><div class="form-group"><label class="form-label" for="progStatus">Status</label><select id="progStatus" class="form-select"><option value="por_definir" ${current?.status === 'por_definir' ? 'selected' : ''}>Por definir</option><option value="por_confirmar" ${current?.status !== 'confirmado' && current?.status !== 'por_definir' ? 'selected' : ''}>A confirmar</option><option value="confirmado" ${current?.status === 'confirmado' ? 'selected' : ''}>Confirmado</option></select></div><label style="display:flex;gap:8px;margin-bottom:12px"><input id="progReconfirmado" type="checkbox" ${current?.reconfirmacao?.status ? 'checked' : ''}> Reconfirmado para a semana da reunião</label><div style="display:flex;gap:8px;margin-top:8px"><button id="cancelProg" class="btn btn-ghost" type="button" style="flex:1">Cancelar</button><button id="saveProg" class="btn btn-primary" type="button" style="flex:1">Salvar</button></div></div>`
   document.body.appendChild(overlay)
   overlay.addEventListener('click', event => { if (event.target === overlay) overlay.remove() })
   overlay.querySelector('#cancelProg')?.addEventListener('click', () => overlay.remove())
@@ -328,8 +328,15 @@ function openProgramacaoModal(id: string | null): void {
 }
 
 async function saveProgramacao(id: string | null, overlay: HTMLElement): Promise<void> {
+  const current = id ? discursos.programacao?.[id] : undefined
   const oradorId = (overlay.querySelector('#progOrador') as HTMLSelectElement).value
   const orador = oradorId ? discursos.oradores?.[oradorId] : undefined
+  const substitutoId = (overlay.querySelector('#progSubstituto') as HTMLSelectElement).value
+  const substituto = substitutoId ? discursos.oradores?.[substitutoId] : undefined
+  const realizadoPorId = (overlay.querySelector('#progRealizado') as HTMLSelectElement).value
+  const realizadoPor = realizadoPorId ? discursos.oradores?.[realizadoPorId] : undefined
+  const desistiu = (overlay.querySelector('#progDesistiu') as HTMLInputElement).checked
+  const reconfirmado = (overlay.querySelector('#progReconfirmado') as HTMLInputElement).checked
   const tipo = (overlay.querySelector('#progTipo') as HTMLSelectElement).value as 'discurso_local' | 'discurso_visitante' | 'saida_orador'
   const congregacaoId = (overlay.querySelector('#progCongregacao') as HTMLSelectElement).value
   const congregacao = congregacaoId ? discursos.congregacoes?.[congregacaoId] : undefined
@@ -342,6 +349,13 @@ async function saveProgramacao(id: string | null, overlay: HTMLElement): Promise
     tipo,
     oradorId: oradorId || undefined,
     oradorNome: orador ? oradorNome(oradorId, orador) : undefined,
+    oradorOriginalId: current?.oradorOriginalId ?? (desistiu ? oradorId || undefined : undefined),
+    oradorOriginalNome: current?.oradorOriginalNome ?? (desistiu && orador ? oradorNome(oradorId, orador) : undefined),
+    desistiu,
+    substitutoId: substitutoId || undefined,
+    substitutoNome: substituto ? oradorNome(substitutoId, substituto) : undefined,
+    realizadoPorId: realizadoPorId || undefined,
+    realizadoPorNome: realizadoPor ? oradorNome(realizadoPorId, realizadoPor) : undefined,
     congregacaoId: congregacaoId || undefined,
     congregacaoOrigemId: tipo === 'discurso_visitante' ? congregacaoId || undefined : undefined,
     congregacaoOrigemNome: tipo === 'discurso_visitante' ? congregacao?.nome : undefined,
@@ -351,14 +365,18 @@ async function saveProgramacao(id: string | null, overlay: HTMLElement): Promise
     temaNumero: tema?.numero,
     temaTitulo: tema?.titulo,
     ...(status === 'por_definir' ? { status, confirmacao: undefined } : confirmationPatch(status, new Date().toISOString())),
+    reconfirmacao: reconfirmado ? { status: true, confirmadoEm: current?.reconfirmacao?.confirmadoEm || new Date().toISOString() } : undefined,
   }
   if (!record.data) { toast('Preencha a data'); return }
   const finalId = id ?? `p_${Date.now().toString(36)}`
   if (tipo === 'discurso_local' && eventBlocksLocal(discursos.eventos ?? {}, record.data)) { toast('Há um evento especial nesta data; não pode haver discurso local'); return }
   if (orador?.ativo === false) { toast('Selecione um orador ativo'); return }
+  if (substituto?.ativo === false || realizadoPor?.ativo === false) { toast('Substituto e responsável pela realização precisam estar ativos'); return }
+  if (desistiu && substitutoId === oradorId) { toast('O substituto deve ser outra pessoa'); return }
   if ((tipo === 'discurso_visitante' || tipo === 'saida_orador') && !congregacaoId) { toast('Selecione a congregação de origem ou destino'); return }
   if (tipo === 'saida_orador' && orador?.aprovadoParaSaida === false) { toast('Este orador não está aprovado para saídas'); return }
-  if (oradorId && temaId && !allowedTheme(temaId, orador, discursos.temas ?? {})) { toast('O tema não está aprovado para este orador'); return }
+  const effectiveSpeaker = desistiu && substituto ? substituto : orador
+  if (temaId && effectiveSpeaker && !allowedTheme(temaId, effectiveSpeaker, discursos.temas ?? {})) { toast('O tema não está aprovado para quem fará o discurso'); return }
   const conflicts = talkConflicts(finalId, record, discursos.programacao ?? {}, taskMeetings, discursos.oradores ?? {})
   if (conflicts.length) { toast(conflicts[0]); return }
   try {
@@ -422,7 +440,9 @@ function pendenciasView(): string {
   Object.entries(discursos.programacao ?? {}).forEach(([, p]) => {
     if (p.data && p.data < todayStr()) return
     if (!p.oradorId && !p.oradorNome) items.push('Há uma programação sem orador definido.')
-    if (p.status !== 'confirmado') items.push(`Compromisso de ${formatDate(p.data)} aguardando confirmação.`)
+    if (p.desistiu && !p.substitutoId) items.push(`Compromisso de ${formatDate(p.data)} está sem substituto.`)
+    if (deriveStatus(p) !== 'confirmado' && !(p.desistiu && !p.substitutoId)) items.push(`Compromisso de ${formatDate(p.data)} aguardando confirmação.`)
+    if (needsReconfirmation(p, todayStr())) items.push(`Compromisso de ${formatDate(p.data)} precisa ser reconfirmado.`)
   })
   Object.entries(discursos.oradores ?? {}).forEach(([, o]) => {
     if (o.ativo !== false && !o.pessoaId) items.push(`${oradorNome('', o) || 'Orador'} está sem vínculo com o Admin.`)

@@ -29,7 +29,7 @@ export function speakerName(speaker?: Speaker, fallback = ''): string {
   return String(speaker?.nome ?? speaker?.name ?? fallback).trim()
 }
 export function deriveStatus(talk: Talk): TalkStatus {
-  if (talk.desistiu || talk.status === 'desistencia') return 'desistencia'
+  if ((talk.desistiu || talk.status === 'desistencia') && !talk.substitutoId) return 'desistencia'
   if (talk.confirmacao && typeof talk.confirmacao.status === 'boolean') return talk.confirmacao.status ? 'confirmado' : 'por_confirmar'
   return talk.status === 'confirmado' || talk.status === 'por_confirmar' ? talk.status : 'por_definir'
 }

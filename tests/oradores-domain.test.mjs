@@ -12,7 +12,8 @@ test('confirmação canônica mantém status e objeto compatíveis', () => {
   assert.equal(deriveStatus({ status: 'por_definir', confirmacao: { status: true } }), 'confirmado')
 })
 test('desistência não entra como participação realizada', () => {
-  assert.equal(realizedSpeakerId({ oradorId: 'original', substitutoId: 'sub', desistiu: true }), '')
+  assert.equal(realizedSpeakerId({ oradorId: 'original', desistiu: true }), '')
+  assert.equal(realizedSpeakerId({ oradorId: 'original', substitutoId: 'sub', desistiu: true }), 'sub')
   assert.equal(realizedSpeakerId({ oradorId: 'original', substitutoId: 'sub' }), 'sub')
 })
 test('tema precisa estar ativo e aprovado para o orador', () => {
