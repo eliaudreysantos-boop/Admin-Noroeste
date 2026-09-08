@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#003F72" />
+    <meta name="description" content="Agenda pessoal da Congregacao Noroeste" />
+    <link rel="manifest" href="/agenda/manifest.json" />
+    <title>Minha Agenda - Noroeste</title>
+  </head>
+  <body>
+    <main id="agendaStandalone" class="agenda-standalone">
+      <section id="agendaIdentity" class="login-overlay">
+        <div class="login-box">
+          <h1>Noroeste</h1>
+          <p>Minha Agenda</p>
+          <label class="form-field" for="agendaPerson"><span>PESSOA</span><select id="agendaPerson" class="form-select" disabled><option>Carregando...</option></select></label>
+          <p id="agendaError" class="login-error" role="alert"></p>
+          <button id="agendaContinue" class="btn btn-primary" type="button" disabled>Continuar</button>
+        </div>
+      </section>
+      <section id="agendaShell" class="hidden">
+        <main id="appContent"></main>
+        <nav id="bottomBar" aria-label="Acoes da agenda">
+          <span id="bottomBrand">NOROESTE</span><span id="bottomUser"></span><span class="bottom-nav-spacer"></span><button id="agendaChange" class="bottom-nav-btn" type="button">Trocar pessoa</button>
+        </nav>
+      </section>
+    </main>
+    <div id="toast" role="status"></div>
+    <script type="module" src="/src/agenda-main.ts"></script>
+  </body>
+</html>

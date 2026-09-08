@@ -7,6 +7,7 @@ export default defineConfig({
     outDir:    'dist',
     sourcemap: false,
     rollupOptions: {
+      input: ['index.html', 'agenda/index.html'],
       output: {
         // Mantém os módulos lazy como chunks separados (já funciona por padrão)
         manualChunks: undefined,

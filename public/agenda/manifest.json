@@ -1,0 +1,14 @@
+{
+  "name": "Minha Agenda - Noroeste",
+  "short_name": "Minha Agenda",
+  "description": "Agenda pessoal da Congregacao Noroeste",
+  "start_url": "/agenda/",
+  "scope": "/agenda/",
+  "display": "standalone",
+  "background_color": "#F4F7FA",
+  "theme_color": "#003F72",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
