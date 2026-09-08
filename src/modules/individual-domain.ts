@@ -6,6 +6,10 @@ export interface AgendaEvent {
   detail: string; location?: string; note?: string; status: AgendaStatus
 }
 
+export function upcomingAgendaEvents(events: AgendaEvent[], today: string): AgendaEvent[] {
+  return events.filter(event => event.date >= today && event.status !== 'realizado')
+}
+
 type Row = Record<string, unknown>
 const rows = (value: unknown): Row => value && typeof value === 'object' ? value as Row : {}
 const text = (value: unknown): string => typeof value === 'string' ? value.trim() : ''

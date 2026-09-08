@@ -1,7 +1,7 @@
 import type { AppContext, RawRoot } from '../types'
 import { get, rootRef, secretarioRef, update } from '../firebase'
 import { moduleTitle } from '../ui/module-header'
-import { agendaMessage, agendaToIcs, collectAgendaEvents, type AgendaEvent, type AgendaSource } from './individual-domain'
+import { agendaMessage, agendaToIcs, collectAgendaEvents, upcomingAgendaEvents, type AgendaEvent, type AgendaSource } from './individual-domain'
 
 let ctx: AppContext | null = null
 let data: RawRoot = {}
@@ -10,6 +10,7 @@ let month = new Date().toISOString().slice(0, 7)
 const esc = (value: unknown): string => String(value ?? '').replace(/[&<>"']/g, char => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#039;' }[char] ?? char))
 const labelDate = (date: string): string => date.split('-').reverse().join('/')
 const sourceLabels: Record<AgendaSource, string> = { tarefas:'Tarefas', limpeza:'Limpeza', escala:'Escala', oradores:'Oradores', programacao:'Vida e Ministério' }
+const fortalezaDate = (): string => new Intl.DateTimeFormat('en-CA', { timeZone:'America/Fortaleza', year:'numeric', month:'2-digit', day:'2-digit' }).format(new Date()).replace(/\//g, '-')
 
 export default function mount(context: AppContext): void {
   ctx = context
@@ -38,7 +39,7 @@ function render(): void {
   const calendar = [...Array(firstDow).fill(''), ...Array.from({ length:totalDays }, (_, index) => String(index + 1))]
   root.innerHTML = `${moduleTitle('Minha agenda')}
     <div class="agenda-toolbar"><button class="btn btn-ghost" id="agendaPrev" type="button" aria-label="Mês anterior">‹</button><input class="form-input" id="agendaMonth" type="month" value="${month}"><button class="btn btn-ghost" id="agendaNext" type="button" aria-label="Próximo mês">›</button></div>
-    <div class="agenda-actions"><button class="btn btn-primary" id="agendaIcs" type="button">Baixar ICS</button><button class="btn btn-ghost" id="agendaShare" type="button">Compartilhar</button>${ctx.usuario.secretarioPapel === 'publicador' ? '<button class="btn btn-ghost" id="agendaReport" type="button">Relatório pessoal</button>' : ''}</div>
+    <div class="agenda-actions"><button class="btn btn-primary" id="agendaIcsMonth" type="button">Baixar mês</button><button class="btn btn-ghost" id="agendaIcsUpcoming" type="button">Baixar próximos</button><button class="btn btn-ghost" id="agendaShare" type="button">Compartilhar</button>${ctx.usuario.secretarioPapel === 'publicador' ? '<button class="btn btn-ghost" id="agendaReport" type="button">Relatório pessoal</button>' : ''}</div>
     <div class="agenda-calendar"><div class="agenda-weekdays">${['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'].map(day => `<strong>${day}</strong>`).join('')}</div><div class="agenda-days">${calendar.map(day => day ? `<div class="agenda-day ${byDay.has(Number(day)) ? 'has-events' : ''}"><span>${day}</span>${(byDay.get(Number(day)) ?? []).slice(0, 3).map(event => `<i title="${esc(event.title)}"></i>`).join('')}</div>` : '<div class="agenda-day empty"></div>').join('')}</div></div>
     <div class="agenda-list">${events.map(event => `<article class="agenda-event"><time>${esc(labelDate(event.date))}${event.time ? ` · ${esc(event.time)}` : ''}</time><div><strong>${esc(event.title)}</strong><small>${esc(sourceLabels[event.source])} · ${esc(event.detail)}${event.location ? ` · ${esc(event.location)}` : ''}</small>${event.note ? `<p>${esc(event.note)}</p>` : ''}</div><span class="agenda-status ${event.status}">${esc(event.status.replace(/-/g, ' '))}</span></article>`).join('') || '<p class="empty-state">Nenhuma designação neste período.</p>'}</div>`
   bind()
@@ -49,15 +50,16 @@ function bind(): void {
   document.getElementById('agendaPrev')?.addEventListener('click', () => moveMonth(-1))
   document.getElementById('agendaNext')?.addEventListener('click', () => moveMonth(1))
   document.getElementById('agendaMonth')?.addEventListener('change', event => { month = (event.target as HTMLInputElement).value || month; render() })
-  document.getElementById('agendaIcs')?.addEventListener('click', downloadIcs)
+  document.getElementById('agendaIcsMonth')?.addEventListener('click', () => downloadIcs(monthEvents(), `minha-agenda-${month}.ics`, 'Nenhuma designação disponível neste mês.'))
+  document.getElementById('agendaIcsUpcoming')?.addEventListener('click', () => downloadIcs(upcomingAgendaEvents(personalEvents(), fortalezaDate()), 'minha-agenda-proximos-compromissos.ics', 'Nenhum compromisso futuro disponível.'))
   document.getElementById('agendaShare')?.addEventListener('click', openShare)
   document.getElementById('agendaReport')?.addEventListener('click', openReport)
 }
 
-function downloadIcs(): void {
-  const events = monthEvents(); if (!events.length) { alert('Nenhuma designação disponível neste período.'); return }
+function downloadIcs(events: AgendaEvent[], filename: string, emptyMessage: string): void {
+  if (!events.length) { alert(emptyMessage); return }
   const blob = new Blob([agendaToIcs(events, new Date().toISOString())], { type:'text/calendar;charset=utf-8' }), link = document.createElement('a')
-  link.href = URL.createObjectURL(blob); link.download = `minha-agenda-${month}.ics`; link.click(); URL.revokeObjectURL(link.href)
+  link.href = URL.createObjectURL(blob); link.download = filename; link.click(); URL.revokeObjectURL(link.href)
 }
 
 function openShare(): void {

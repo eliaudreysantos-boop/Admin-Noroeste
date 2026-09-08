@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { agendaMessage, agendaToIcs, collectAgendaEvents } from '../src/modules/individual-domain.ts'
+import { agendaMessage, agendaToIcs, collectAgendaEvents, upcomingAgendaEvents } from '../src/modules/individual-domain.ts'
 
 const root = {
   tarefas: {
@@ -32,6 +32,16 @@ test('ICS preserva data civil, horario, local e escape', () => {
   assert.match(ics, /DTSTART;TZID=America\/Fortaleza:20260912T080000/)
   assert.match(ics, /SUMMARY:Campo\\, manhã/)
   assert.match(ics, /DESCRIPTION:Dupla\\; confirmada/)
+})
+
+test('proximos compromissos ignora realizados e eventos anteriores', () => {
+  const events = [
+    { id:'past', source:'tarefas', date:'2026-09-01', title:'Passado', detail:'', status:'futuro' },
+    { id:'done', source:'tarefas', date:'2026-09-10', title:'Realizado', detail:'', status:'realizado' },
+    { id:'waiting', source:'tarefas', date:'2026-09-10', title:'Confirmar', detail:'', status:'confirmacao-pendente' },
+    { id:'changed', source:'tarefas', date:'2026-10-01', title:'Alterado', detail:'', status:'alterado' },
+  ]
+  assert.deepEqual(upcomingAgendaEvents(events, '2026-09-10').map(event => event.id), ['waiting', 'changed'])
 })
 
 test('mensagem cronologica usa somente os eventos recebidos', () => {
