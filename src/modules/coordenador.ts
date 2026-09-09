@@ -1,5 +1,5 @@
 import type { AppContext, LimpezaPeriodoGerado, RawPessoas } from '../types'
-import { configCongregacaoRef, escalaRef, get, limpezaPeriodosRef, pessoasRef, programacaoRef, tarefasPeopleRef, tarefasScaleRef } from '../firebase'
+import { configCongregacaoRef, escalaRef, get, limpezaPeriodosRef, pessoasRef, programacaoRef, tarefasDiscursosRef, tarefasPeopleRef, tarefasScaleRef } from '../firebase'
 import { canExportDocument, canViewCoordinatorCard, coordinatorDocumentModules, type CoordinatorDocument, type CoordinatorModule } from './coordenador-domain'
 import type { AssignmentPermission, MeetingProgram, ProgramPart, ProgramPerson } from './programacao-domain'
 import { canonicalMeetingType, type TaskMeeting, type TaskPeriod, type TaskPerson } from './tarefas-domain'
@@ -9,6 +9,7 @@ const META: Array<{ id: CoordinatorModule; title: string; description: string; c
   { id: 'tarefas', title: 'Tarefas', description: 'Escala das reuniões', color: '#7E3AF2' },
   { id: 'escala', title: 'Escala TPL', description: 'Escala de campo', color: '#1A6B3C' },
   { id: 'limpeza', title: 'Limpeza', description: 'Períodos já gerados', color: '#006EB6' },
+  { id: 'oradores', title: 'Oradores', description: 'Calendário e programação', color: '#8A5B00' },
   { id: 'programacao', title: 'Programação', description: 'S-89 e S-140', color: '#003F72' },
 ]
 
@@ -31,9 +32,32 @@ async function loadCard(module: CoordinatorModule, body: HTMLElement): Promise<v
     if (module === 'tarefas') await loadTasks(body)
     else if (module === 'escala') await loadScale(body)
     else if (module === 'limpeza') await loadCleaning(body)
+    else if (module === 'oradores') await loadSpeakers(body)
     else if (module === 'programacao') await loadProgramacao(body)
     else body.innerHTML = '<p class="empty-state">Nenhum documento desacoplado disponível neste módulo.</p>'
   } catch (error) { console.error(error); body.innerHTML = '<p class="empty-state">Não foi possível carregar os documentos.</p>' }
+}
+
+async function loadSpeakers(body: HTMLElement): Promise<void> {
+  const [discursosSnap, congregationSnap] = await Promise.all([get(tarefasDiscursosRef), get(configCongregacaoRef)])
+  const discursos = discursosSnap.exists() ? discursosSnap.val() as { programacao?: Record<string, { data?: string; tipo?: string; oradorId?: string; oradorNome?: string; temaNumero?: number; temaTitulo?: string; congregacaoId?: string; congregacaoDestinoId?: string; congregacaoDestinoNome?: string; congregacaoOrigemId?: string; congregacaoOrigemNome?: string }>; oradores?: Record<string, { nome?: string; name?: string }>; congregacoes?: Record<string, { nome?: string; tipo?: string }> } : {}
+  const congregation = congregationSnap.exists() ? (congregationSnap.val() as { nome?: string }).nome || 'Noroeste' : 'Noroeste'
+  const talks = Object.entries(discursos.programacao ?? {}).filter(([, talk]) => Boolean(talk.data)).sort(([, a], [, b]) => String(a.data).localeCompare(String(b.data)))
+  body.innerHTML = talks.length ? `<p class="empty-state">Documentos somente para consulta. A programação é alterada no módulo Oradores.</p><div class="module-form-grid"><div class="form-group"><label class="form-label">Período</label><select id="coordSpeakersMonth" class="form-select">${[...new Set(talks.map(([, talk]) => String(talk.data).slice(0, 7)))].map(month => `<option value="${esc(month)}">${esc(month)}</option>`).join('')}</select></div></div><div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px"><button class="btn btn-primary" data-coord-speakers-doc="oradores-ics">Baixar calendário ICS</button><button class="btn btn-ghost" data-coord-speakers-doc="oradores-pdf">Gerar PDF</button></div>` : '<p class="empty-state">Nenhum compromisso de Oradores registrado.</p>'
+  body.querySelectorAll<HTMLButtonElement>('[data-coord-speakers-doc]').forEach(button => button.addEventListener('click', async () => {
+    const id = button.dataset['coordSpeakersDoc'] as CoordinatorDocument
+    if (!requireExport(id)) return
+    const month = (body.querySelector('#coordSpeakersMonth') as HTMLSelectElement).value
+    const selected = talks.filter(([, talk]) => String(talk.data).startsWith(month))
+    const documents = await import('./oradores-documents')
+    if (id === 'oradores-ics') {
+      documents.downloadScheduleIcs({ congregation, rows: documents.scheduleRows(selected, discursos.oradores ?? {}, discursos.congregacoes ?? {}) })
+      toast('Calendário ICS baixado')
+    } else {
+      await documents.downloadSchedulePdf({ congregation, periodLabel: month, rows: documents.scheduleRows(selected, discursos.oradores ?? {}, discursos.congregacoes ?? {}) })
+      toast('PDF de Oradores baixado')
+    }
+  }))
 }
 
 async function loadScale(body: HTMLElement): Promise<void> {

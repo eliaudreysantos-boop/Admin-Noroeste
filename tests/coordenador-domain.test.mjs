@@ -19,8 +19,9 @@ test('card e exportação exigem permissão do módulo', () => {
 })
 
 test('central mostra somente módulos com documentos definidos', () => {
-  assert.deepEqual(coordinatorDocumentModules(user), ['tarefas', 'escala', 'limpeza', 'programacao'])
-  assert.equal(canViewCoordinatorCard(user, 'oradores'), false)
+  assert.deepEqual(coordinatorDocumentModules(user), ['tarefas', 'escala', 'limpeza', 'oradores', 'programacao'])
+  assert.equal(canViewCoordinatorCard(user, 'oradores'), true)
+  assert.equal(canExportDocument(user, 'oradores-ics'), true)
   assert.equal(canViewCoordinatorCard(user, 'secretario'), false)
 })
 

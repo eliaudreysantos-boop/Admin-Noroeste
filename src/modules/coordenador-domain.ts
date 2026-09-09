@@ -1,7 +1,7 @@
 import type { AppPermissions, Usuario } from '../types'
 
 export type CoordinatorModule = 'tarefas' | 'escala' | 'limpeza' | 'oradores' | 'programacao' | 'secretario'
-export type CoordinatorDocument = 'tarefas-pdf' | 'escala-pdf' | 'limpeza-pdf' | 's89-semana' | 's140-pdf' | 's140-docx'
+export type CoordinatorDocument = 'tarefas-pdf' | 'escala-pdf' | 'limpeza-pdf' | 'oradores-ics' | 'oradores-pdf' | 's89-semana' | 's140-pdf' | 's140-docx'
 
 export interface CoordinatorExportDefinition {
   id: CoordinatorDocument
@@ -13,6 +13,8 @@ export const COORDINATOR_EXPORTS: CoordinatorExportDefinition[] = [
   { id: 'tarefas-pdf', module: 'tarefas', label: 'PDF de Tarefas' },
   { id: 'escala-pdf', module: 'escala', label: 'PDF da Escala TPL' },
   { id: 'limpeza-pdf', module: 'limpeza', label: 'PDF da limpeza' },
+  { id: 'oradores-ics', module: 'oradores', label: 'Calendário ICS de Oradores' },
+  { id: 'oradores-pdf', module: 'oradores', label: 'PDF da programação de Oradores' },
   { id: 's89-semana', module: 'programacao', label: 'S-89 da semana' },
   { id: 's140-pdf', module: 'programacao', label: 'S-140 PDF' },
   { id: 's140-docx', module: 'programacao', label: 'S-140 DOCX' },
