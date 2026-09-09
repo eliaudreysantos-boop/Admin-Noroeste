@@ -2,7 +2,7 @@ import type { AppContext, RawPessoas } from '../types'
 import { get, pessoasRef, update, tarefasDiscursosRef, tarefasScaleRef } from '../firebase'
 import { renderMenuCards, type ItemMenu } from '../ui/menu-cards'
 import { moduleBackButton, moduleTitle } from '../ui/module-header'
-import { allowedTheme, assignmentsForSpeaker, confirmationPatch, deriveStatus, emergencyCandidates, eventBlocksLocal, needsReconfirmation, talkConflicts, themeHistory, watchtowerIssues, type Congregation, type Speaker, type Talk, type Theme } from './oradores-domain'
+import { allowedTheme, assignmentsForSpeaker, confirmationPatch, deriveStatus, eventBlocksLocal, needsReconfirmation, talkConflicts, themeHistory, watchtowerIssues, type Congregation, type Speaker, type Talk, type Theme } from './oradores-domain'
 
 interface LegacyOrador extends Speaker {}
 interface LegacyProgramacao extends Talk {}
@@ -20,9 +20,10 @@ interface LegacyDiscursos {
 let discursos: LegacyDiscursos = {}
 let pessoas: RawPessoas = {}
 let taskMeetings: { date?: string; assignments?: Record<string, unknown> }[] = []
-type OradoresTab = 'indice' | 'resumo' | 'cadastro' | 'programacao' | 'designacoes' | 'temas' | 'congregacoes' | 'intercambios' | 'emergencia' | 'eventos' | 'pendencias'
+type OradoresTab = 'indice' | 'resumo' | 'cadastro' | 'programacao' | 'designacoes' | 'temas' | 'congregacoes' | 'intercambios' | 'eventos' | 'pendencias'
 let activeTab: OradoresTab = 'indice'
-let selectedSpeakerId = ''
+const ORADORES_DESIGNATION_SPEAKER_KEY = 'noroeste:oradores:designation-speaker'
+let selectedSpeakerId = localStorage.getItem(ORADORES_DESIGNATION_SPEAKER_KEY) ?? ''
 
 function toast(msg: string, ms = 2600): void {
   const el = document.getElementById('toast')
@@ -32,14 +33,6 @@ function toast(msg: string, ms = 2600): void {
   setTimeout(() => el.classList.remove('show'), ms)
 }
 
-function countRecords<T>(value: Record<string, T> | undefined): number {
-  return Object.keys(value ?? {}).length
-}
-
-function countWhere<T>(value: Record<string, T> | undefined, pred: (item: T) => boolean): number {
-  return Object.values(value ?? {}).filter(pred).length
-}
-
 function escapeHtml(value: unknown): string {
   return String(value ?? '')
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -47,7 +40,8 @@ function escapeHtml(value: unknown): string {
 }
 
 function todayStr(): string {
-  return new Date().toISOString().slice(0, 10)
+  const date = new Date()
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 }
 
 function canonicalTalkType(value?: string): 'discurso_local' | 'discurso_visitante' | 'saida_orador' {
@@ -95,32 +89,13 @@ function render(): void {
   if (!el) return
 
   const hoje = todayStr()
-  const totalOradores = countRecords(discursos.oradores)
-  const oradoresAtivos = countWhere(discursos.oradores, o => o.ativo !== false)
-  const visitantes = countWhere(discursos.oradores, o => o.tipo === 'visitante')
-  const locais = countWhere(discursos.oradores, o => o.tipo === 'local')
-  const temasAtivos = countWhere(discursos.temas, t => t.ativo !== false)
-  const congregacoesAtivas = countWhere(discursos.congregacoes, c => c.ativa !== false)
-  const programacoesFuturas = countWhere(
-    discursos.programacao,
-    p => !p.data || p.data >= hoje,
-  )
-  const aConfirmar = countWhere(
-    discursos.programacao,
-    p => p.status === 'por_confirmar' || p.status === 'por_definir',
-  )
+  const programacoesFuturas = Object.values(discursos.programacao ?? {}).filter(p => !p.data || p.data >= hoje).length
+  const aConfirmar = Object.values(discursos.programacao ?? {}).filter(p => deriveStatus(p) !== 'confirmado' && (!p.data || p.data >= hoje)).length
 
   el.innerHTML = `
     ${moduleTitle('Oradores', '#5C6062')}
 
-    ${activeTab === 'indice' || activeTab === 'resumo' ? `<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
-      ${metricCard('Oradores', `${oradoresAtivos}/${totalOradores}`, '#5C6062')}
-      ${metricCard('Locais', String(locais), '#003F72')}
-      ${metricCard('Visitantes', String(visitantes), '#7E3AF2')}
-      ${metricCard('Temas ativos', String(temasAtivos), '#1A6B3C')}
-      ${metricCard('Congregações', String(congregacoesAtivas), '#006EB6')}
-      ${metricCard('A confirmar', String(aConfirmar), '#B3261E')}
-    </div><div id="oradoresMenu"></div>` : `${moduleBackButton()}${renderTabContent(activeTab)}`}`
+    ${activeTab === 'indice' || activeTab === 'resumo' ? '<div id="oradoresMenu"></div>' : `${moduleBackButton()}${renderTabContent(activeTab)}`}`
 
   if (activeTab === 'indice' || activeTab === 'resumo') {
     const menu = el.querySelector<HTMLElement>('#oradoresMenu')
@@ -133,7 +108,6 @@ function render(): void {
         { id: 'congregacoes', titulo: 'Congregações', subtitulo: 'Locais, visitantes e intercâmbios', icone: '⌂', corFundo: '#006EB6' },
         { id: 'intercambios', titulo: 'Intercâmbios', subtitulo: 'Entradas, saídas e mensagens', icone: '⇄', corFundo: '#7E3AF2' },
         { id: 'eventos', titulo: 'Eventos', subtitulo: 'Datas sem discurso público local', icone: '◆', corFundo: '#8A5B00' },
-        { id: 'emergencia', titulo: 'Emergência', subtitulo: 'Substitutos e temas disponíveis', icone: '!', corFundo: '#B3261E' },
         { id: 'pendencias', titulo: 'Pendências', subtitulo: `${aConfirmar} compromisso${aConfirmar === 1 ? '' : 's'} a confirmar`, icone: '!', corFundo: '#B3261E' },
       ]
       renderMenuCards(menu, items, id => { activeTab = id as OradoresTab; render() })
@@ -175,8 +149,7 @@ function render(): void {
   el.querySelectorAll<HTMLButtonElement>('[data-edit-evento]').forEach(button => button.addEventListener('click', () => openEventoModal(button.dataset['editEvento'] ?? null)))
   el.querySelectorAll<HTMLButtonElement>('[data-delete-evento]').forEach(button => button.addEventListener('click', () => void deleteEvento(button.dataset['deleteEvento'] ?? '')))
   el.querySelectorAll<HTMLButtonElement>('[data-intercambio-message]').forEach(button => button.addEventListener('click', () => openIntercambioMessage(button.dataset['intercambioMessage'] ?? '')))
-  el.querySelectorAll<HTMLButtonElement>('[data-emergency]').forEach(button => button.addEventListener('click', () => openEmergencyModal(button.dataset['emergency'] ?? '')))
-  el.querySelector<HTMLSelectElement>('#designationSpeaker')?.addEventListener('change', event => { selectedSpeakerId = (event.target as HTMLSelectElement).value; render() })
+  el.querySelector<HTMLSelectElement>('#designationSpeaker')?.addEventListener('change', event => { selectedSpeakerId = (event.target as HTMLSelectElement).value; localStorage.setItem(ORADORES_DESIGNATION_SPEAKER_KEY, selectedSpeakerId); render() })
   el.querySelector<HTMLButtonElement>('#designationWhats')?.addEventListener('click', () => void sendDesignationMessage())
 }
 
@@ -187,7 +160,6 @@ function renderTabContent(tab: OradoresTab): string {
   if (tab === 'temas') return temasView()
   if (tab === 'congregacoes') return congregacoesView()
   if (tab === 'intercambios') return intercambiosView()
-  if (tab === 'emergencia') return emergenciaView()
   if (tab === 'eventos') return eventosView()
   return pendenciasView()
 }
@@ -230,78 +202,13 @@ async function sendDesignationMessage(): Promise<void> {
   } catch { toast('WhatsApp aberto, mas não foi possível registrar os avisos') }
 }
 
-function candidatesFor(id: string, talk: LegacyProgramacao) {
-  return emergencyCandidates(id, talk, discursos.programacao ?? {}, taskMeetings, discursos.oradores ?? {}, discursos.temas ?? {}, todayStr())
-}
-
-function emergenciaView(): string {
-  const pending = Object.entries(discursos.programacao ?? {}).filter(([, talk]) => (!talk.data || talk.data >= todayStr()) && (!talk.oradorId || (talk.desistiu && !talk.substitutoId)))
-  return `<div style="margin-top:14px"><h3 style="font-size:.95rem;color:#5C6062;margin-bottom:8px">Emergência</h3><div class="module-option-list">${pending.length ? pending.map(([id, talk]) => {
-    const candidates = candidatesFor(id, talk)
-    return `<div class="module-menu-btn" style="cursor:default"><div class="mod-icon" style="background:#B3261E20;color:#B3261E">!</div><div style="flex:1"><div class="mod-label">${escapeHtml(formatDate(talk.data))} · ${escapeHtml(talk.temaTitulo ?? 'tema a definir')}</div><div class="mod-desc">${candidates.length} candidato(s) sem conflito e com tema disponível</div></div><button class="btn btn-primary" data-emergency="${escapeHtml(id)}" ${candidates.length ? '' : 'disabled'}>Substituir</button></div>`
-  }).join('') : '<p class="empty-state">Nenhuma substituição emergencial pendente.</p>'}</div></div>`
-}
-
-function openEmergencyModal(id: string): void {
-  const talk = discursos.programacao?.[id]; if (!talk) return
-  const candidates = candidatesFor(id, talk); if (!candidates.length) { toast('Nenhum candidato elegível'); return }
-  const overlay = document.createElement('div'); overlay.className = 'modal-overlay'
-  overlay.innerHTML = `<div class="modal"><h2>Substituição de emergência</h2><div class="form-group"><label class="form-label">Candidato</label><select id="emergencySpeaker" class="form-select">${candidates.map(candidate => `<option value="${escapeHtml(candidate.speakerId)}">${escapeHtml(oradorNome(candidate.speakerId, discursos.oradores?.[candidate.speakerId]))}</option>`).join('')}</select></div><div class="form-group"><label class="form-label">Tema disponível</label><select id="emergencyTheme" class="form-select"></select></div><div style="display:flex;gap:8px"><button id="emergencyCancel" class="btn btn-ghost">Cancelar</button><button id="emergencyApply" class="btn btn-primary">Aplicar substituição</button></div></div>`
-  document.body.appendChild(overlay)
-  const renderThemes = () => {
-    const speakerId = (overlay.querySelector('#emergencySpeaker') as HTMLSelectElement).value
-    const candidate = candidates.find(item => item.speakerId === speakerId)
-    ;(overlay.querySelector('#emergencyTheme') as HTMLSelectElement).innerHTML = (candidate?.themeIds ?? []).map(themeId => `<option value="${escapeHtml(themeId)}">${escapeHtml(`${discursos.temas?.[themeId]?.numero ?? ''} ${discursos.temas?.[themeId]?.titulo ?? ''}`.trim())}</option>`).join('')
-  }
-  renderThemes()
-  overlay.querySelector('#emergencySpeaker')?.addEventListener('change', renderThemes)
-  overlay.querySelector('#emergencyCancel')?.addEventListener('click', () => overlay.remove())
-  overlay.addEventListener('click', event => { if (event.target === overlay) overlay.remove() })
-  overlay.querySelector('#emergencyApply')?.addEventListener('click', () => void applyEmergency(id, overlay))
-}
-
-async function applyEmergency(id: string, overlay: HTMLElement): Promise<void> {
-  const talk = discursos.programacao?.[id]; if (!talk) return
-  const speakerId = (overlay.querySelector('#emergencySpeaker') as HTMLSelectElement).value
-  const themeId = (overlay.querySelector('#emergencyTheme') as HTMLSelectElement).value
-  const speaker = discursos.oradores?.[speakerId], theme = discursos.temas?.[themeId]
-  const replacement = Boolean(talk.oradorId)
-  const patch: Record<string, unknown> = {
-    [`programacao/${id}/${replacement ? 'substitutoId' : 'oradorId'}`]: speakerId,
-    [`programacao/${id}/${replacement ? 'substitutoNome' : 'oradorNome'}`]: oradorNome(speakerId, speaker),
-    [`programacao/${id}/temaId`]: themeId,
-    [`programacao/${id}/temaNumero`]: theme?.numero ?? null,
-    [`programacao/${id}/temaTitulo`]: theme?.titulo ?? null,
-    [`programacao/${id}/status`]: 'por_confirmar',
-    [`programacao/${id}/confirmacao`]: { status: false, confirmadoEm: '' },
-    [`programacao/${id}/reconfirmacao`]: null,
-  }
-  try {
-    await update(tarefasDiscursosRef, patch)
-    Object.assign(talk, replacement ? { substitutoId: speakerId, substitutoNome: oradorNome(speakerId, speaker) } : { oradorId: speakerId, oradorNome: oradorNome(speakerId, speaker) }, { temaId: themeId, temaNumero: theme?.numero, temaTitulo: theme?.titulo, status: 'por_confirmar', confirmacao: { status: false, confirmadoEm: '' }, reconfirmacao: undefined })
-    overlay.remove(); toast('Substituição aplicada'); render(); openSubstitutionMessage(id)
-  } catch { toast('Não foi possível aplicar a substituição') }
-}
-
-function openSubstitutionMessage(id: string): void {
-  const talk = discursos.programacao?.[id]; if (!talk) return
-  const speakerId = talk.substitutoId ?? talk.oradorId ?? '', speaker = discursos.oradores?.[speakerId]
-  const phone = digits(oradorTelefone(speaker))
-  const text = `Olá, ${oradorNome(speakerId, speaker)}! Você poderia substituir o discurso do dia ${formatDate(talk.data)}? Tema ${talk.temaNumero ?? ''} ${talk.temaTitulo ?? ''}. Por favor, confirme sua disponibilidade.`
-  const overlay = document.createElement('div'); overlay.className = 'modal-overlay'
-  overlay.innerHTML = `<div class="modal"><h2>Mensagem ao substituto</h2><div class="form-group"><label class="form-label">Texto</label><textarea id="exchangeText" class="form-input" rows="9">${escapeHtml(text)}</textarea></div><input id="exchangeTarget" type="hidden" value="${escapeHtml(phone)}"><div style="display:flex;gap:8px"><button id="exchangeCancel" class="btn btn-ghost">Fechar</button><button id="exchangeWhats" class="btn btn-primary">Abrir WhatsApp</button></div></div>`
-  document.body.appendChild(overlay)
-  overlay.querySelector('#exchangeCancel')?.addEventListener('click', () => overlay.remove())
-  overlay.querySelector('#exchangeWhats')?.addEventListener('click', () => void sendIntercambioMessage(id, overlay))
-}
-
 function intercambiosView(): string {
   const rows = Object.entries(discursos.programacao ?? {}).filter(([, talk]) => talk.data && talk.data >= todayStr() && canonicalTalkType(talk.tipo) !== 'discurso_local').sort(([, a], [, b]) => String(a.data).localeCompare(String(b.data)))
   return `<div style="margin-top:14px"><h3 style="font-size:.95rem;color:#5C6062;margin-bottom:8px">Intercâmbios</h3><div class="module-option-list">${rows.length ? rows.map(([id, talk]) => {
     const outgoing = canonicalTalkType(talk.tipo) === 'saida_orador'
     const congregationId = outgoing ? talk.congregacaoDestinoId ?? talk.congregacaoId : talk.congregacaoOrigemId ?? talk.congregacaoId
     const congregation = discursos.congregacoes?.[congregationId ?? '']
-    const speaker = discursos.oradores?.[talk.substitutoId ?? talk.oradorId ?? '']
+    const speaker = discursos.oradores?.[talk.oradorId ?? '']
     return `<div class="module-menu-btn" style="cursor:default"><div class="mod-icon" style="background:#7E3AF220;color:#7E3AF2">${outgoing ? '→' : '←'}</div><div style="flex:1"><div class="mod-label">${outgoing ? 'Saída para' : 'Entrada de'} ${escapeHtml(congregation?.nome ?? 'congregação não informada')}</div><div class="mod-desc">${escapeHtml(formatDate(talk.data))} · ${escapeHtml(oradorNome(talk.oradorId ?? '', speaker))} · ${escapeHtml(talk.temaTitulo ?? 'tema a definir')}</div></div><button class="btn btn-primary" type="button" data-intercambio-message="${escapeHtml(id)}">Mensagem</button></div>`
   }).join('') : '<p class="empty-state">Nenhum intercâmbio futuro.</p>'}</div></div>`
 }
@@ -316,7 +223,7 @@ function openIntercambioMessage(id: string): void {
   const outgoing = canonicalTalkType(talk.tipo) === 'saida_orador'
   const congregationId = outgoing ? talk.congregacaoDestinoId ?? talk.congregacaoId : talk.congregacaoOrigemId ?? talk.congregacaoId
   const congregation = discursos.congregacoes?.[congregationId ?? '']
-  const speakerId = talk.substitutoId ?? talk.oradorId ?? ''
+  const speakerId = talk.oradorId ?? ''
   const speaker = discursos.oradores?.[speakerId]
   const speakerPhone = digits(oradorTelefone(speaker)), congregationPhone = digits(congregation?.telefone)
   const message = outgoing
@@ -505,7 +412,7 @@ function openProgramacaoModal(id: string | null): void {
   const currentType = canonicalTalkType(current?.tipo)
   const overlay = document.createElement('div')
   overlay.className = 'modal-overlay'
-  overlay.innerHTML = `<div class="modal"><h2>${id ? 'Editar programação' : 'Nova programação'}</h2><div class="form-group"><label class="form-label" for="progData">Data</label><input id="progData" class="form-input" type="date" value="${escapeHtml(current?.data ?? '')}"></div><div class="form-group"><label class="form-label" for="progTipo">Tipo</label><select id="progTipo" class="form-select"><option value="discurso_local" ${currentType === 'discurso_local' ? 'selected' : ''}>Discurso local</option><option value="discurso_visitante" ${currentType === 'discurso_visitante' ? 'selected' : ''}>Orador visitante</option><option value="saida_orador" ${currentType === 'saida_orador' ? 'selected' : ''}>Saída de orador</option></select></div><div class="form-group"><label class="form-label" for="progOrador">Orador original</label><select id="progOrador" class="form-select"><option value="">A definir</option>${speakerOptions(current?.oradorId)}</select></div><label style="display:flex;gap:8px;margin-bottom:12px"><input id="progDesistiu" type="checkbox" ${current?.desistiu ? 'checked' : ''}> O orador original desistiu</label><div class="form-group"><label class="form-label" for="progSubstituto">Substituto</label><select id="progSubstituto" class="form-select"><option value="">Ainda não definido</option>${speakerOptions(current?.substitutoId)}</select></div><div class="form-group"><label class="form-label" for="progRealizado">Quem realizou</label><select id="progRealizado" class="form-select"><option value="">Registrar depois</option>${speakerOptions(current?.realizadoPorId)}</select></div><div class="form-group"><label class="form-label" for="progCongregacao">Congregação de origem ou destino</label><select id="progCongregacao" class="form-select"><option value="">Nenhuma</option>${congregationOptions}</select></div><div class="form-group"><label class="form-label" for="progTema">Tema aprovado</label><select id="progTema" class="form-select"><option value="">A definir</option>${themeOptions}</select></div><div class="form-group"><label class="form-label" for="progStatus">Status</label><select id="progStatus" class="form-select"><option value="por_definir" ${current?.status === 'por_definir' ? 'selected' : ''}>Por definir</option><option value="por_confirmar" ${current?.status !== 'confirmado' && current?.status !== 'por_definir' ? 'selected' : ''}>A confirmar</option><option value="confirmado" ${current?.status === 'confirmado' ? 'selected' : ''}>Confirmado</option></select></div><label style="display:flex;gap:8px;margin-bottom:12px"><input id="progReconfirmado" type="checkbox" ${current?.reconfirmacao?.status ? 'checked' : ''}> Reconfirmado para a semana da reunião</label><div style="display:flex;gap:8px;margin-top:8px"><button id="cancelProg" class="btn btn-ghost" type="button" style="flex:1">Cancelar</button><button id="saveProg" class="btn btn-primary" type="button" style="flex:1">Salvar</button></div></div>`
+  overlay.innerHTML = `<div class="modal"><h2>${id ? 'Editar programação' : 'Nova programação'}</h2><div class="form-group"><label class="form-label" for="progData">Data</label><input id="progData" class="form-input" type="date" value="${escapeHtml(current?.data ?? '')}"></div><div class="form-group"><label class="form-label" for="progTipo">Tipo</label><select id="progTipo" class="form-select"><option value="discurso_local" ${currentType === 'discurso_local' ? 'selected' : ''}>Discurso local</option><option value="discurso_visitante" ${currentType === 'discurso_visitante' ? 'selected' : ''}>Orador visitante</option><option value="saida_orador" ${currentType === 'saida_orador' ? 'selected' : ''}>Saída de orador</option></select></div><div class="form-group"><label class="form-label" for="progOrador">Orador</label><select id="progOrador" class="form-select"><option value="">A definir</option>${speakerOptions(current?.oradorId)}</select></div><div class="form-group"><label class="form-label" for="progCongregacao">Congregação de origem ou destino</label><select id="progCongregacao" class="form-select"><option value="">Nenhuma</option>${congregationOptions}</select></div><div class="form-group"><label class="form-label" for="progTema">Tema aprovado</label><select id="progTema" class="form-select"><option value="">A definir</option>${themeOptions}</select></div><div class="form-group"><label class="form-label" for="progStatus">Status</label><select id="progStatus" class="form-select"><option value="por_definir" ${current?.status === 'por_definir' ? 'selected' : ''}>Por definir</option><option value="por_confirmar" ${current?.status !== 'confirmado' && current?.status !== 'por_definir' ? 'selected' : ''}>A confirmar</option><option value="confirmado" ${current?.status === 'confirmado' ? 'selected' : ''}>Confirmado</option></select></div><label style="display:flex;gap:8px;margin-bottom:12px"><input id="progReconfirmado" type="checkbox" ${current?.reconfirmacao?.status ? 'checked' : ''}> Reconfirmado para a semana da reunião</label><div style="display:flex;gap:8px;margin-top:8px"><button id="cancelProg" class="btn btn-ghost" type="button" style="flex:1">Cancelar</button><button id="saveProg" class="btn btn-primary" type="button" style="flex:1">Salvar</button></div></div>`
   document.body.appendChild(overlay)
   overlay.addEventListener('click', event => { if (event.target === overlay) overlay.remove() })
   overlay.querySelector('#cancelProg')?.addEventListener('click', () => overlay.remove())
@@ -516,11 +423,6 @@ async function saveProgramacao(id: string | null, overlay: HTMLElement): Promise
   const current = id ? discursos.programacao?.[id] : undefined
   const oradorId = (overlay.querySelector('#progOrador') as HTMLSelectElement).value
   const orador = oradorId ? discursos.oradores?.[oradorId] : undefined
-  const substitutoId = (overlay.querySelector('#progSubstituto') as HTMLSelectElement).value
-  const substituto = substitutoId ? discursos.oradores?.[substitutoId] : undefined
-  const realizadoPorId = (overlay.querySelector('#progRealizado') as HTMLSelectElement).value
-  const realizadoPor = realizadoPorId ? discursos.oradores?.[realizadoPorId] : undefined
-  const desistiu = (overlay.querySelector('#progDesistiu') as HTMLInputElement).checked
   const reconfirmado = (overlay.querySelector('#progReconfirmado') as HTMLInputElement).checked
   const tipo = (overlay.querySelector('#progTipo') as HTMLSelectElement).value as 'discurso_local' | 'discurso_visitante' | 'saida_orador'
   const congregacaoId = (overlay.querySelector('#progCongregacao') as HTMLSelectElement).value
@@ -528,19 +430,14 @@ async function saveProgramacao(id: string | null, overlay: HTMLElement): Promise
   const temaId = (overlay.querySelector('#progTema') as HTMLSelectElement).value
   const tema = temaId ? discursos.temas?.[temaId] : undefined
   const status = (overlay.querySelector('#progStatus') as HTMLSelectElement).value as 'por_definir' | 'por_confirmar' | 'confirmado'
+  const stored = { ...(current ?? {}) } as Record<string, unknown>
+  ;['oradorOriginalId', 'oradorOriginalNome', 'desistiu', 'substitutoId', 'substitutoNome', 'realizadoPorId', 'realizadoPorNome'].forEach(key => delete stored[key])
   const record: LegacyProgramacao = {
-    ...(id ? discursos.programacao?.[id] : {}),
+    ...stored,
     data: (overlay.querySelector('#progData') as HTMLInputElement).value,
     tipo,
     oradorId: oradorId || undefined,
     oradorNome: orador ? oradorNome(oradorId, orador) : undefined,
-    oradorOriginalId: current?.oradorOriginalId ?? (desistiu ? oradorId || undefined : undefined),
-    oradorOriginalNome: current?.oradorOriginalNome ?? (desistiu && orador ? oradorNome(oradorId, orador) : undefined),
-    desistiu,
-    substitutoId: substitutoId || undefined,
-    substitutoNome: substituto ? oradorNome(substitutoId, substituto) : undefined,
-    realizadoPorId: realizadoPorId || undefined,
-    realizadoPorNome: realizadoPor ? oradorNome(realizadoPorId, realizadoPor) : undefined,
     congregacaoId: congregacaoId || undefined,
     congregacaoOrigemId: tipo === 'discurso_visitante' ? congregacaoId || undefined : undefined,
     congregacaoOrigemNome: tipo === 'discurso_visitante' ? congregacao?.nome : undefined,
@@ -556,12 +453,9 @@ async function saveProgramacao(id: string | null, overlay: HTMLElement): Promise
   const finalId = id ?? `p_${Date.now().toString(36)}`
   if (tipo === 'discurso_local' && eventBlocksLocal(discursos.eventos ?? {}, record.data)) { toast('Há um evento especial nesta data; não pode haver discurso local'); return }
   if (orador?.ativo === false) { toast('Selecione um orador ativo'); return }
-  if (substituto?.ativo === false || realizadoPor?.ativo === false) { toast('Substituto e responsável pela realização precisam estar ativos'); return }
-  if (desistiu && substitutoId === oradorId) { toast('O substituto deve ser outra pessoa'); return }
   if ((tipo === 'discurso_visitante' || tipo === 'saida_orador') && !congregacaoId) { toast('Selecione a congregação de origem ou destino'); return }
   if (tipo === 'saida_orador' && orador?.aprovadoParaSaida === false) { toast('Este orador não está aprovado para saídas'); return }
-  const effectiveSpeaker = desistiu && substituto ? substituto : orador
-  if (temaId && effectiveSpeaker && !allowedTheme(temaId, effectiveSpeaker, discursos.temas ?? {})) { toast('O tema não está aprovado para quem fará o discurso'); return }
+  if (temaId && orador && !allowedTheme(temaId, orador, discursos.temas ?? {})) { toast('O tema não está aprovado para este orador'); return }
   const conflicts = talkConflicts(finalId, record, discursos.programacao ?? {}, taskMeetings, discursos.oradores ?? {})
   if (conflicts.length) { toast(conflicts[0]); return }
   try {
@@ -626,8 +520,7 @@ function pendenciasView(): string {
   Object.entries(discursos.programacao ?? {}).forEach(([, p]) => {
     if (p.data && p.data < todayStr()) return
     if (!p.oradorId && !p.oradorNome) items.push('Há uma programação sem orador definido.')
-    if (p.desistiu && !p.substitutoId) items.push(`Compromisso de ${formatDate(p.data)} está sem substituto.`)
-    if (deriveStatus(p) !== 'confirmado' && !(p.desistiu && !p.substitutoId)) items.push(`Compromisso de ${formatDate(p.data)} aguardando confirmação.`)
+    if (deriveStatus(p) !== 'confirmado') items.push(`Compromisso de ${formatDate(p.data)} aguardando confirmação.`)
     if (needsReconfirmation(p, todayStr())) items.push(`Compromisso de ${formatDate(p.data)} precisa ser reconfirmado.`)
   })
   Object.entries(discursos.oradores ?? {}).forEach(([, o]) => {
@@ -646,15 +539,4 @@ function formatDate(value: string | undefined): string {
   if (!value) return 'Sem data'
   const [y, m, d] = value.split('-')
   return y && m && d ? `${d}/${m}/${y}` : value
-}
-
-
-function metricCard(label: string, value: string, color: string): string {
-  return `
-    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 12px">
-      <div style="font-size:1.15rem;font-weight:800;color:${color};line-height:1"><span data-kpi-value="${escapeHtml(value)}">0</span></div>
-      <div style="font-size:.72rem;color:var(--ink-3);margin-top:4px;text-transform:uppercase;font-weight:700">
-        ${label}
-      </div>
-    </div>`
 }
