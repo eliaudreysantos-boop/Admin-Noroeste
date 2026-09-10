@@ -6,10 +6,10 @@ import { generateCleaningPeriod } from '../src/modules/limpeza-domain.ts'
 
 const groups = Object.fromEntries([1, 2, 3, 4].map(group => [group, {
   nome: group === 3 ? 'Nome de grupo excepcionalmente comprido para testar encaixe' : `Grupo ${group}`,
-  superintendenteMid: '', ajudantesMid: [], textoInstrucoes: '', aprovadoEm: '',
+  superintendenteMid: '', ajudantesMid: [],
 }]))
 const period = generateCleaningPeriod('2026-09-01', 'bimester', {
-  ativa: true, grupos: 4, inicioRotacao: '2026-09-02', coordenadorMid: '', textoPadrao: '', textoPadraoAprovadoEm: '', gruposConfig: groups,
+  ativa: true, grupos: 4, inicioRotacao: '2026-09-02', gruposConfig: groups,
 }, { meiaDeSemana: { diaSemana: 3, horario: '19:00' }, fimDeSemana: { diaSemana: 0, horario: '18:00' } }, {}, 'Noroeste', '2026-09-01T12:00:00Z')
 
 test('gera PDF A4 real em uma página e reduz fonte quando necessário', async () => {

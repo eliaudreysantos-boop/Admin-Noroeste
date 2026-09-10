@@ -369,7 +369,7 @@ export function withCanonicalPeriod(
     if (excluded.has(iso)) continue
     const type: TaskMeetingType | null = cursor.getDay() === midweekDow ? 'midweek' : cursor.getDay() === weekendDow ? 'weekend' : null
     if (!type || existing.has(`${iso}:${type}`)) continue
-    meetings[`${iso}__${type}`] = { date: iso, type, assignments: {}, manualEdits: {}, avisados: {} }
+    meetings[`${iso}__${type}`] = { date: iso, type, assignments: {}, manualEdits: {} }
   }
   return { periodId, periods: { ...periods, [periodId]: { ...current, meetings } } }
 }

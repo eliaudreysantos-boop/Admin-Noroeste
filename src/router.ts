@@ -12,7 +12,7 @@ const MODULE_META: Record<
   limpeza:     { label: 'Limpeza',      desc: 'Grupos, textos e PDF',         icon: '🧹', color: '#006EB6' },
   oradores:    { label: 'Oradores',     desc: 'Discursos públicos',           icon: '🎙️', color: '#5C6062' },
   escala:      { label: 'Escala TPL',   desc: 'Escala de campo TPL',          icon: '🌿', color: '#1A6B3C' },
-  programacao: { label: 'Programação',  desc: 'Programação de reuniões',      icon: '📅', color: '#003F72' },
+  programacao: { label: 'Vida e Ministério', desc: 'Reunião do meio de semana', icon: '📅', color: '#003F72' },
   secretario:  { label: 'Secretário',   desc: 'Relatórios e publicadores',    icon: '📂', color: '#B3261E' },
   individual:  { label: 'Minha agenda',  desc: 'Suas designações e compromissos', icon: '✓', color: '#006EB6' },
 }

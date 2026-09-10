@@ -1,29 +1,31 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { agendaMessage, agendaToIcs, collectAgendaEvents, upcomingAgendaEvents } from '../src/modules/individual-domain.ts'
+import { agendaMessage, agendaToIcs, announcementMessage, collectAgendaEvents, collectAnnouncementEvents, upcomingAgendaEvents } from '../src/modules/individual-domain.ts'
 
 const root = {
+  master: { pessoas:{ m1:{ name:'Ana', active:true }, m2:{ name:'Bruno', active:true } } },
   tarefas: {
     people: { task1: { masterId: 'm1' }, task2: { masterId: 'm2' } },
-    scale: { periods: { '2026-09': { meetings: { a: { date:'2026-09-09', type:'midweek', assignments:{ leitor:'task1', mic1:'task2' }, avisados:{} } } } } },
+    scale: { periods: { '2026-09': { meetings: { a: { date:'2026-09-09', type:'midweek', assignments:{ leitor:'task1', mic1:'task2' } } } } } },
     discursos: { oradores:{ o1:{ pessoaId:'task1' } }, programacao:{ p1:{ data:'2026-09-13', tipo:'saida_orador', oradorId:'o1', temaTitulo:'Esperança', congregacaoDestinoNome:'Centro' } } },
   },
-  limpeza: { periodos:{ p:{ semanas:[{ dataMeioSemana:'2026-09-10', grupo:2, grupoNome:'Grupo 2', membrosMid:['m1'], textoAprovado:'Levar luvas.' }] } } },
+  limpeza: { periodos:{ p:{ semanas:[{ dataMeioSemana:'2026-09-10', grupo:2, grupoNome:'Grupo 2', membrosMid:['m1'] }] } } },
   escala: { participants:{ e1:{ masterId:'m1' } }, settings:{ locals:{ l1:{ name:'Praça' } } }, tables:{ l1:{ '2026-09':{ rows:{ '2026-09-12':{ slots:{ '08:00':{ p1:'e1', p2:'e2' } } } } } } } },
-  programacao: { pessoas:{ m1:{ masterId:'m1' } }, programs:{ w:{ meetingDate:'2026-09-16', parts:[{ id:'x', title:'Leitura da Bíblia', assignedPersonId:'m1', confirmedAt:'2026-09-01' }] } } },
+  programacao: { pessoas:{ m1:{ masterId:'m1' } }, settings:{ meetingTime:'19:30', rooms:[{ id:'main', name:'Salão principal' }] }, programs:{ w:{ meetingDate:'2026-09-16', parts:[{ id:'x', title:'Leitura da Bíblia', assignedPersonId:'m1', confirmedAt:'2026-09-01' }] } } },
 }
 
 test('agrega apenas atribuicoes do masterId solicitado', () => {
   const events = collectAgendaEvents(root, 'm1')
   assert.deepEqual(events.map(event => event.source), ['tarefas', 'limpeza', 'escala', 'oradores', 'programacao'])
   assert.equal(events.some(event => event.title === 'Microfone 1'), false)
+  assert.equal(events.find(event => event.source === 'tarefas')?.status, 'futuro')
 })
 
 test('respeita permissao por fonte e limita observacao aprovada', () => {
-  const copy = structuredClone(root); copy.limpeza.periodos.p.semanas[0].textoAprovado = 'x'.repeat(300)
-  const events = collectAgendaEvents(copy, 'm1', { oradores:false, escala:false })
-  assert.equal(events.some(event => event.source === 'oradores' || event.source === 'escala'), false)
-  assert.equal(events.find(event => event.source === 'limpeza').note.length, 250)
+  const copy = structuredClone(root); copy.tarefas.discursos.programacao.p1.observacoes = 'x'.repeat(300)
+  const events = collectAgendaEvents(copy, 'm1', { escala:false })
+  assert.equal(events.some(event => event.source === 'escala'), false)
+  assert.equal(events.find(event => event.source === 'oradores').note.length, 250)
 })
 
 test('ICS preserva data civil, horario, local e escape', () => {
@@ -54,4 +56,44 @@ test('mensagem cronologica usa somente os eventos recebidos', () => {
 test('sem vinculo canonico nao retorna dados por nome', () => {
   assert.deepEqual(collectAgendaEvents(root, ''), [])
   assert.deepEqual(collectAgendaEvents(root, 'nome parecido'), [])
+})
+
+test('vida e ministério mostra horário, sala, ajudante e substituto na agenda pessoal', () => {
+  const copy = structuredClone(root)
+  copy.programacao.programs.w.parts = [
+    { id:'a', title:'Iniciando conversas', section:'ministerio', assignedPersonId:'outra', assistantPersonId:'m1', reference:'lmd lição 1' },
+    { id:'b', title:'Leitura da Bíblia', assignedPersonId:'outra', substitutePersonId:'m1' },
+  ]
+  const events = collectAgendaEvents(copy, 'm1').filter(event => event.source === 'programacao')
+  assert.deepEqual(events.map(event => event.title), ['Ajudante - Iniciando conversas', 'Substituto - Leitura da Bíblia'])
+  assert.equal(events[0].time, '19:30')
+  assert.equal(events[0].location, 'Salão principal')
+  assert.equal(events[0].note, 'lmd lição 1')
+  assert.equal(events[1].status, 'alterado')
+})
+
+test('quadro de anúncios agrupa designações por pessoa e por origem', () => {
+  const announcements = collectAnnouncementEvents(root)
+  assert.equal(announcements.some(item => item.source === 'programacao' && item.people.includes('Ana')), true)
+  assert.equal(announcements.some(item => item.source === 'tarefas' && item.people.includes('Ana')), true)
+  assert.equal(announcements.some(item => item.source === 'tarefas' && item.people.includes('Bruno')), true)
+})
+
+test('quadro inclui discursos visitantes sem vínculo com o cadastro central', () => {
+  const copy = structuredClone(root)
+  copy.tarefas.discursos.oradores.visitante = { nome:'Carlos Visitante' }
+  copy.tarefas.discursos.programacao.visitante = { data:'2026-09-20', tipo:'discurso_visitante', oradorId:'visitante', temaTitulo:'Esperança', congregacaoOrigemNome:'Centro' }
+  const event = collectAnnouncementEvents(copy).find(item => item.id === 'oradores:visitante')
+  assert.equal(event?.people[0], 'Carlos Visitante')
+  assert.equal(event?.location, 'Centro')
+  assert.equal(event?.note, undefined)
+})
+
+test('compartilhamento do quadro usa somente dados públicos', () => {
+  const events = collectAnnouncementEvents(root)
+  events[0].note = 'Observação administrativa sigilosa'
+  const message = announcementMessage(events)
+  assert.match(message, /Quadro de anúncios Noroeste/)
+  assert.match(message, /Ana/)
+  assert.doesNotMatch(message, /Observação administrativa/)
 })

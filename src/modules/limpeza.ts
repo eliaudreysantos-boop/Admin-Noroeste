@@ -23,14 +23,13 @@ import {
 import { renderMenuCards, type ItemMenu } from '../ui/menu-cards'
 import { moduleBackButton } from '../ui/module-header'
 import {
-  cleaningTextForTasks,
   generateCleaningPeriod,
   monthLabel,
   periodBounds,
   type CleaningPeriodMode,
 } from './limpeza-domain'
 
-type LimpezaTab = 'indice' | 'escala' | 'grupos' | 'config' | 'texto' | 'pdf'
+type LimpezaTab = 'indice' | 'escala' | 'grupos' | 'config' | 'pdf'
 
 let pessoas: RawPessoas = {}
 let limpeza: Partial<ConfigLimpeza> = {}
@@ -68,13 +67,6 @@ function todayStr(): string {
   return new Date().toISOString().slice(0, 10)
 }
 
-function formatDate(d: string): string {
-  if (!d) return '--'
-  const [y, m, day] = d.split('-')
-  if (!y || !m || !day) return d
-  return `${day}/${m}/${y}`
-}
-
 function toStringArray(val: string[] | Record<string, string> | undefined | null): string[] {
   if (!val) return []
   if (Array.isArray(val)) return val
@@ -86,23 +78,6 @@ function setLoading(btnId: string, loading: boolean, label: string): void {
   if (!btn) return
   btn.disabled = loading
   btn.textContent = loading ? 'Salvando...' : label
-}
-
-function keepApprovalIfTextUnchanged(
-  savedText: string | undefined,
-  currentText: string,
-  approvedAt: string | undefined,
-): string {
-  return savedText === currentText ? (approvedAt ?? '') : ''
-}
-
-function charCounter(textareaId: string, counterId: string, max = 250): void {
-  const ta = document.getElementById(textareaId) as HTMLTextAreaElement | null
-  const ct = document.getElementById(counterId)
-  if (!ta || !ct) return
-  const refresh = () => { ct.textContent = `${ta.value.length}/${max}` }
-  ta.addEventListener('input', refresh)
-  refresh()
 }
 
 function activePeople(): [string, MasterPessoa][] {
@@ -228,7 +203,6 @@ function renderContent(): void {
   if (activeTab === 'escala') renderEscala()
   else if (activeTab === 'grupos') renderGrupos()
   else if (activeTab === 'config') renderConfig()
-  else if (activeTab === 'texto') renderTexto()
   else renderPdf()
 }
 
@@ -239,9 +213,8 @@ function renderIndex(): void {
   const items: ItemMenu[] = [
     { id: 'escala', titulo: 'Gerar escala', subtitulo: 'Calcule e salve a rotação mensal ou bimestral', icone: '▦', corFundo: '#B83E18' },
     { id: 'grupos', titulo: 'Grupos', subtitulo: 'Distribua as pessoas pelos grupos de limpeza', icone: '♧', corFundo: '#006EB6' },
-    { id: 'texto', titulo: 'Texto', subtitulo: 'Gere a mensagem para publicar em Tarefas', icone: '≡', corFundo: '#1A6B3C' },
     { id: 'pdf', titulo: 'PDF', subtitulo: 'Baixe a escala já gerada em arquivo separado', icone: '▤', corFundo: '#7E3AF2' },
-    { id: 'config', titulo: 'Configuração', subtitulo: 'Rotação, coordenador e instruções', icone: '⚙', corFundo: '#003F72' },
+    { id: 'config', titulo: 'Configuração', subtitulo: 'Rotação, grupos e responsáveis', icone: '⚙', corFundo: '#003F72' },
   ]
   renderMenuCards(content.querySelector<HTMLElement>('#limpezaMenu')!, items, id => { activeTab = id as LimpezaTab; renderContent() })
 }
@@ -447,9 +420,6 @@ function renderConfig(): void {
   const ativa = limpeza.ativa ?? false
   const grupos = groupCount()
   const inicioRotacao = limpeza.inicioRotacao ?? ''
-  const coordenadorMid = limpeza.coordenadorMid ?? ''
-  const textoPadrao = limpeza.textoPadrao ?? ''
-  const textoPadraoAprovadoEm = limpeza.textoPadraoAprovadoEm ?? ''
 
   const grupoCards = Array.from({ length: grupos }, (_, i) => {
     const gid = String(i + 1)
@@ -459,8 +429,6 @@ function renderConfig(): void {
     const nome = usingServiceGroups() ? serviceName : item.nome ?? ''
     const superintendenteMid = item.superintendenteMid ?? ''
     const ajudantesMid = toStringArray(item.ajudantesMid as string[] | Record<string, string> | undefined)
-    const textoInstrucoes = item.textoInstrucoes ?? ''
-    const aprovadoEm = item.aprovadoEm ?? ''
 
     return `
       <div data-cleaning-group="${escapeHtml(sourceId)}" style="background:var(--surface);border:1px solid var(--border);border-radius:8px;
@@ -489,21 +457,6 @@ function renderConfig(): void {
                 <input type="checkbox" data-group-helper="${escapeHtml(sourceId)}" value="${mid}" ${ajudantesMid.includes(mid) ? 'checked' : ''}>
                 <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(p.name.split(' ')[0] ?? p.name)}</span>
               </label>`).join('')}
-          </div>
-        </div>
-        <div class="form-group">
-          <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
-            <label class="form-label" style="margin:0">Texto de instrução</label>
-            <span style="font-size:.72rem;color:var(--ink-3)" id="gTextoCount_${escapeHtml(sourceId)}">${textoInstrucoes.length}/250</span>
-          </div>
-          <textarea id="gTexto_${escapeHtml(sourceId)}" class="form-input" rows="3" maxlength="250">${escapeHtml(textoInstrucoes)}</textarea>
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;gap:8px">
-            <span style="font-size:.74rem;color:var(--ink-3)">
-              Aprovado: <strong>${aprovadoEm ? formatDate(aprovadoEm) : 'Não aprovado'}</strong>
-            </span>
-            <button class="btn btn-ghost gAprovar" data-gid="${escapeHtml(sourceId)}" style="font-size:.75rem;padding:3px 10px">
-              Aprovar hoje
-            </button>
           </div>
         </div>
       </div>`
@@ -536,28 +489,6 @@ function renderConfig(): void {
         <input id="lInicio" class="form-input" type="date" value="${inicioRotacao}">
       </div>
     </div>
-    <div class="form-group">
-      <label class="form-label">Coordenador</label>
-      <select id="lCoordenador" class="form-select">
-        <option value="">Selecionar...</option>
-        ${candidateOptions(coordenadorMid)}
-      </select>
-    </div>
-    <div class="form-group">
-      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
-        <label class="form-label" style="margin:0">Texto padrão</label>
-        <span style="font-size:.72rem;color:var(--ink-3)" id="lTextoPadraoCount">${textoPadrao.length}/250</span>
-      </div>
-      <textarea id="lTextoPadrao" class="form-input" rows="3" maxlength="250">${escapeHtml(textoPadrao)}</textarea>
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;gap:8px">
-        <span style="font-size:.74rem;color:var(--ink-3)">
-          Aprovado: <strong>${textoPadraoAprovadoEm ? formatDate(textoPadraoAprovadoEm) : 'Não aprovado'}</strong>
-        </span>
-        <button id="btnAprovarTextoPadrao" class="btn btn-ghost" style="font-size:.75rem;padding:3px 10px">
-          Aprovar hoje
-        </button>
-      </div>
-    </div>
     <div style="font-size:.8rem;font-weight:600;color:var(--ink-2);margin:16px 0 10px;
       text-transform:uppercase;letter-spacing:.05em">Por grupo</div>
     ${grupoCards}
@@ -565,58 +496,12 @@ function renderConfig(): void {
       <button id="btnSalvarLimpezaConfig" class="btn btn-primary btn-full">Salvar Configuração</button>
     </div>`
 
-  charCounter('lTextoPadrao', 'lTextoPadraoCount')
-  Array.from({ length: grupos }, (_, i) => groupSourceId(i + 1)).forEach(id => charCounter(`gTexto_${id}`, `gTextoCount_${id}`))
-
-  document.getElementById('btnAprovarTextoPadrao')!
-    .addEventListener('click', () => void approveTextoPadrao())
-  document.querySelectorAll<HTMLButtonElement>('.gAprovar').forEach(btn => {
-    btn.addEventListener('click', () => void approveGrupoTexto(btn.dataset['gid']!))
+  document.getElementById('lUsarGruposServico')!.addEventListener('change', event => {
+    limpeza.aproveitarGruposServicoCampo = (event.target as HTMLInputElement).checked
+    renderConfig()
   })
   document.getElementById('btnSalvarLimpezaConfig')!
     .addEventListener('click', () => void saveConfig())
-}
-
-async function approveTextoPadrao(): Promise<void> {
-  const textoPadrao = (document.getElementById('lTextoPadrao') as HTMLTextAreaElement).value
-  const hoje = todayStr()
-
-  try {
-    await update(configLimpezaRef, { textoPadrao, textoPadraoAprovadoEm: hoje })
-    limpeza.textoPadrao = textoPadrao
-    limpeza.textoPadraoAprovadoEm = hoje
-    toast('Texto padrão aprovado ✓')
-    renderConfig()
-  } catch {
-    toast('Erro ao aprovar texto')
-  }
-}
-
-async function approveGrupoTexto(gid: string): Promise<void> {
-  const textoInstrucoes = (document.getElementById(`gTexto_${gid}`) as HTMLTextAreaElement).value
-  const hoje = todayStr()
-
-  try {
-    const collection = usingServiceGroups() ? 'gruposServicoConfig' : 'gruposConfig'
-    await update(configLimpezaRef, {
-      [`${collection}/${gid}/textoInstrucoes`]: textoInstrucoes,
-      [`${collection}/${gid}/aprovadoEm`]: hoje,
-    })
-    const configs = usingServiceGroups()
-      ? (limpeza.gruposServicoConfig ??= {})
-      : (limpeza.gruposConfig ??= {})
-    configs[gid] = {
-      nome: configs[gid]?.nome ?? '',
-      superintendenteMid: configs[gid]?.superintendenteMid ?? '',
-      ajudantesMid: configs[gid]?.ajudantesMid ?? [],
-      textoInstrucoes,
-      aprovadoEm: hoje,
-    }
-    toast(`Grupo ${gid} aprovado ✓`)
-    renderConfig()
-  } catch {
-    toast('Erro ao aprovar texto do grupo')
-  }
 }
 
 async function saveConfig(): Promise<void> {
@@ -628,8 +513,6 @@ async function saveConfig(): Promise<void> {
 
   for (let i = 1; i <= grupos; i++) {
     const gid = groupSourceId(i)
-    const existente = reuseServiceGroups ? limpeza.gruposServicoConfig?.[gid] : limpeza.gruposConfig?.[gid]
-    const textoInstrucoes = (document.getElementById(`gTexto_${gid}`) as HTMLTextAreaElement).value
     const ajudantesMid = Array.from(
       document.querySelectorAll<HTMLInputElement>('[data-group-helper]:checked')
     ).filter(cb => cb.dataset['groupHelper'] === gid).map(cb => cb.value)
@@ -638,28 +521,14 @@ async function saveConfig(): Promise<void> {
       nome: reuseServiceGroups ? '' : value(`gNome_${gid}`),
       superintendenteMid: value(`gSuper_${gid}`),
       ajudantesMid,
-      textoInstrucoes,
-      aprovadoEm: keepApprovalIfTextUnchanged(
-        existente?.textoInstrucoes,
-        textoInstrucoes,
-        existente?.aprovadoEm,
-      ),
     }
   }
 
-  const textoPadrao = (document.getElementById('lTextoPadrao') as HTMLTextAreaElement).value
   const nextConfig: ConfigLimpeza = {
     ativa: checked('lAtiva'),
     aproveitarGruposServicoCampo: reuseServiceGroups,
     grupos: reuseServiceGroups ? Number(limpeza.grupos ?? 4) : grupos,
     inicioRotacao: value('lInicio'),
-    coordenadorMid: value('lCoordenador'),
-    textoPadrao,
-    textoPadraoAprovadoEm: keepApprovalIfTextUnchanged(
-      limpeza.textoPadrao,
-      textoPadrao,
-      limpeza.textoPadraoAprovadoEm,
-    ),
     gruposConfig: reuseServiceGroups ? limpeza.gruposConfig ?? {} : editedConfigs,
     gruposServicoConfig: reuseServiceGroups ? editedConfigs : limpeza.gruposServicoConfig ?? {},
   }
@@ -674,40 +543,6 @@ async function saveConfig(): Promise<void> {
     toast('Erro ao salvar configuração')
   } finally {
     setLoading('btnSalvarLimpezaConfig', false, 'Salvar Configuração')
-  }
-}
-
-function renderTexto(): void {
-  const content = document.getElementById('limpezaContent')
-  if (!content) return
-  const period = generatedPeriod()
-  content.innerHTML = `
-    ${renderSectionTitle('Texto para Tarefas', '')}
-    <div class="form-group">
-      <label class="form-label">Escala gerada</label>
-      <select id="limpezaTextoPeriodo" class="form-select" ${Object.keys(periodos).length ? '' : 'disabled'}>
-        ${generatedPeriodOptions() || '<option>Nenhuma escala gerada</option>'}
-      </select>
-    </div>
-    <div class="form-group"><label class="form-label">Mensagem</label><textarea id="textoPreview" class="form-input" rows="16">${escapeHtml(period ? cleaningTextForTasks(period, pessoas) : '')}</textarea></div>
-    <button id="btnCopiarTextoLimpeza" class="btn btn-primary btn-full" ${period ? '' : 'disabled'}>Copiar texto</button>`
-  document.getElementById('limpezaTextoPeriodo')?.addEventListener('change', event => {
-    selectedPeriodId = (event.target as HTMLSelectElement).value
-    renderTexto()
-  })
-  document.getElementById('btnCopiarTextoLimpeza')!
-    .addEventListener('click', () => void copyGeneratedText())
-}
-
-async function copyGeneratedText(): Promise<void> {
-  const text = (document.getElementById('textoPreview') as HTMLTextAreaElement | null)?.value ?? ''
-  if (!text) return
-
-  try {
-    await navigator.clipboard.writeText(text)
-    toast('Texto copiado ✓')
-  } catch {
-    toast('Não foi possível copiar automaticamente')
   }
 }
 
@@ -755,7 +590,3 @@ async function exportCleaningPdf(): Promise<void> {
     if (button) { button.disabled = false; button.textContent = 'Baixar PDF' }
   }
 }
-  document.getElementById('lUsarGruposServico')!.addEventListener('change', event => {
-    limpeza.aproveitarGruposServicoCampo = (event.target as HTMLInputElement).checked
-    renderConfig()
-  })

@@ -31,6 +31,7 @@ const partNumber = (part: ProgramPart): string => {
   return pieces[pieces.length - 1] ?? ''
 }
 const personName = (id: string | undefined, people: Map<string, ProgramPerson>): string => id ? people.get(id)?.name ?? 'Cadastro não encontrado' : 'Sem designação'
+export const personIdForDocument = (part: ProgramPart): string | undefined => part.realizedPersonId ?? part.substitutePersonId ?? part.assignedPersonId
 function clippedToWidth(value: string, maxWidth: number, font: PDFFont, size: number): string {
   if (font.widthOfTextAtSize(value, size) <= maxWidth) return value
   let output = value
@@ -38,32 +39,30 @@ function clippedToWidth(value: string, maxWidth: number, font: PDFFont, size: nu
   return `${output}...`
 }
 
-export async function createS89(program: MeetingProgram, peopleList: ProgramPerson[]): Promise<{ bytes: Uint8Array; count: number }> {
+async function s89TemplateBytes(): Promise<Uint8Array> {
+  const response = await fetch('/templates/S-89_T.pdf')
+  if (!response.ok) throw new Error('O modelo oficial S-89 não está disponível.')
+  return new Uint8Array(await response.arrayBuffer())
+}
+
+export async function createS89(program: MeetingProgram, peopleList: ProgramPerson[], templateBytes?: Uint8Array): Promise<{ bytes: Uint8Array; count: number }> {
   const people = new Map(peopleList.map(person => [person.id, person]))
-  const cards = program.parts.filter(part => part.section === 'ministerio' && part.assignedPersonId)
+  const cards = program.parts.filter(part => part.section === 'ministerio' && personIdForDocument(part))
   if (!cards.length) return { bytes: new Uint8Array(), count: 0 }
+  const template = await PDFDocument.load(templateBytes ?? await s89TemplateBytes())
   const pdf = await PDFDocument.create()
   const regular = await pdf.embedFont(StandardFonts.Helvetica)
-  const bold = await pdf.embedFont(StandardFonts.HelveticaBold)
-  cards.forEach(part => {
-    const page = pdf.addPage([340, 452])
-    const draw = (text: string, x: number, y: number, size = 10, isBold = false) => page.drawText(text, { x, y, size, font: isBold ? bold : regular })
-    page.drawRectangle({ x: 18, y: 18, width: 304, height: 416, borderWidth: 1, borderColor: rgb(.25, .25, .25) })
-    draw('DESIGNAÇÃO PARA A REUNIÃO', 57, 405, 13, true)
-    draw('NOSSA VIDA E MINISTÉRIO CRISTÃO', 48, 386, 11, true)
-    page.drawLine({ start: { x: 30, y: 373 }, end: { x: 310, y: 373 }, thickness: 1 })
-    draw('Nome:', 31, 345, 9, true); draw(clippedToWidth(personName(part.assignedPersonId, people), 230, regular, 10), 75, 345, 10)
-    draw('Ajudante:', 31, 315, 9, true); draw(clippedToWidth(personName(part.assistantPersonId, people).replace('Sem designação', ''), 215, regular, 10), 88, 315, 10)
-    draw('Data:', 31, 285, 9, true); draw(formatDate(program.meetingDate), 70, 285, 10)
-    draw('Parte:', 31, 255, 9, true); draw(clippedToWidth(`${partNumber(part)}. ${part.title}`, 235, regular, 10), 72, 255, 10)
-    page.drawRectangle({ x: 31, y: 180, width: 11, height: 11, borderWidth: 1 }); draw('Salão principal', 50, 181, 9)
-    page.drawRectangle({ x: 31, y: 153, width: 11, height: 11, borderWidth: 1 }); draw('Sala auxiliar', 50, 154, 9)
-    draw('X', 33, part.roomId && part.roomId !== 'main' ? 154 : 181, 9, true)
-    draw('Observação:', 31, 117, 9, true)
-    page.drawLine({ start: { x: 31, y: 100 }, end: { x: 308, y: 100 }, thickness: .5 })
-    page.drawLine({ start: { x: 31, y: 78 }, end: { x: 308, y: 78 }, thickness: .5 })
-    draw('S-89-T', 273, 31, 7)
-  })
+  for (const part of cards) {
+    const [page] = await pdf.copyPages(template, [0])
+    pdf.addPage(page)
+    const draw = (text: string, x: number, y: number, maxWidth = 235) => page.drawText(clippedToWidth(text, maxWidth, regular, 9), { x, y, size: 9, font: regular })
+    draw(personName(personIdForDocument(part), people), 52, 267)
+    draw(personName(part.assistantPersonId, people).replace('Sem designação', ''), 61, 244)
+    draw(formatDate(program.meetingDate), 48, 221, 100)
+    draw(`${partNumber(part)}. ${part.title}`, 117, 197, 185)
+    // Esta congregação usa somente o Salão principal no formulário S-89.
+    page.drawText('X', { x: 26, y: 144, size: 9, font: regular })
+  }
   return { bytes: await pdf.save(), count: cards.length }
 }
 
@@ -101,7 +100,7 @@ export async function createS140Pdf(programs: MeetingProgram[], congregation: st
         draw(sectionLabels[section], 43, y + 3, 8, true, rgb(1, 1, 1)); y -= 14
         parts.forEach(part => {
           draw(`${partNumber(part)}. ${clippedToWidth(part.title, 275, regular, 8)} (${part.durationMinutes} min.)`, 48, y, 8)
-          draw(clippedToWidth(personName(part.realizedPersonId ?? part.substitutePersonId ?? part.assignedPersonId, people), 165, regular, 8), 388, y, 8)
+          draw(clippedToWidth(personName(personIdForDocument(part), people), 165, regular, 8), 388, y, 8)
           y -= 12
         })
       })
@@ -127,7 +126,7 @@ function docxMeeting(program: MeetingProgram, congregation: string, people: Map<
     if (!parts.length) return
     const color = sectionColors[section].map(value => Math.round(value * 255).toString(16).padStart(2, '0')).join('').toUpperCase()
     children.push(new Paragraph({ shading: { fill: color }, spacing: { before: 55, after: 35 }, children: [new TextRun({ text: sectionLabels[section], color: 'FFFFFF', bold: true, size: 15 })] }))
-    parts.forEach(part => children.push(new Paragraph({ indent: { left: 160 }, spacing: { after: 15 }, children: [new TextRun({ text: `${partNumber(part)}. ${part.title} (${part.durationMinutes} min.)`, size: 14 }), new TextRun({ text: `  • ${personName(part.realizedPersonId ?? part.substitutePersonId ?? part.assignedPersonId, people)}`, size: 12, color: '333333' })] })))
+    parts.forEach(part => children.push(new Paragraph({ indent: { left: 160 }, spacing: { after: 15 }, children: [new TextRun({ text: `${partNumber(part)}. ${part.title} (${part.durationMinutes} min.)`, size: 14 }), new TextRun({ text: `  • ${personName(personIdForDocument(part), people)}`, size: 12, color: '333333' })] })))
   })
   return children
 }

@@ -2,7 +2,6 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   cleaningGroupFor,
-  cleaningTextForTasks,
   generateCleaningPeriod,
   periodBounds,
 } from '../src/modules/limpeza-domain.ts'
@@ -11,14 +10,11 @@ const config = {
   ativa: true,
   grupos: 4,
   inicioRotacao: '2026-09-02',
-  coordenadorMid: 'm1',
-  textoPadrao: 'Cuide dos materiais.',
-  textoPadraoAprovadoEm: '2026-09-01',
   gruposConfig: {
-    1: { nome: 'Salao do Reino', superintendenteMid: 'm1', ajudantesMid: ['m2'], textoInstrucoes: 'Confira as portas.', aprovadoEm: '2026-09-01' },
-    2: { nome: 'Taioca', superintendenteMid: 'm2', ajudantesMid: [], textoInstrucoes: 'Rascunho nao aprovado.', aprovadoEm: '' },
-    3: { nome: 'Maria do Carmo', superintendenteMid: '', ajudantesMid: [], textoInstrucoes: '', aprovadoEm: '' },
-    4: { nome: 'Amelia', superintendenteMid: '', ajudantesMid: [], textoInstrucoes: '', aprovadoEm: '' },
+    1: { nome: 'Salao do Reino', superintendenteMid: 'm1', ajudantesMid: ['m2'] },
+    2: { nome: 'Taioca', superintendenteMid: 'm2', ajudantesMid: [] },
+    3: { nome: 'Maria do Carmo', superintendenteMid: '', ajudantesMid: [] },
+    4: { nome: 'Amelia', superintendenteMid: '', ajudantesMid: [] },
   },
 }
 const meetings = {
@@ -44,18 +40,15 @@ test('bimestre de setembro inclui cinco semanas e a virada para novembro', () =>
   assert.deepEqual(period.semanas[0], {
     referencia: '2026-09-02', dataMeioSemana: '2026-09-02', dataFimSemana: '2026-09-06',
     grupo: 1, grupoNome: 'Salao do Reino', superintendenteMid: 'm1', ajudantesMid: ['m2'],
-    membrosMid: ['m1', 'm2'], textoAprovado: 'Cuide dos materiais.\n\nConfira as portas.',
+    membrosMid: ['m1', 'm2'],
   })
   assert.equal(period.semanas[8].dataFimSemana, '2026-11-01')
 })
 
-test('texto de Tarefas usa somente instruções aprovadas', () => {
+test('geração guarda membros ativos sem textos de publicação', () => {
   const period = generateCleaningPeriod('2026-09-01', 'month', config, meetings, people, 'Noroeste', '2026-09-01T12:00:00Z')
-  const text = cleaningTextForTasks(period, people)
-  assert.match(text, /Ana Responsavel/)
-  assert.match(text, /Confira as portas/)
-  assert.doesNotMatch(text, /Rascunho nao aprovado/)
-  assert.doesNotMatch(text, /Inativo/)
+  assert.deepEqual(period.semanas[0].membrosMid, ['m1', 'm2'])
+  assert.equal('textoAprovado' in period.semanas[0], false)
 })
 
 test('geração exige configuração ativa e dias de reunião', () => {

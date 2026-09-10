@@ -6,6 +6,8 @@ export interface AgendaEvent {
   detail: string; location?: string; note?: string; status: AgendaStatus
 }
 
+export interface AnnouncementEvent extends AgendaEvent { people: string[] }
+
 export function upcomingAgendaEvents(events: AgendaEvent[], today: string): AgendaEvent[] {
   return events.filter(event => event.date >= today && event.status !== 'realizado')
 }
@@ -28,13 +30,13 @@ export function collectAgendaEvents(rootValue: unknown, masterId: string, allowe
     const meeting = rows(meetingValue), date = text(meeting['date']) || meetingId.split('__')[0]
     Object.entries(rows(meeting['assignments'])).forEach(([role, assignment]) => {
       const personId = text(rows(assignment)['id']) || text(rows(assignment)['personId']) || text(assignment)
-      if (taskIds.has(personId)) add({ id:`tarefas:${periodId}:${meetingId}:${role}`, source:'tarefas', date, title:TASK_LABELS[role] || role, detail:text(meeting['type']) === 'midweek' ? 'Reunião do meio de semana' : 'Reunião do fim de semana', status:text(rows(meeting['avisados'])[role]) ? 'futuro' : 'confirmacao-pendente' })
+      if (taskIds.has(personId)) add({ id:`tarefas:${periodId}:${meetingId}:${role}`, source:'tarefas', date, title:TASK_LABELS[role] || role, detail:text(meeting['type']) === 'midweek' ? 'Reunião do meio de semana' : 'Reunião do fim de semana', status:'futuro' })
     })
   }))
 
   if (allowed.limpeza !== false) Object.entries(rows(rows(root['limpeza'])['periodos'])).forEach(([periodId, periodValue]) => values(rows(periodValue)['semanas']).forEach((weekValue, index) => {
     const week = rows(weekValue), ids = [text(week['superintendenteMid']), ...values(week['ajudantesMid']).map(text), ...values(week['membrosMid']).map(text)]
-    if (ids.includes(masterId)) add({ id:`limpeza:${periodId}:${index}`, source:'limpeza', date:text(week['dataMeioSemana']) || text(week['referencia']), title:`Limpeza - ${text(week['grupoNome']) || `Grupo ${Number(week['grupo'])}`}`, detail:'Escala de limpeza do Salão do Reino', note:text(week['textoAprovado']), status:'futuro' })
+    if (ids.includes(masterId)) add({ id:`limpeza:${periodId}:${index}`, source:'limpeza', date:text(week['dataMeioSemana']) || text(week['referencia']), title:`Limpeza - ${text(week['grupoNome']) || `Grupo ${Number(week['grupo'])}`}`, detail:'Escala de limpeza do Salão do Reino', status:'futuro' })
   }))
 
   if (allowed.escala !== false) {
@@ -62,13 +64,23 @@ export function collectAgendaEvents(rootValue: unknown, masterId: string, allowe
   if (allowed.programacao !== false) {
     const programacao = rows(root['programacao']), profiles = rows(programacao['pessoas'])
     const profileIds = new Set(Object.entries(profiles).filter(([id, profile]) => text(rows(profile)['masterId']) === masterId || id === masterId).map(([id]) => id))
+    const rooms = new Map(values(rows(programacao['settings'])['rooms']).map(roomValue => {
+      const room = rows(roomValue)
+      return [text(room['id']), text(room['name'])] as const
+    }))
+    const meetingTime = text(rows(programacao['settings'])['meetingTime']) || undefined
     Object.entries(rows(programacao['programs'] ?? programacao['semanas'])).forEach(([programId, programValue]) => {
       const program = rows(programValue), date = text(program['meetingDate']) || programId
       values(program['parts']).forEach((partValue, index) => {
-        const part = rows(partValue), assigned = text(part['substitutePersonId']) || text(part['assignedPersonId']), assistant = text(part['assistantPersonId'])
-        if (!profileIds.has(assigned) && !profileIds.has(assistant) && !profileIds.has(text(part['realizedPersonId']))) return
-        const helper = profileIds.has(assistant) && assigned !== assistant
-        add({ id:`programacao:${programId}:${text(part['id']) || index}`, source:'programacao', date, title:helper ? `Ajudante - ${text(part['title'])}` : text(part['title']) || 'Parte da reunião', detail:'Vida e Ministério', location:text(part['roomId']) || undefined, status:text(part['status']) === 'realizado' || profileIds.has(text(part['realizedPersonId'])) ? 'realizado' : part['confirmedAt'] ? 'futuro' : 'confirmacao-pendente' })
+        const part = rows(partValue), assigned = text(part['assignedPersonId']), substitute = text(part['substitutePersonId']), responsible = substitute || assigned, assistant = text(part['assistantPersonId']), realized = text(part['realizedPersonId'])
+        const isAssistant = profileIds.has(assistant) && responsible !== assistant
+        const isResponsible = profileIds.has(responsible)
+        const isRealized = profileIds.has(realized)
+        if (!isResponsible && !isAssistant && !isRealized) return
+        const roomId = text(part['roomId']) || 'main'
+        const status: AgendaStatus = text(part['status']) === 'realizado' || isRealized ? 'realizado' : substitute && isResponsible ? 'alterado' : part['confirmedAt'] ? 'futuro' : 'confirmacao-pendente'
+        const role = isAssistant ? 'Ajudante' : substitute && isResponsible ? 'Substituto' : isRealized ? 'Realizou' : ''
+        add({ id:`programacao:${programId}:${text(part['id']) || index}:${role || 'principal'}`, source:'programacao', date, time:meetingTime, title:role ? `${role} - ${text(part['title'])}` : text(part['title']) || 'Parte da reunião', detail:'Vida e Ministério', location:rooms.get(roomId) || (roomId === 'main' ? 'Salão principal' : undefined), note:text(part['reference']), status })
       })
     })
   }
@@ -79,6 +91,37 @@ export function collectAgendaEvents(rootValue: unknown, masterId: string, allowe
     if (seen.has(key)) return false
     seen.add(key); return true
   })
+}
+
+export function collectAnnouncementEvents(rootValue: unknown, allowed: Partial<Record<AgendaSource, boolean>> = {}): AnnouncementEvent[] {
+  const root = rows(rootValue), people = rows(rows(root['master'])['pessoas'])
+  const grouped = new Map<string, AnnouncementEvent>()
+  const add = (event: AgendaEvent, name: string): void => {
+    if (!name || !validDate(event.date)) return
+    const key = `${event.source}|${event.id}|${event.date}|${event.time || ''}`
+    const current = grouped.get(key)
+    if (current) { if (!current.people.includes(name)) current.people.push(name); return }
+    grouped.set(key, { ...event, note: undefined, people: [name] })
+  }
+  Object.entries(people).forEach(([masterId, personValue]) => {
+    const person = rows(personValue), name = text(person['name'])
+    if (!name || person['active'] === false) return
+    collectAgendaEvents(rootValue, masterId, allowed).forEach(event => {
+      add(event, name)
+    })
+  })
+  if (allowed.oradores !== false) {
+    const tarefas = rows(root['tarefas']), discursos = rows(tarefas['discursos']), speakers = rows(discursos['oradores']), taskPeople = rows(tarefas['people']), congregations = rows(discursos['congregacoes'])
+    Object.entries(rows(discursos['programacao'])).forEach(([id, talkValue]) => {
+      const talk = rows(talkValue), speaker = rows(speakers[text(talk['oradorId'])]), taskPerson = rows(taskPeople[text(speaker['pessoaId'])])
+      const masterId = text(speaker['masterId']) || text(taskPerson['masterId'])
+      const name = text(rows(people[masterId])['name']) || text(speaker['nome']) || text(speaker['name']) || text(talk['oradorNome']) || 'Orador a definir'
+      const type = text(talk['tipo']), congregationId = type === 'saida_orador' ? text(talk['congregacaoDestinoId']) || text(talk['congregacaoId']) : text(talk['congregacaoOrigemId']) || text(talk['congregacaoId'])
+      const congregation = rows(congregations[congregationId]), destination = text(talk['congregacaoDestinoNome']), origin = text(talk['congregacaoOrigemNome']), confirmation = rows(talk['confirmacao'])['status'] === true
+      add({ id:`oradores:${id}`, source:'oradores', date:text(talk['data']), time:text(talk['horarioLocal']) || undefined, title:type === 'saida_orador' ? 'Discurso em outra congregação' : 'Discurso público', detail:text(talk['temaTitulo']) || (talk['temaNumero'] ? `Tema ${String(talk['temaNumero'])}` : 'Tema a confirmar'), location:destination || origin || text(congregation['nome']) || text(talk['localCongregacaoNome']) || undefined, status:text(talk['status']) === 'realizado' || text(talk['realizadoPorId']) ? 'realizado' : confirmation ? 'futuro' : 'confirmacao-pendente' }, name)
+    })
+  }
+  return [...grouped.values()].sort((a, b) => a.date.localeCompare(b.date) || (a.time || '').localeCompare(b.time || '') || a.title.localeCompare(b.title, 'pt-BR'))
 }
 
 const icsEscape = (value: string): string => value.replace(/\\/g, '\\\\').replace(/\r?\n/g, '\\n').replace(/,/g, '\\,').replace(/;/g, '\\;')
@@ -94,4 +137,9 @@ export function agendaToIcs(events: AgendaEvent[], generatedAt: string): string 
 export function agendaMessage(events: AgendaEvent[]): string {
   if (!events.length) return 'Minha agenda Noroeste: nenhuma designação registrada neste período.'
   return `Minha agenda Noroeste:\n${events.map(event => `${event.date.split('-').reverse().join('/')} ${event.time || ''} - ${event.title}${event.location ? ` (${event.location})` : ''}`.replace('  ', ' ')).join('\n')}`
+}
+
+export function announcementMessage(events: AnnouncementEvent[]): string {
+  if (!events.length) return 'Quadro de anúncios Noroeste: nenhuma designação registrada neste período.'
+  return `Quadro de anúncios Noroeste:\n${events.map(event => `${event.date.split('-').reverse().join('/')} ${event.time || ''} - ${event.title}\n${event.detail}${event.location ? ` · ${event.location}` : ''}\n${event.people.join(', ')}`.replace('  ', ' ')).join('\n\n')}`
 }

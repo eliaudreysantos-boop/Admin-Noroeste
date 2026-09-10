@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   assistantNeedsSameSex, candidates, filterPrograms, isOfficialJwUrl,
-  mergeImportedProgram, parseOfficialProgram, permissionForPart, programPendings, reminderMessage, suggestAssignments,
+  htmlToText, mergeImportedProgram, parseOfficialProgram, permissionForPart, programPendings, reminderMessage, suggestAssignments,
 } from '../src/modules/programacao-domain.ts'
 
 const page = `
@@ -46,6 +46,14 @@ test('parser encontra quarta-feira, seções, referência e O que você diria', 
 test('parser reconhece semana entre dois meses com ordinal', () => {
   const cross = page.replace('17-23 de agosto de 2026', '26 de outubro–1.º de novembro de 2026')
   assert.equal(parseOfficialProgram('https://www.jw.org/pt/x/', cross).meetingDate, '2026-10-28')
+})
+
+test('parser aceita duração na mesma linha e entidades HTML em português', () => {
+  const inline = page.replace('1. Não seja enganado\n(10 min)', '1. Não seja enganado (10 min) Prov. 1:1')
+  const program = parseOfficialProgram('https://www.jw.org/pt/x/', inline)
+  assert.equal(program.parts[0].durationMinutes, 10)
+  assert.equal(program.parts[0].reference, 'Prov. 1:1')
+  assert.equal(htmlToText('&Aacute;gua &ccedil; &atilde;').trim(), 'Água ç ã')
 })
 
 test('nova importação preserva designações, estado e observações', () => {
@@ -97,8 +105,17 @@ test('pendências cobrem principal, sexo, conflito, entrega e confirmação', ()
   assert.match(pending, /mesmo sexo/)
   assert.match(pending, /outra parte/)
   assert.match(pending, /principal não definido/)
-  assert.match(pending, /lembrete ainda não aberto/)
+  assert.match(pending, /lembrete do principal ainda não aberto/)
   assert.match(pending, /confirmação pendente/)
+})
+
+test('pendências indicam a parte para correção e cobrem ausência sem substituto', () => {
+  const program = { id: 'week-1', meetingDate: '2026-09-09', bibleReading: '', parts: [
+    { id: 'part-1', section: 'ministerio', title: 'Iniciando conversas', durationMinutes: 3, assignedPersonId: 'p1', absent: true },
+  ] }
+  const pending = programPendings([program], [person()])
+  assert.equal(pending.find(item => /ausente sem substituto/.test(item.message))?.programId, 'week-1')
+  assert.equal(pending.find(item => /ausente sem substituto/.test(item.message))?.partId, 'part-1')
 })
 
 test('mensagem é editável a partir de modelo com marcadores', () => {

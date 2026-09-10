@@ -114,11 +114,11 @@ function render(): void {
     if (menu) {
       const items: ItemMenu[] = [
         { id: 'programacao', titulo: 'Programação', subtitulo: `${programacoesFuturas} compromisso${programacoesFuturas === 1 ? '' : 's'} futuro${programacoesFuturas === 1 ? '' : 's'}`, icone: '▣', corFundo: '#7E3AF2' },
-        { id: 'designacoes', titulo: 'Designações por orador', subtitulo: 'Agenda individual e mensagens', icone: '☷', corFundo: '#003F72' },
+        { id: 'designacoes', titulo: 'Designações por orador', subtitulo: 'Agenda individual por orador', icone: '☷', corFundo: '#003F72' },
         { id: 'cadastro', titulo: 'Cadastro', subtitulo: 'Oradores da congregação', icone: '♙', corFundo: '#003F72' },
         { id: 'temas', titulo: 'Temas', subtitulo: 'Catálogo dos discursos públicos', icone: '▤', corFundo: '#1A6B3C' },
         { id: 'congregacoes', titulo: 'Congregações', subtitulo: 'Locais, visitantes e intercâmbios', icone: '⌂', corFundo: '#006EB6' },
-        { id: 'intercambios', titulo: 'Intercâmbios', subtitulo: 'Entradas, saídas e mensagens', icone: '⇄', corFundo: '#7E3AF2' },
+        { id: 'intercambios', titulo: 'Intercâmbios', subtitulo: 'Entradas, saídas e confirmações', icone: '⇄', corFundo: '#7E3AF2' },
         { id: 'eventos', titulo: 'Eventos', subtitulo: 'Datas sem discurso público local', icone: '◆', corFundo: '#8A5B00' },
         { id: 'pendencias', titulo: 'Pendências', subtitulo: `${aConfirmar} compromisso${aConfirmar === 1 ? '' : 's'} a confirmar`, icone: '!', corFundo: '#B3261E' },
       ]
@@ -158,9 +158,6 @@ function render(): void {
   el.querySelectorAll<HTMLButtonElement>('[data-delete-programacao]').forEach(button => {
     button.addEventListener('click', () => void deleteProgramacao(button.dataset['deleteProgramacao'] ?? ''))
   })
-  el.querySelectorAll<HTMLButtonElement>('[data-programacao-whatsapp]').forEach(button => {
-    button.addEventListener('click', () => void sendProgramacaoWhatsApp(button.dataset['programacaoWhatsapp'] ?? ''))
-  })
   el.querySelectorAll<HTMLButtonElement>('[data-programacao-confirm]').forEach(button => {
     button.addEventListener('click', () => void setProgramacaoConfirmation(button.dataset['programacaoConfirm'] ?? '', false))
   })
@@ -194,7 +191,6 @@ function render(): void {
     localStorage.setItem(ORADORES_AVAILABLE_DAYS_KEY, String(availableDaysHorizon))
     render()
   })
-  el.querySelector<HTMLButtonElement>('[data-send-available-dates]')?.addEventListener('click', () => sendAvailableDates())
   el.querySelectorAll<HTMLButtonElement>('[data-edit-congregacao]').forEach(button => {
     button.addEventListener('click', () => openCongregacaoModal(button.dataset['editCongregacao'] ?? null))
   })
@@ -204,9 +200,7 @@ function render(): void {
   el.querySelector<HTMLButtonElement>('[data-add-evento]')?.addEventListener('click', () => openEventoModal(null))
   el.querySelectorAll<HTMLButtonElement>('[data-edit-evento]').forEach(button => button.addEventListener('click', () => openEventoModal(button.dataset['editEvento'] ?? null)))
   el.querySelectorAll<HTMLButtonElement>('[data-delete-evento]').forEach(button => button.addEventListener('click', () => void deleteEvento(button.dataset['deleteEvento'] ?? '')))
-  el.querySelectorAll<HTMLButtonElement>('[data-intercambio-message]').forEach(button => button.addEventListener('click', () => openIntercambioMessage(button.dataset['intercambioMessage'] ?? '')))
   el.querySelector<HTMLSelectElement>('#designationSpeaker')?.addEventListener('change', event => { selectedSpeakerId = (event.target as HTMLSelectElement).value; localStorage.setItem(ORADORES_DESIGNATION_SPEAKER_KEY, selectedSpeakerId); render() })
-  el.querySelector<HTMLButtonElement>('#designationWhats')?.addEventListener('click', () => void sendDesignationMessage())
 }
 
 function renderTabContent(tab: OradoresTab): string {
@@ -227,35 +221,11 @@ function talkPlace(talk: LegacyProgramacao): string {
   return discursos.congregacoes?.[congregationId ?? '']?.nome ?? (type === 'saida_orador' ? 'Destino não informado' : 'Origem não informada')
 }
 
-function designationLines(entries: Array<[string, LegacyProgramacao]>): string[] {
-  return entries.map(([, talk]) => `${formatDate(talk.data)} · ${talkPlace(talk)} · Tema ${talk.temaNumero ?? ''} ${talk.temaTitulo ?? 'a definir'} · ${deriveStatus(talk) === 'confirmado' ? 'Confirmado' : 'A confirmar'}`)
-}
-
 function designacoesView(): string {
   const speakers = Object.entries(discursos.oradores ?? {}).sort(([idA, a], [idB, b]) => oradorNome(idA, a).localeCompare(oradorNome(idB, b), 'pt-BR'))
   if (!selectedSpeakerId || !discursos.oradores?.[selectedSpeakerId]) selectedSpeakerId = speakers[0]?.[0] ?? ''
   const entries = assignmentsForSpeaker(discursos.programacao ?? {}, selectedSpeakerId, todayStr())
-  const speaker = discursos.oradores?.[selectedSpeakerId]
-  const draft = entries.length ? `Olá, ${oradorNome(selectedSpeakerId, speaker)}! Estas são suas próximas designações:\n\n${designationLines(entries).map(line => `• ${line}`).join('\n')}\n\nPor favor, confirme se está tudo certo.` : ''
-  return `<div style="margin-top:14px"><div class="form-group"><label class="form-label">Orador</label><select id="designationSpeaker" class="form-select">${speakers.map(([id, item]) => `<option value="${escapeHtml(id)}" ${id === selectedSpeakerId ? 'selected' : ''}>${escapeHtml(oradorNome(id, item))}</option>`).join('')}</select></div><div class="module-option-list">${entries.length ? entries.map(([, talk]) => `<div class="module-menu-btn" style="cursor:default"><div style="flex:1"><div class="mod-label">${escapeHtml(formatDate(talk.data))} · ${escapeHtml(talkPlace(talk))}</div><div class="mod-desc">Tema ${escapeHtml(talk.temaNumero ?? '')} ${escapeHtml(talk.temaTitulo ?? 'a definir')} · ${deriveStatus(talk) === 'confirmado' ? 'Confirmado' : 'A confirmar'}${talk.avisadoEm ? ' · Avisado' : ''}</div></div></div>`).join('') : '<p class="empty-state">Nenhuma designação futura para este orador.</p>'}</div>${entries.length ? `<div class="form-group" style="margin-top:14px"><label class="form-label">Mensagem</label><textarea id="designationText" class="form-input" rows="11">${escapeHtml(draft)}</textarea></div><button id="designationWhats" class="btn btn-primary">Abrir WhatsApp</button>` : ''}</div>`
-}
-
-async function sendDesignationMessage(): Promise<void> {
-  const speaker = discursos.oradores?.[selectedSpeakerId]
-  const phone = digits(oradorTelefone(speaker))
-  const message = (document.getElementById('designationText') as HTMLTextAreaElement | null)?.value.trim() ?? ''
-  if (!phone) { toast('Cadastre o WhatsApp desta pessoa no Admin'); return }
-  if (!message) { toast('Escreva a mensagem'); return }
-  const popup = window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer')
-  if (!popup) { toast('Permita pop-ups para abrir o WhatsApp'); return }
-  const entries = assignmentsForSpeaker(discursos.programacao ?? {}, selectedSpeakerId, todayStr())
-  const stamp = new Date().toISOString()
-  const patch = Object.fromEntries(entries.map(([id]) => [`programacao/${id}/avisadoEm`, stamp]))
-  try {
-    await update(tarefasDiscursosRef, patch)
-    entries.forEach(([id, talk]) => { talk.avisadoEm = stamp; if (discursos.programacao?.[id]) discursos.programacao[id] = talk })
-    toast('WhatsApp aberto; revise antes de enviar'); render()
-  } catch { toast('WhatsApp aberto, mas não foi possível registrar os avisos') }
+  return `<div style="margin-top:14px"><div class="form-group"><label class="form-label">Orador</label><select id="designationSpeaker" class="form-select">${speakers.map(([id, item]) => `<option value="${escapeHtml(id)}" ${id === selectedSpeakerId ? 'selected' : ''}>${escapeHtml(oradorNome(id, item))}</option>`).join('')}</select></div><div class="module-option-list">${entries.length ? entries.map(([, talk]) => `<div class="module-menu-btn" style="cursor:default"><div style="flex:1"><div class="mod-label">${escapeHtml(formatDate(talk.data))} · ${escapeHtml(talkPlace(talk))}</div><div class="mod-desc">Tema ${escapeHtml(talk.temaNumero ?? '')} ${escapeHtml(talk.temaTitulo ?? 'a definir')} · ${deriveStatus(talk) === 'confirmado' ? 'Confirmado' : 'A confirmar'}</div></div></div>`).join('') : '<p class="empty-state">Nenhuma designação futura para este orador.</p>'}</div></div>`
 }
 
 function intercambiosView(): string {
@@ -265,13 +235,13 @@ function intercambiosView(): string {
     const congregationId = canonicalTalkType(talk.tipo) === 'saida_orador' ? talk.congregacaoDestinoId ?? talk.congregacaoId : talk.congregacaoOrigemId ?? talk.congregacaoId
     return Boolean(congregationId) && (!contextId || congregationId === contextId)
   }).sort(([, a], [, b]) => String(a.data).localeCompare(String(b.data)))
-  const renderRows = (entries: Array<[string, LegacyProgramacao]>, heading: string) => `<section style="margin-top:14px"><h3 style="font-size:.9rem;color:#5C6062;margin-bottom:6px">${heading}</h3><div class="module-option-list">${entries.length ? entries.map(([id, talk]) => {
+  const renderRows = (entries: Array<[string, LegacyProgramacao]>, heading: string) => `<section style="margin-top:14px"><h3 style="font-size:.9rem;color:#5C6062;margin-bottom:6px">${heading}</h3><div class="module-option-list">${entries.length ? entries.map(([, talk]) => {
     const outgoing = canonicalTalkType(talk.tipo) === 'saida_orador'
     const congregationId = outgoing ? talk.congregacaoDestinoId ?? talk.congregacaoId : talk.congregacaoOrigemId ?? talk.congregacaoId
     const congregation = discursos.congregacoes?.[congregationId ?? '']
     const speaker = discursos.oradores?.[talk.oradorId ?? '']
     const near = exchangeDaysUntil(talk.data ?? '') <= 21 && deriveStatus(talk) !== 'confirmado'
-    return `<div class="module-menu-btn" style="cursor:default${near ? ';border-color:#D6A100;background:#FFF9E8' : ''}"><div class="mod-icon" style="background:#7E3AF220;color:#7E3AF2">${outgoing ? '→' : '←'}</div><div style="flex:1"><div class="mod-label">${escapeHtml(congregation?.nome ?? 'congregação não informada')}${near ? ' · menos de 21 dias' : ''}</div><div class="mod-desc">${escapeHtml(formatDate(talk.data))} · ${escapeHtml(oradorNome(talk.oradorId ?? '', speaker))} · ${escapeHtml(talk.temaTitulo ?? 'tema a definir')}</div></div><button class="btn btn-primary" type="button" data-intercambio-message="${escapeHtml(id)}">Mensagem</button></div>`
+    return `<div class="module-menu-btn" style="cursor:default${near ? ';border-color:#D6A100;background:#FFF9E8' : ''}"><div class="mod-icon" style="background:#7E3AF220;color:#7E3AF2">${outgoing ? '→' : '←'}</div><div style="flex:1"><div class="mod-label">${escapeHtml(congregation?.nome ?? 'congregação não informada')}${near ? ' · menos de 21 dias' : ''}</div><div class="mod-desc">${escapeHtml(formatDate(talk.data))} · ${escapeHtml(oradorNome(talk.oradorId ?? '', speaker))} · ${escapeHtml(talk.temaTitulo ?? 'tema a definir')} · ${deriveStatus(talk) === 'confirmado' ? 'Confirmado' : 'A confirmar'}</div></div></div>`
   }).join('') : '<p class="empty-state">Nenhum compromisso futuro.</p>'}</div></section>`
   const entradas = rows.filter(([, talk]) => canonicalTalkType(talk.tipo) === 'discurso_visitante')
   const saidas = rows.filter(([, talk]) => canonicalTalkType(talk.tipo) === 'saida_orador')
@@ -290,45 +260,6 @@ function exchangeDaysUntil(value: string): number {
   const now = new Date(`${todayStr()}T12:00:00`).getTime()
   const date = new Date(`${value}T12:00:00`).getTime()
   return Math.round((date - now) / 86_400_000)
-}
-
-function digits(value: unknown): string {
-  const phone = String(value ?? '').replace(/\D/g, '')
-  return phone.length === 11 ? `55${phone}` : phone
-}
-
-function openIntercambioMessage(id: string): void {
-  const talk = discursos.programacao?.[id]; if (!talk) return
-  const outgoing = canonicalTalkType(talk.tipo) === 'saida_orador'
-  const congregationId = outgoing ? talk.congregacaoDestinoId ?? talk.congregacaoId : talk.congregacaoOrigemId ?? talk.congregacaoId
-  const congregation = discursos.congregacoes?.[congregationId ?? '']
-  const speakerId = talk.oradorId ?? ''
-  const speaker = discursos.oradores?.[speakerId]
-  const speakerPhone = digits(oradorTelefone(speaker)), congregationPhone = digits(congregation?.telefone)
-  const message = outgoing
-    ? `Olá! Confirmamos o discurso de ${oradorNome(speakerId, speaker)} em ${congregation?.nome ?? 'sua congregação'}, no dia ${formatDate(talk.data)}, com o tema ${talk.temaNumero ?? ''} ${talk.temaTitulo ?? ''}.`
-    : `Olá, ${oradorNome(speakerId, speaker)}! Confirmamos seu discurso em nossa congregação no dia ${formatDate(talk.data)}, com o tema ${talk.temaNumero ?? ''} ${talk.temaTitulo ?? ''}.`
-  const overlay = document.createElement('div'); overlay.className = 'modal-overlay'
-  overlay.innerHTML = `<div class="modal"><h2>Mensagem de intercâmbio</h2><div class="form-group"><label class="form-label">Destinatário</label><select id="exchangeTarget" class="form-select"><option value="${speakerPhone}">Orador: ${escapeHtml(oradorNome(speakerId, speaker))}</option>${congregationPhone ? `<option value="${congregationPhone}">Congregação: ${escapeHtml(congregation?.nome ?? '')}</option>` : ''}</select></div><div class="form-group"><label class="form-label">Texto</label><textarea id="exchangeText" class="form-input" rows="10">${escapeHtml(message)}</textarea></div><div style="display:flex;gap:8px"><button id="exchangeCancel" class="btn btn-ghost">Cancelar</button><button id="exchangeWhats" class="btn btn-primary">Abrir WhatsApp</button></div></div>`
-  document.body.appendChild(overlay)
-  overlay.querySelector('#exchangeCancel')?.addEventListener('click', () => overlay.remove())
-  overlay.addEventListener('click', event => { if (event.target === overlay) overlay.remove() })
-  overlay.querySelector('#exchangeWhats')?.addEventListener('click', () => void sendIntercambioMessage(id, overlay))
-}
-
-async function sendIntercambioMessage(id: string, overlay: HTMLElement): Promise<void> {
-  const phone = (overlay.querySelector('#exchangeTarget') as HTMLSelectElement).value
-  const message = (overlay.querySelector('#exchangeText') as HTMLTextAreaElement).value.trim()
-  if (!phone) { toast('Cadastre o WhatsApp no Admin ou na congregação'); return }
-  if (!message) { toast('Escreva a mensagem'); return }
-  const popup = window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer')
-  if (!popup) { toast('Permita pop-ups para abrir o WhatsApp'); return }
-  const stamp = new Date().toISOString()
-  try {
-    await update(tarefasDiscursosRef, { [`programacao/${id}/avisadoEm`]: stamp })
-    if (discursos.programacao?.[id]) discursos.programacao[id].avisadoEm = stamp
-    overlay.remove(); toast('WhatsApp aberto; revise antes de enviar'); render()
-  } catch { toast('WhatsApp aberto, mas não foi possível registrar o aviso') }
 }
 
 const EVENT_LABELS: Record<string, string> = {
@@ -397,7 +328,7 @@ function congregacoesView(): string {
   const dates = availableCongregationDates()
   const selector = rows.map(([id, congregation]) => `<option value="${escapeHtml(id)}" ${id === selectedCongregationId ? 'selected' : ''}>${escapeHtml(congregation.nome ?? id)}</option>`).join('')
   const mapsLink = mapsHref(selected?.localizacao)
-  return `<div style="margin-top:14px"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px"><h3 style="font-size:.95rem;color:#5C6062">Congregações</h3><button class="btn btn-primary" type="button" data-add-congregacao style="padding:6px 10px;font-size:.78rem">Adicionar</button></div>${rows.length ? `<div class="form-group"><label class="form-label">Congregação consultada</label><select class="form-select" data-congregation-select>${selector}</select></div><div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px;margin:10px 0"><strong>${escapeHtml(selected?.nome ?? '')}</strong><div style="font-size:.76rem;color:var(--ink-3);margin-top:4px">${escapeHtml([selected?.cidade, selected?.diaReuniao, selected?.horario].filter(Boolean).join(' · ') || 'Dados de reunião não informados')}</div><div style="font-size:.76rem;color:var(--ink-3);margin-top:4px">Contato: ${escapeHtml(selected?.contato || '—')} · ${escapeHtml(selected?.telefone || '—')}</div>${mapsLink ? `<a href="${escapeHtml(mapsLink)}" target="_blank" rel="noopener noreferrer" style="font-size:.76rem">Abrir no Maps</a>` : ''}</div><div class="module-form-grid" style="margin:10px 0"><div class="form-group"><label class="form-label">Alcance das datas livres</label><select class="form-select" data-available-days><option value="60" ${availableDaysHorizon === 60 ? 'selected' : ''}>60 dias</option><option value="90" ${availableDaysHorizon === 90 ? 'selected' : ''}>90 dias</option><option value="120" ${availableDaysHorizon === 120 ? 'selected' : ''}>120 dias</option></select></div><div class="form-group" style="display:flex;align-items:end"><button class="btn btn-ghost" type="button" data-send-available-dates ${selected?.telefone && dates.length ? '' : 'disabled'} style="width:100%">Enviar datas livres</button></div></div><div class="module-option-list">${dates.length ? dates.map(date => `<div class="module-menu-btn" style="cursor:default"><span>${escapeHtml(formatDate(date))}</span></div>`).join('') : '<p class="empty-state">Nenhuma data livre neste alcance.</p>'}</div><div class="module-option-list" style="margin-top:14px">${rows.map(([id, c]) => `<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 12px;display:flex;justify-content:space-between;gap:10px;align-items:center"><div style="flex:1;min-width:0"><strong>${escapeHtml(c.nome ?? id)}</strong><div style="font-size:.75rem;color:var(--ink-3)">${escapeHtml(c.cidade ?? 'Cidade não informada')} · ${c.tipo === 'local' ? 'Local' : 'Visitante'}</div></div><button class="btn btn-ghost" type="button" data-edit-congregacao="${escapeHtml(id)}" style="padding:4px 8px;font-size:.72rem">Editar</button><button class="btn btn-danger" type="button" data-delete-congregacao="${escapeHtml(id)}" style="padding:4px 8px;font-size:.72rem">Excluir</button></div>`).join('')}</div>` : '<p class="empty-state">Nenhuma congregação cadastrada.</p>'}</div>`
+  return `<div style="margin-top:14px"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px"><h3 style="font-size:.95rem;color:#5C6062">Congregações</h3><button class="btn btn-primary" type="button" data-add-congregacao style="padding:6px 10px;font-size:.78rem">Adicionar</button></div>${rows.length ? `<div class="form-group"><label class="form-label">Congregação consultada</label><select class="form-select" data-congregation-select>${selector}</select></div><div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px;margin:10px 0"><strong>${escapeHtml(selected?.nome ?? '')}</strong><div style="font-size:.76rem;color:var(--ink-3);margin-top:4px">${escapeHtml([selected?.cidade, selected?.diaReuniao, selected?.horario].filter(Boolean).join(' · ') || 'Dados de reunião não informados')}</div><div style="font-size:.76rem;color:var(--ink-3);margin-top:4px">Contato: ${escapeHtml(selected?.contato || '—')} · ${escapeHtml(selected?.telefone || '—')}</div>${mapsLink ? `<a href="${escapeHtml(mapsLink)}" target="_blank" rel="noopener noreferrer" style="font-size:.76rem">Abrir no Maps</a>` : ''}</div><div class="form-group" style="margin:10px 0"><label class="form-label">Alcance das datas livres</label><select class="form-select" data-available-days><option value="60" ${availableDaysHorizon === 60 ? 'selected' : ''}>60 dias</option><option value="90" ${availableDaysHorizon === 90 ? 'selected' : ''}>90 dias</option><option value="120" ${availableDaysHorizon === 120 ? 'selected' : ''}>120 dias</option></select></div><div class="module-option-list">${dates.length ? dates.map(date => `<div class="module-menu-btn" style="cursor:default"><span>${escapeHtml(formatDate(date))}</span></div>`).join('') : '<p class="empty-state">Nenhuma data livre neste alcance.</p>'}</div><div class="module-option-list" style="margin-top:14px">${rows.map(([id, c]) => `<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 12px;display:flex;justify-content:space-between;gap:10px;align-items:center"><div style="flex:1;min-width:0"><strong>${escapeHtml(c.nome ?? id)}</strong><div style="font-size:.75rem;color:var(--ink-3)">${escapeHtml(c.cidade ?? 'Cidade não informada')} · ${c.tipo === 'local' ? 'Local' : 'Visitante'}</div></div><button class="btn btn-ghost" type="button" data-edit-congregacao="${escapeHtml(id)}" style="padding:4px 8px;font-size:.72rem">Editar</button><button class="btn btn-danger" type="button" data-delete-congregacao="${escapeHtml(id)}" style="padding:4px 8px;font-size:.72rem">Excluir</button></div>`).join('')}</div>` : '<p class="empty-state">Nenhuma congregação cadastrada.</p>'}</div>`
 }
 
 function availableCongregationDates(): string[] {
@@ -411,16 +342,6 @@ function availableCongregationDates(): string[] {
   while (cursor <= end) { months.add(`${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}`); cursor.setMonth(cursor.getMonth() + 1) }
   const dates = [...months].flatMap(month => meetingDatesForMonth(month, weekendDow, excludedProgramacaoDates(), discursos.eventos ?? {}))
   return missingLocalTalkDates(discursos.programacao ?? {}, dates).filter(date => date >= today && date <= `${end.getFullYear()}-${String(end.getMonth() + 1).padStart(2, '0')}-${String(end.getDate()).padStart(2, '0')}`)
-}
-
-function sendAvailableDates(): void {
-  const congregation = discursos.congregacoes?.[selectedCongregationId]
-  const phone = digits(congregation?.telefone)
-  const dates = availableCongregationDates()
-  if (!phone || !dates.length) { toast('Informe um telefone e mantenha ao menos uma data livre'); return }
-  const message = `Olá${congregation?.contato ? `, ${congregation.contato}` : ''}! A Congregação ${localCongregationName()} tem as seguintes datas livres para discurso público:\n\n${dates.map(formatDate).join('\n')}`
-  const popup = window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer')
-  toast(popup ? 'WhatsApp aberto; revise antes de enviar' : 'Permita pop-ups para abrir o WhatsApp')
 }
 
 function openCongregacaoModal(id: string | null): void {
@@ -491,7 +412,7 @@ function openOradorModal(id: string | null): void {
   const themeChecks = Object.entries(discursos.temas ?? {}).sort(([, a], [, b]) => Number(a.numero ?? 0) - Number(b.numero ?? 0)).map(([themeId, theme]) => `<label style="display:flex;gap:8px;padding:6px 0"><input type="checkbox" data-orador-theme="${escapeHtml(themeId)}" ${current?.temaIds?.includes(themeId) ? 'checked' : ''}> ${escapeHtml(`${theme.numero ?? ''} ${theme.titulo ?? ''}`.trim())}</label>`).join('')
   const overlay = document.createElement('div')
   overlay.className = 'modal-overlay'
-  overlay.innerHTML = `<div class="modal"><h2>${id ? 'Editar orador' : 'Adicionar orador'}</h2><div class="form-group"><label class="form-label" for="oradorPessoa">Pessoa do cadastro Admin</label><select id="oradorPessoa" class="form-select"><option value="">Selecionar...</option>${personOptions}</select><p class="form-help">Nome e WhatsApp são editados somente no Admin.</p></div><div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px"><label><input id="oradorSaida" type="checkbox" ${current?.aprovadoParaSaida ? 'checked' : ''}> Aprovado para saídas</label><label><input id="oradorPreside" type="checkbox" ${current?.podePresidir ? 'checked' : ''}> Pode presidir</label><label><input id="oradorSentinela" type="checkbox" ${current?.sentinelaDirigente ? 'checked' : ''}> Dirigente da Sentinela</label><label><input id="oradorSentinelaSub" type="checkbox" ${current?.sentinelaSubstituto ? 'checked' : ''}> Substituto da Sentinela</label></div><div class="form-group"><label class="form-label">Temas aprovados</label><div style="max-height:220px;overflow:auto;border:1px solid var(--border);padding:6px 10px;border-radius:8px">${themeChecks || '<p class="empty-state">Nenhum tema cadastrado.</p>'}</div></div><div style="display:flex;gap:8px;margin-top:8px"><button id="cancelOrador" class="btn btn-ghost" type="button" style="flex:1">Cancelar</button><button id="saveOrador" class="btn btn-primary" type="button" style="flex:1">Salvar</button></div></div>`
+  overlay.innerHTML = `<div class="modal"><h2>${id ? 'Editar orador' : 'Adicionar orador'}</h2><div class="form-group"><label class="form-label" for="oradorPessoa">Pessoa do cadastro Admin</label><select id="oradorPessoa" class="form-select"><option value="">Selecionar...</option>${personOptions}</select><p class="form-help">Nome e dados pessoais são editados somente no Admin.</p></div><div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px"><label><input id="oradorSaida" type="checkbox" ${current?.aprovadoParaSaida ? 'checked' : ''}> Aprovado para saídas</label><label><input id="oradorPreside" type="checkbox" ${current?.podePresidir ? 'checked' : ''}> Pode presidir</label><label><input id="oradorSentinela" type="checkbox" ${current?.sentinelaDirigente ? 'checked' : ''}> Dirigente da Sentinela</label><label><input id="oradorSentinelaSub" type="checkbox" ${current?.sentinelaSubstituto ? 'checked' : ''}> Substituto da Sentinela</label></div><div class="form-group"><label class="form-label">Temas aprovados</label><div style="max-height:220px;overflow:auto;border:1px solid var(--border);padding:6px 10px;border-radius:8px">${themeChecks || '<p class="empty-state">Nenhum tema cadastrado.</p>'}</div></div><div style="display:flex;gap:8px;margin-top:8px"><button id="cancelOrador" class="btn btn-ghost" type="button" style="flex:1">Cancelar</button><button id="saveOrador" class="btn btn-primary" type="button" style="flex:1">Salvar</button></div></div>`
   document.body.appendChild(overlay)
   overlay.addEventListener('click', event => { if (event.target === overlay) overlay.remove() })
   overlay.querySelector('#cancelOrador')?.addEventListener('click', () => overlay.remove())
@@ -560,7 +481,7 @@ function programacaoView(): string {
     .filter(([, talk]) => !onlyFutureProgramacao || !talk.data || talk.data >= today)
     .sort(([, a], [, b]) => String(a.data ?? '').localeCompare(String(b.data ?? '')))
   const monthOptions = programacaoMonthOptions().map(month => `<option value="${month}" ${month === selectedProgramacaoPeriod ? 'selected' : ''}>${formatMonth(month)}</option>`).join('')
-  return `<div style="margin-top:14px"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:2px"><div><h3 style="font-size:.95rem;color:#5C6062">Programação</h3><p style="font-size:.75rem;color:var(--ink-3)">Compromissos, confirmações e datas de reunião.</p></div><button class="btn btn-primary" type="button" data-add-programacao style="padding:6px 10px;font-size:.78rem;white-space:nowrap">Adicionar</button></div><div class="module-form-grid" style="margin:12px 0 8px"><div class="form-group"><label class="form-label">Período</label><select class="form-select" data-programacao-period>${monthOptions}</select></div><div class="form-group" style="display:flex;align-items:end"><button class="btn btn-ghost" type="button" data-fill-programacao-dates style="width:100%">Preencher datas</button></div></div><div style="display:flex;justify-content:flex-end;margin:8px 0"><button class="btn btn-ghost" type="button" data-download-programacao>Gerar PDF</button></div><label style="display:flex;align-items:center;gap:8px;margin:8px 0 12px;font-size:.82rem"><input type="checkbox" data-programacao-only-future ${onlyFutureProgramacao ? 'checked' : ''}> Mostrar somente compromissos futuros</label><div class="module-option-list">${rows.length ? rows.map(([id, p]) => `<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 12px"><div style="display:flex;justify-content:space-between;gap:10px"><div style="flex:1;min-width:0"><strong>${escapeHtml(p.data ? formatDate(p.data) : 'Sem data')}</strong><div style="font-size:.76rem;color:var(--ink-3)">${escapeHtml(p.oradorNome ?? discursos.oradores?.[p.oradorId ?? '']?.nome ?? p.oradorId ?? 'Orador a definir')} · ${escapeHtml(p.temaTitulo ?? (p.temaNumero ? `Tema ${p.temaNumero}` : 'Tema a definir'))}</div></div><span style="font-size:.72rem;font-weight:700;color:${deriveStatus(p) === 'confirmado' ? '#1A6B3C' : '#B3261E'}">${deriveStatus(p) === 'confirmado' ? 'Confirmado' : 'A confirmar'}</span></div><div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px"><button class="btn btn-ghost" type="button" data-programacao-whatsapp="${escapeHtml(id)}">WhatsApp</button>${deriveStatus(p) !== 'confirmado' ? `<button class="btn btn-ghost" type="button" data-programacao-confirm="${escapeHtml(id)}">Confirmar</button>` : ''}${deriveStatus(p) === 'confirmado' && needsReconfirmation(p, today) ? `<button class="btn btn-ghost" type="button" data-programacao-reconfirm="${escapeHtml(id)}">Reconfirmar</button>` : ''}<button class="btn btn-ghost" type="button" data-edit-programacao="${escapeHtml(id)}">Editar</button><button class="btn btn-danger" type="button" data-delete-programacao="${escapeHtml(id)}">Excluir</button></div></div>`).join('') : '<p class="empty-state">Nenhum compromisso neste período.</p>'}</div></div>`
+  return `<div style="margin-top:14px"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:2px"><div><h3 style="font-size:.95rem;color:#5C6062">Programação</h3><p style="font-size:.75rem;color:var(--ink-3)">Compromissos, confirmações e datas de reunião.</p></div><button class="btn btn-primary" type="button" data-add-programacao style="padding:6px 10px;font-size:.78rem;white-space:nowrap">Adicionar</button></div><div class="module-form-grid" style="margin:12px 0 8px"><div class="form-group"><label class="form-label">Período</label><select class="form-select" data-programacao-period>${monthOptions}</select></div><div class="form-group" style="display:flex;align-items:end"><button class="btn btn-ghost" type="button" data-fill-programacao-dates style="width:100%">Preencher datas</button></div></div><div style="display:flex;justify-content:flex-end;margin:8px 0"><button class="btn btn-ghost" type="button" data-download-programacao>Gerar PDF</button></div><label style="display:flex;align-items:center;gap:8px;margin:8px 0 12px;font-size:.82rem"><input type="checkbox" data-programacao-only-future ${onlyFutureProgramacao ? 'checked' : ''}> Mostrar somente compromissos futuros</label><div class="module-option-list">${rows.length ? rows.map(([id, p]) => `<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 12px"><div style="display:flex;justify-content:space-between;gap:10px"><div style="flex:1;min-width:0"><strong>${escapeHtml(p.data ? formatDate(p.data) : 'Sem data')}</strong><div style="font-size:.76rem;color:var(--ink-3)">${escapeHtml(p.oradorNome ?? discursos.oradores?.[p.oradorId ?? '']?.nome ?? p.oradorId ?? 'Orador a definir')} · ${escapeHtml(p.temaTitulo ?? (p.temaNumero ? `Tema ${p.temaNumero}` : 'Tema a definir'))}</div></div><span style="font-size:.72rem;font-weight:700;color:${deriveStatus(p) === 'confirmado' ? '#1A6B3C' : '#B3261E'}">${deriveStatus(p) === 'confirmado' ? 'Confirmado' : 'A confirmar'}</span></div><div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">${deriveStatus(p) !== 'confirmado' ? `<button class="btn btn-ghost" type="button" data-programacao-confirm="${escapeHtml(id)}">Confirmar</button>` : ''}${deriveStatus(p) === 'confirmado' && needsReconfirmation(p, today) ? `<button class="btn btn-ghost" type="button" data-programacao-reconfirm="${escapeHtml(id)}">Reconfirmar</button>` : ''}<button class="btn btn-ghost" type="button" data-edit-programacao="${escapeHtml(id)}">Editar</button><button class="btn btn-danger" type="button" data-delete-programacao="${escapeHtml(id)}">Excluir</button></div></div>`).join('') : '<p class="empty-state">Nenhum compromisso neste período.</p>'}</div></div>`
 }
 
 function localCongregationName(): string {
@@ -594,25 +515,6 @@ async function setProgramacaoConfirmation(id: string, reconfirmacao: boolean): P
     toast(reconfirmacao ? 'Reconfirmado' : 'Confirmado')
     render()
   } catch { toast('Não foi possível salvar a confirmação') }
-}
-
-async function sendProgramacaoWhatsApp(id: string): Promise<void> {
-  const talk = discursos.programacao?.[id]
-  if (!talk) return
-  const speaker = talk.oradorId ? discursos.oradores?.[talk.oradorId] : undefined
-  const phone = digits(oradorTelefone(speaker))
-  if (!phone) { toast('Cadastre o WhatsApp desta pessoa no Admin'); return }
-  const place = talkPlace(talk)
-  const message = `Olá, ${oradorNome(talk.oradorId ?? '', speaker)}! Confirmamos seu compromisso em ${formatDate(talk.data)}, ${place}, com o tema ${talk.temaNumero ?? ''} ${talk.temaTitulo ?? 'a definir'}.`
-  const popup = window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer')
-  if (!popup) { toast('Permita pop-ups para abrir o WhatsApp'); return }
-  const stamp = new Date().toISOString()
-  try {
-    await update(tarefasDiscursosRef, { [`programacao/${id}/avisadoEm`]: stamp })
-    talk.avisadoEm = stamp
-    toast('WhatsApp aberto; revise antes de enviar')
-    render()
-  } catch { toast('WhatsApp aberto, mas não foi possível registrar o aviso') }
 }
 
 function programacaoMonthOptions(): string[] {

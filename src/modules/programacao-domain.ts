@@ -84,12 +84,16 @@ function sectionFor(line: string): ProgramSection | null {
 }
 
 export function htmlToText(html: string): string {
-  const entities: Record<string, string> = { '&nbsp;': ' ', '&amp;': '&', '&lt;': '<', '&gt;': '>', '&ndash;': '–', '&mdash;': '—', '&rsquo;': "'", '&ldquo;': '"', '&rdquo;': '"' }
+  const entities: Record<string, string> = {
+    '&nbsp;': ' ', '&amp;': '&', '&lt;': '<', '&gt;': '>', '&ndash;': '–', '&mdash;': '—', '&rsquo;': "'", '&lsquo;': "'", '&ldquo;': '"', '&rdquo;': '"', '&hellip;': '…',
+    '&agrave;': 'à', '&aacute;': 'á', '&acirc;': 'â', '&atilde;': 'ã', '&ccedil;': 'ç', '&eacute;': 'é', '&ecirc;': 'ê', '&iacute;': 'í', '&oacute;': 'ó', '&ocirc;': 'ô', '&otilde;': 'õ', '&uacute;': 'ú', '&ucirc;': 'û',
+    '&Agrave;': 'À', '&Aacute;': 'Á', '&Acirc;': 'Â', '&Atilde;': 'Ã', '&Ccedil;': 'Ç', '&Eacute;': 'É', '&Ecirc;': 'Ê',
+  }
   return html
     .replace(/<\/(?:h[1-6]|p|li|div|section|article)>/gi, '\n')
     .replace(/<br\s*\/?\s*>/gi, '\n')
     .replace(/<[^>]+>/g, '')
-    .replace(/&[a-z]+;/gi, entity => entities[entity.toLowerCase()] ?? entity)
+    .replace(/&[a-z]+;/gi, entity => entities[entity] ?? entities[entity.toLowerCase()] ?? entity)
     .replace(/&#(\d+);/g, (_match, code) => String.fromCodePoint(Number(code)))
     .replace(/&#x([0-9a-f]+);/gi, (_match, code) => String.fromCodePoint(parseInt(code, 16)))
 }
@@ -115,9 +119,13 @@ export function parseOfficialProgram(sourceUrl: string, source: string): Meeting
   lines.forEach((line, index) => {
     section = sectionFor(line) ?? section
     const part = line.match(/^(\d+)\.\s+(.+)$/)
-    const duration = lines[index + 1]?.match(/^\((\d+)\s+min\.?\)\s*(.*)$/i)
+    const inlineDuration = part?.[2].match(/^(.*?)\s*\((\d+)\s+min\.?\)\s*(.*)$/i)
+    const duration = inlineDuration ?? lines[index + 1]?.match(/^\((\d+)\s+min\.?\)\s*(.*)$/i)
     if (!part || !duration || !section) return
-    parts.push({ id: `${meetingDate}-${part[1]}`, section, title: part[2], durationMinutes: Number(duration[1]), ...(duration[2] ? { reference: duration[2] } : {}) })
+    const title = inlineDuration ? inlineDuration[1].trim() : part[2]
+    const minutes = inlineDuration ? inlineDuration[2] : duration[1]
+    const reference = inlineDuration ? inlineDuration[3] : duration[2]
+    parts.push({ id: `${meetingDate}-${part[1]}`, section, title, durationMinutes: Number(minutes), ...(reference ? { reference } : {}) })
   })
   if (!parts.length) throw new Error('Não foi possível encontrar as partes da reunião.')
   return { id: meetingDate, meetingDate, bibleReading, sourceUrl, type: 'normal', parts }
@@ -224,25 +232,30 @@ export function filterPrograms(programs: MeetingProgram[], mode: 'week' | 'month
   return programs.filter(program => program.meetingDate >= iso(start) && program.meetingDate <= iso(end))
 }
 
-export interface ProgramPending { id: string; date: string; message: string }
+export interface ProgramPending { id: string; date: string; message: string; programId: string; partId?: string }
 
 export function programPendings(programs: MeetingProgram[], people: ProgramPerson[]): ProgramPending[] {
   const byId = new Map(people.map(person => [person.id, person]))
   const result: ProgramPending[] = []
   programs.forEach(program => {
-    if (!program.parts.length) result.push({ id: `${program.id}:empty`, date: program.meetingDate, message: 'Semana sem partes cadastradas.' })
+    if (!program.parts.length) result.push({ id: `${program.id}:empty`, date: program.meetingDate, message: 'Semana sem partes cadastradas.', programId: program.id })
     program.parts.forEach(part => {
-      if (!part.assignedPersonId) result.push({ id: `${program.id}:${part.id}:principal`, date: program.meetingDate, message: `${part.title}: principal não definido.` })
-      else if (!byId.get(part.assignedPersonId)?.active) result.push({ id: `${program.id}:${part.id}:invalid`, date: program.meetingDate, message: `${part.title}: principal ausente ou inativo.` })
+      const add = (suffix: string, message: string) => result.push({ id: `${program.id}:${part.id}:${suffix}`, date: program.meetingDate, message: `${part.title}: ${message}`, programId: program.id, partId: part.id })
+      if (!part.assignedPersonId) add('principal', 'principal não definido.')
+      else if (!byId.get(part.assignedPersonId)?.active) add('invalid', 'principal ausente ou inativo.')
+      if (part.absent && !part.substitutePersonId) add('substitute', 'designado ausente sem substituto.')
+      if (part.substitutePersonId && !byId.get(part.substitutePersonId)?.active) add('invalid-substitute', 'substituto ausente ou inativo.')
+      if (part.assistantPersonId && !byId.get(part.assistantPersonId)?.active) add('invalid-assistant', 'ajudante ausente ou inativo.')
       if (assistantNeedsSameSex(part) && part.assistantPersonId) {
         const principal = byId.get(part.assignedPersonId ?? '')
         const assistant = byId.get(part.assistantPersonId)
-        if (principal && assistant && principal.sex !== assistant.sex) result.push({ id: `${program.id}:${part.id}:sex`, date: program.meetingDate, message: `${part.title}: principal e ajudante precisam ser do mesmo sexo.` })
+        if (principal && assistant && principal.sex !== assistant.sex) add('sex', 'principal e ajudante precisam ser do mesmo sexo.')
       }
-      assignmentConflicts(program, part).forEach((message, index) => result.push({ id: `${program.id}:${part.id}:conflict:${index}`, date: program.meetingDate, message: `${part.title}: ${message}` }))
-      if (part.assignedPersonId && !part.remindedAt) result.push({ id: `${program.id}:${part.id}:delivery`, date: program.meetingDate, message: `${part.title}: lembrete ainda não aberto.` })
-      if (part.assignedPersonId && !part.confirmedAt) result.push({ id: `${program.id}:${part.id}:confirmation`, date: program.meetingDate, message: `${part.title}: confirmação pendente.` })
-      if (part.status === 'realizado' && !part.realizedPersonId) result.push({ id: `${program.id}:${part.id}:realized`, date: program.meetingDate, message: `${part.title}: informe quem realizou a parte.` })
+      assignmentConflicts(program, part).forEach((message, index) => add(`conflict:${index}`, message))
+      if (part.assignedPersonId && !part.remindedAt) add('delivery', 'lembrete do principal ainda não aberto.')
+      if (part.assistantPersonId && !part.assistantRemindedAt) add('assistant-delivery', 'lembrete do ajudante ainda não aberto.')
+      if (part.assignedPersonId && !part.confirmedAt) add('confirmation', 'confirmação pendente.')
+      if (part.status === 'realizado' && !part.realizedPersonId) add('realized', 'informe quem realizou a parte.')
     })
   })
   return result.sort((a, b) => a.date.localeCompare(b.date) || a.message.localeCompare(b.message, 'pt-BR'))

@@ -886,7 +886,6 @@ function findMasterReferences(data: Record<string, unknown>, mid: string): strin
     if (user['masterId'] === mid) found.add('Usuários')
   })
   const limpeza = objectValue(objectValue(objectValue(data['master'])['config'])['limpeza'])
-  if (limpeza['coordenadorMid'] === mid) found.add('Configuração de limpeza')
   Object.values(records(limpeza['gruposConfig'])).forEach(group => {
     if (group['superintendenteMid'] === mid || (Array.isArray(group['ajudantesMid']) && group['ajudantesMid'].includes(mid))) {
       found.add('Grupos de limpeza')

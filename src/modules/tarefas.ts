@@ -8,7 +8,6 @@ import {
   tarefasScaleRef,
   tarefasDiscursosRef,
   tarefasEventosRef,
-  tarefasSettingsRef,
   configCongregacaoRef,
   pessoasRef,
 } from '../firebase'
@@ -38,15 +37,10 @@ import {
   type TaskSpeaker,
   type TaskTalk,
 } from './tarefas-domain'
-import {
-  buildTaskConfirmationMessage,
-  buildTaskDayMessage,
-  buildTaskPersonMessage,
-  formatTaskDate,
-} from './tarefas-output'
+import { formatTaskDate } from './tarefas-output'
 import { printTaskSchedule } from './tarefas-documents'
 
-type TarefasTab = 'indice' | 'resumo' | 'escala' | 'participantes' | 'mensagens' | 'pendencias'
+type TarefasTab = 'indice' | 'resumo' | 'escala' | 'participantes' | 'pendencias'
 
 const PRINT_FONT_KEY = 'noroeste_tarefas_print_font_pt'
 const PRINT_MIN_PT = 8
@@ -68,15 +62,6 @@ interface TarefasPlanning {
   excludedDates?: string[] | Record<string, string>
 }
 
-interface TarefasSettings {
-  whatsappGroupLink?: string
-  messages?: {
-    tarefasPessoaPrefix?: string
-    tarefasDataPrefix?: string
-    tarefasConfirmacaoPrefix?: string
-  }
-}
-
 interface PendingTarget {
   periodId?: string
   meetingId?: string
@@ -91,7 +76,6 @@ let planning: TarefasPlanning = {}
 let events: Record<string, TaskEvent> = {}
 let speakers: Record<string, TaskSpeaker> = {}
 let talks: Record<string, TaskTalk> = {}
-let settings: TarefasSettings = {}
 let congregationName = 'Noroeste'
 let masterPeople: Record<string, { name?: string; whatsapp?: string; active?: boolean }> = {}
 let context: AppContext
@@ -108,7 +92,6 @@ let participantSearch = ''
 let participantMeetingRule = ''
 let participantRoleFilter = ''
 let pendingTarget: PendingTarget | null = null
-let messagePersonSelection = ''
 
 function monthNow(): string {
   const date = new Date()
@@ -230,13 +213,12 @@ export default function mount(ctx: AppContext): void {
 
 async function loadTarefas(): Promise<void> {
   try {
-    const [peopleSnap, scaleSnap, planningSnap, eventsSnap, discursosSnap, settingsSnap, congregacaoSnap, masterPeopleSnap] = await Promise.all([
+    const [peopleSnap, scaleSnap, planningSnap, eventsSnap, discursosSnap, congregacaoSnap, masterPeopleSnap] = await Promise.all([
       get(tarefasPeopleRef),
       get(tarefasScaleRef),
       get(tarefasPlanejamentoRef),
       get(tarefasEventosRef),
       get(tarefasDiscursosRef),
-      get(tarefasSettingsRef),
       get(configCongregacaoRef),
       get(pessoasRef),
     ])
@@ -254,7 +236,6 @@ async function loadTarefas(): Promise<void> {
     const discursos = discursosSnap.exists() ? (discursosSnap.val() as Record<string, unknown>) : {}
     speakers = (discursos['oradores'] ?? {}) as Record<string, TaskSpeaker>
     talks = (discursos['programacao'] ?? {}) as Record<string, TaskTalk>
-    settings = settingsSnap.exists() ? (settingsSnap.val() as TarefasSettings) : {}
     const congregacao = congregacaoSnap.exists() ? (congregacaoSnap.val() as { nome?: string }) : {}
     congregationName = congregacao.nome?.trim() || 'Noroeste'
     masterPeople = masterPeopleSnap.exists() ? (masterPeopleSnap.val() as Record<string, { name?: string; whatsapp?: string; active?: boolean }>) : {}
@@ -277,7 +258,6 @@ function renderContent(): void {
   if (activeTab === 'resumo') renderIndex()
   else if (activeTab === 'escala') renderEscala()
   else if (activeTab === 'participantes') renderParticipantes()
-  else if (activeTab === 'mensagens') renderMensagens()
   else renderPendencias()
 }
 
@@ -288,7 +268,6 @@ function renderIndex(): void {
   const items: ItemMenu[] = [
     { id: 'escala', titulo: 'Escala', subtitulo: 'Escolha o período, gere e revise a escala', icone: '▣', corFundo: '#003F72' },
     { id: 'participantes', titulo: 'Pessoas', subtitulo: 'Participantes e vínculos com Admin', icone: '♙', corFundo: '#006EB6' },
-    { id: 'mensagens', titulo: 'Mensagens', subtitulo: 'Textos para confirmação e envio', icone: '✉', corFundo: '#1A6B3C' },
     { id: 'pendencias', titulo: 'Pendências', subtitulo: 'Funções vazias e vínculos incompletos', icone: '!', corFundo: '#B3261E' },
   ]
   renderMenuCards(content.querySelector<HTMLElement>('#tarefasMenu')!, items, id => { activeTab = id as TarefasTab; renderContent() })
@@ -424,7 +403,7 @@ async function clearTaskScale(periodId: string): Promise<void> {
   })
   try {
     await update(tarefasScaleRef, patch)
-    Object.values(period.meetings ?? {}).forEach(meeting => { meeting.assignments = {}; meeting.manualEdits = {}; meeting.avisados = {} })
+    Object.values(period.meetings ?? {}).forEach(meeting => { meeting.assignments = {}; meeting.manualEdits = {}; delete meeting.avisados })
     toast('Escala do período limpa')
     renderEscala()
   } catch { toast('Não foi possível limpar a escala') }
@@ -557,7 +536,6 @@ function renderPendencias(): void {
   if (!content) return
 
   const items: Array<{ title: string; detail: string; tab: TarefasTab; target?: PendingTarget }> = []
-  const unnotified = new Map<string, { dates: Set<string>; roles: Set<string> }>()
   const futureEntries = scaleMeetingEntries()
     .filter(entry => entry.meeting.date && entry.meeting.date >= todayStr() && canonicalMeetingType(entry.meeting.type) && !meetingIsBlocked(domainContext(), entry.meeting))
   if (!futureEntries.length) {
@@ -605,23 +583,6 @@ function renderPendencias(): void {
           target: { periodId: entry.periodId, meetingId: entry.meetingId, role },
         })
       }
-      if (!meeting.avisados?.[role]) {
-        const item = unnotified.get(personId) ?? { dates: new Set<string>(), roles: new Set<string>() }
-        item.dates.add(formatDate(meeting.date))
-        item.roles.add(roleLabel(role))
-        unnotified.set(personId, item)
-      }
-    })
-  })
-
-  unnotified.forEach(({ dates, roles }, personId) => {
-    const person = pessoas[personId]
-    if (!person) return
-    items.push({
-      title: `Mensagem ainda não aberta para ${pessoaNome(person, personId)}`,
-      detail: `${[...dates].join(', ')} · ${[...roles].join(', ')}.`,
-      tab: 'mensagens',
-      target: { personId },
     })
   })
 
@@ -629,27 +590,10 @@ function renderPendencias(): void {
   if (unlinked) {
     items.push({
       title: `${unlinked} participante${unlinked === 1 ? '' : 's'} sem vínculo com Admin`,
-      detail: 'Revise os vínculos antes de enviar mensagens ou gerar uma nova escala.',
+      detail: 'Revise os vínculos antes de gerar uma nova escala.',
       tab: 'participantes',
     })
   }
-
-  const assignedPeople = new Map<string, string>()
-  futureEntries.forEach(({ meeting }) => GENERATED_ROLES.forEach(role => {
-    const id = assignmentForRole(meeting, role)
-    if (id && !assignedPeople.has(id)) assignedPeople.set(id, meeting.date ?? '')
-  }))
-  assignedPeople.forEach((date, id) => {
-    const person = pessoas[id]
-    if (person && !personPhone(person)) {
-      items.push({
-        title: 'Participante escalado sem telefone',
-        detail: `${pessoaNome(person, id)} tem designação em ${formatDate(date)} e só poderá receber o texto por cópia.`,
-        tab: 'participantes',
-        target: { personId: id },
-      })
-    }
-  })
 
   content.innerHTML = `
     ${sectionTitle('Pendências', items.length ? 'Resolva estes itens antes de confirmar a escala.' : 'A escala atual não tem pendências identificadas.')}
@@ -663,232 +607,10 @@ function renderPendencias(): void {
       if (!item) return
       pendingTarget = item.target ?? null
       if (item.target?.periodId) selectedPeriodMonth = item.target.periodId
-      if (item.tab === 'mensagens') messagePersonSelection = item.target?.personId ?? ''
       activeTab = item.tab
       renderContent()
     })
   })
-}
-
-function renderMensagens(): void {
-  const content = document.getElementById('tarefasContent')
-  if (!content) return
-
-  const entries = scaleMeetingEntries()
-    .filter(entry => entry.meeting.date && entry.meeting.date >= todayStr() && canonicalMeetingType(entry.meeting.type) && assignmentCount(entry.meeting) > 0)
-    .sort((a, b) => String(a.meeting.date).localeCompare(String(b.meeting.date)))
-  const peopleWithAssignments = Object.entries(pessoas)
-    .filter(([id, person]) => isActive(person) && entries.some(({ meeting }) => GENERATED_ROLES.some(role => assignmentForRole(meeting, role) === id)))
-    .sort(([, a], [, b]) => pessoaNome(a, '').localeCompare(pessoaNome(b, ''), 'pt-BR'))
-  const pessoaPrefix = settings.messages?.tarefasPessoaPrefix ?? 'Segue abaixo suas próximas designações.'
-  const dataPrefix = settings.messages?.tarefasDataPrefix ?? 'Segue a escala da reunião.'
-  const confirmPrefix = settings.messages?.tarefasConfirmacaoPrefix ?? 'Pode confirmar se está tudo certo com sua participação?'
-
-  content.innerHTML = `
-    ${sectionTitle('Mensagens', 'Gere um rascunho, revise o texto e só depois copie ou abra o WhatsApp.')}
-    <div class="module-form-grid">
-      <div class="form-group">
-        <label class="form-label" for="messageType">Modelo</label>
-        <select id="messageType" class="form-select">
-          <option value="person" selected>Para uma pessoa</option>
-          <option value="day">Da reunião</option>
-          <option value="confirm">Confirmar escala</option>
-        </select>
-      </div>
-      <div class="form-group" id="messagePersonGroup">
-        <label class="form-label" for="messagePerson">Pessoa</label>
-        <select id="messagePerson" class="form-select">
-          <option value="">Selecione uma pessoa</option>
-          ${peopleWithAssignments.map(([id, person]) => `<option value="${escapeHtml(id)}" ${messagePersonSelection === id ? 'selected' : ''}>${escapeHtml(pessoaNome(person, id))}</option>`).join('')}
-        </select>
-      </div>
-      <div class="form-group">
-        <label class="form-label" for="messageMeeting">Reunião</label>
-        <select id="messageMeeting" class="form-select">
-          <option value="">Selecione uma reunião</option>
-          ${entries.map(entry => `<option value="${escapeHtml(`${entry.periodId}::${entry.meetingId}`)}">${escapeHtml(formatDate(entry.meeting.date))} · ${canonicalMeetingType(entry.meeting.type) === 'midweek' ? 'Meio de semana' : 'Fim de semana'}</option>`).join('')}
-        </select>
-      </div>
-    </div>
-    <div class="form-group">
-      <label class="form-label" for="messageDraft">Mensagem para revisão</label>
-      <textarea id="messageDraft" class="form-input" rows="8" style="resize:vertical" placeholder="Selecione um modelo para gerar o rascunho."></textarea>
-      <div class="form-help">Este texto é um rascunho. Edite conforme a orientação aprovada antes de enviar.</div>
-    </div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap">
-      <button id="btnOpenPersonMessage" class="btn btn-primary" type="button">Abrir WhatsApp</button>
-      <button id="btnCopyPersonMessage" class="btn btn-ghost" type="button">Copiar texto</button>
-    </div>
-    <div style="border-top:1px solid var(--border);margin-top:18px;padding-top:14px">
-      <div class="form-group"><label class="form-label" for="tarefasPessoaPrefix">Início da mensagem individual</label><input id="tarefasPessoaPrefix" class="form-input" value="${escapeHtml(pessoaPrefix)}"></div>
-      <div class="form-group"><label class="form-label" for="tarefasDataPrefix">Início da mensagem da reunião</label><input id="tarefasDataPrefix" class="form-input" value="${escapeHtml(dataPrefix)}"></div>
-      <div class="form-group"><label class="form-label" for="tarefasConfirmPrefix">Pedido de confirmação</label><input id="tarefasConfirmPrefix" class="form-input" value="${escapeHtml(confirmPrefix)}"></div>
-      <div class="form-group"><label class="form-label" for="tarefasGroupLink">Link do grupo do WhatsApp</label><input id="tarefasGroupLink" class="form-input" type="url" value="${escapeHtml(settings.whatsappGroupLink)}" placeholder="https://chat.whatsapp.com/..."></div>
-      <button id="btnSaveMessageSettings" class="btn btn-ghost" type="button">Salvar textos</button>
-    </div>`
-
-  const updateDraft = () => {
-    const type = (document.getElementById('messageType') as HTMLSelectElement).value
-    const personId = (document.getElementById('messagePerson') as HTMLSelectElement).value
-    const meetingKey = (document.getElementById('messageMeeting') as HTMLSelectElement).value
-    const person = personId ? pessoas[personId] : undefined
-    const entry = entries.find(item => `${item.periodId}::${item.meetingId}` === meetingKey)
-    const text = type === 'day'
-      ? buildDayMessage(entry?.meeting.date, entries)
-      : type === 'confirm'
-        ? buildConfirmationMessage(personId, person, entry?.meeting)
-        : buildPersonMessage(personId, person, entries)
-    const draft = document.getElementById('messageDraft') as HTMLTextAreaElement | null
-    if (draft) draft.value = text
-    return text
-  }
-
-  const syncMessageFields = () => {
-    const type = (document.getElementById('messageType') as HTMLSelectElement).value
-    const personGroup = document.getElementById('messagePersonGroup')
-    if (personGroup) personGroup.style.display = type === 'day' ? 'none' : ''
-    const meetingGroup = document.getElementById('messageMeeting')?.closest('.form-group') as HTMLElement | null
-    if (meetingGroup) meetingGroup.style.display = type === 'person' ? 'none' : ''
-    updateDraft()
-  }
-  document.getElementById('messageType')?.addEventListener('change', syncMessageFields)
-  document.getElementById('messagePerson')?.addEventListener('change', updateDraft)
-  document.getElementById('messageMeeting')?.addEventListener('change', updateDraft)
-  document.getElementById('btnOpenPersonMessage')?.addEventListener('click', () => {
-    const text = (document.getElementById('messageDraft') as HTMLTextAreaElement)?.value.trim()
-    if (!text) { toast('Selecione os dados da mensagem'); return }
-    const type = (document.getElementById('messageType') as HTMLSelectElement).value
-    const personId = (document.getElementById('messagePerson') as HTMLSelectElement).value
-    const meetingKey = (document.getElementById('messageMeeting') as HTMLSelectElement).value
-    const entry = entries.find(item => `${item.periodId}::${item.meetingId}` === meetingKey)
-    if (type === 'day') {
-      const link = settings.whatsappGroupLink?.trim() ?? ''
-      if (!/^https:\/\/chat\.whatsapp\.com\//i.test(link)) {
-        void copyMessage(text)
-        toast('Link do grupo não configurado; o texto foi copiado', 4000)
-        return
-      }
-      const copyPromise = copyMessage(text)
-      const opened = window.open(link, '_blank')
-      if (!opened) { toast('O navegador bloqueou a abertura do WhatsApp'); return }
-      opened.opener = null
-      void copyPromise
-      void markAssignmentsOpened(entries.filter(item => item.meeting.date === entry?.meeting.date))
-      toast('WhatsApp aberto e texto copiado. Revise antes de enviar.')
-      return
-    }
-    const phone = personPhone(pessoas[personId])
-    if (!phone) { void copyMessage(text); toast('Telefone ausente; o texto foi copiado', 4000); return }
-    const normalized = phone.startsWith('55') ? phone : `55${phone}`
-    const opened = window.open(`https://wa.me/${normalized}?text=${encodeURIComponent(text)}`, '_blank')
-    if (!opened) { toast('O navegador bloqueou a abertura do WhatsApp'); return }
-    opened.opener = null
-    const affected = type === 'person'
-      ? entries.filter(item => GENERATED_ROLES.some(role => assignmentForRole(item.meeting, role) === personId))
-      : entry ? [entry] : []
-    void markAssignmentsOpened(affected, personId)
-    toast('WhatsApp aberto. Revise e envie a mensagem.')
-  })
-  document.getElementById('btnCopyPersonMessage')?.addEventListener('click', async () => {
-    const text = (document.getElementById('messageDraft') as HTMLTextAreaElement)?.value.trim()
-    if (!text) { toast('Selecione os dados da mensagem'); return }
-    await copyMessage(text, true)
-  })
-  document.getElementById('btnSaveMessageSettings')?.addEventListener('click', () => void saveMessageSettings())
-  syncMessageFields()
-}
-
-function buildPersonMessage(id: string, person: TarefasPessoa | undefined, entries: ReturnType<typeof scaleMeetingEntries>): string {
-  if (!id || !person) return ''
-  const designations = entries.flatMap(({ meeting }) => {
-    const roles = GENERATED_ROLES.filter(role => assignmentForRole(meeting, role) === id)
-    const type = canonicalMeetingType(meeting.type)
-    return roles.length && meeting.date && type ? [{ date: meeting.date, type, roles }] : []
-  })
-  const prefix = settings.messages?.tarefasPessoaPrefix?.trim() || 'Segue abaixo suas próximas designações.'
-  return buildTaskPersonMessage(pessoaNome(person, id), prefix, designations)
-}
-
-function buildDayMessage(date: string | undefined, entries: ReturnType<typeof scaleMeetingEntries>): string {
-  if (!date) return ''
-  const meetings = entries.filter(entry => entry.meeting.date === date)
-  const messageMeetings = meetings.flatMap(({ meeting }) => {
-    const type = canonicalMeetingType(meeting.type)
-    if (!type) return []
-    const assignments: Partial<Record<TaskRole, string>> = {}
-    GENERATED_ROLES.forEach(role => {
-      const id = assignmentForRole(meeting, role)
-      if (id) assignments[role] = pessoaNome(pessoas[id]!, id)
-    })
-    return [{ type, assignments }]
-  })
-  const prefix = settings.messages?.tarefasDataPrefix?.trim() || 'Segue a escala da reunião.'
-  return buildTaskDayMessage(prefix, date, messageMeetings)
-}
-
-function buildConfirmationMessage(id: string, person: TarefasPessoa | undefined, meeting: TarefasMeeting | undefined): string {
-  if (!id || !person || !meeting) return ''
-  const roles = GENERATED_ROLES.filter(role => assignmentForRole(meeting, role) === id)
-  if (!roles.length) return ''
-  return buildTaskConfirmationMessage(
-    pessoaNome(person, id),
-    meeting.date ?? '',
-    roles,
-    settings.messages?.tarefasConfirmacaoPrefix?.trim() || 'Pode confirmar se está tudo certo com sua participação?',
-  )
-}
-
-async function copyMessage(text: string, notify = false): Promise<void> {
-  try {
-    await navigator.clipboard.writeText(text)
-    if (notify) toast('Texto copiado')
-  } catch {
-    toast('Não foi possível copiar o texto')
-  }
-}
-
-async function markAssignmentsOpened(entries: ReturnType<typeof scaleMeetingEntries>, personId?: string): Promise<void> {
-  const stamp = new Date().toISOString()
-  const patch: Record<string, string> = {}
-  entries.forEach(entry => GENERATED_ROLES.forEach(role => {
-    const assigned = assignmentForRole(entry.meeting, role)
-    if (assigned && (!personId || assigned === personId)) {
-      patch[`${entry.periodId}/meetings/${entry.meetingId}/avisados/${role}`] = stamp
-      entry.meeting.avisados = { ...(entry.meeting.avisados ?? {}), [role]: stamp }
-    }
-  }))
-  if (!Object.keys(patch).length) return
-  try {
-    await update(tarefasScaleRef, patch)
-  } catch {
-    toast('WhatsApp abriu, mas não foi possível registrar a abertura', 4000)
-  }
-}
-
-async function saveMessageSettings(): Promise<void> {
-  const value = (id: string) => (document.getElementById(id) as HTMLInputElement).value.trim()
-  const next: TarefasSettings = {
-    ...settings,
-    whatsappGroupLink: value('tarefasGroupLink'),
-    messages: {
-      ...(settings.messages ?? {}),
-      tarefasPessoaPrefix: value('tarefasPessoaPrefix'),
-      tarefasDataPrefix: value('tarefasDataPrefix'),
-      tarefasConfirmacaoPrefix: value('tarefasConfirmPrefix'),
-    },
-  }
-  try {
-    await update(tarefasSettingsRef, {
-      whatsappGroupLink: next.whatsappGroupLink,
-      'messages/tarefasPessoaPrefix': next.messages?.tarefasPessoaPrefix,
-      'messages/tarefasDataPrefix': next.messages?.tarefasDataPrefix,
-      'messages/tarefasConfirmacaoPrefix': next.messages?.tarefasConfirmacaoPrefix,
-    })
-    settings = next
-    toast('Textos salvos')
-  } catch {
-    toast('Não foi possível salvar os textos')
-  }
 }
 
 function sectionTitle(title: string, desc: string): string {

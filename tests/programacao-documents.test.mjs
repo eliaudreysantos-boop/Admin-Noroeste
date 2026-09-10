@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { createS140Docx, createS140Pdf, createS89 } from '../src/modules/programacao-documents.ts'
+import { readFile } from 'node:fs/promises'
+import { createS140Docx, createS140Pdf, createS89, personIdForDocument } from '../src/modules/programacao-documents.ts'
 
 const people = [{ id: 'p1', masterId: 'm1', name: 'Maria Silva', whatsapp: '', sex: 'feminino', role: 'publicador', active: true, permissions: ['iniciando-conversas'] }]
 const program = { id: '2026-09-09', meetingDate: '2026-09-09', bibleReading: 'ISAÍAS 1-2', parts: [
@@ -9,11 +10,22 @@ const program = { id: '2026-09-09', meetingDate: '2026-09-09', bibleReading: 'IS
 ] }
 
 test('gera S-89 e S-140 como PDFs reais', async () => {
-  const s89 = await createS89(program, people)
+  const s89 = await createS89(program, people, new Uint8Array(await readFile(new URL('../public/templates/S-89_T.pdf', import.meta.url))))
   const s140 = await createS140Pdf([program], 'Noroeste', people)
   assert.equal(s89.count, 1)
   assert.equal(new TextDecoder().decode(s89.bytes.slice(0, 4)), '%PDF')
   assert.equal(new TextDecoder().decode(s140.slice(0, 4)), '%PDF')
+})
+
+test('documentos priorizam realizado, depois substituto e designado', async () => {
+  const template = new Uint8Array(await readFile(new URL('../public/templates/S-89_T.pdf', import.meta.url)))
+  const withPeople = [...people, { ...people[0], id: 'p2', name: 'Substituta' }, { ...people[0], id: 'p3', name: 'Realizou' }]
+  const completed = { ...program, parts: [{ ...program.parts[1], assignedPersonId: 'p1', substitutePersonId: 'p2', realizedPersonId: 'p3' }] }
+  const s89 = await createS89(completed, withPeople, template)
+  assert.equal(s89.count, 1)
+  assert.equal(personIdForDocument(completed.parts[0]), 'p3')
+  assert.equal(personIdForDocument({ ...completed.parts[0], realizedPersonId: undefined }), 'p2')
+  assert.equal(personIdForDocument({ ...completed.parts[0], realizedPersonId: undefined, substitutePersonId: undefined }), 'p1')
 })
 
 test('gera S-140 como DOCX verdadeiro', async () => {

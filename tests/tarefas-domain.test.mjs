@@ -12,9 +12,6 @@ import {
   canonicalMeetingType,
 } from '../src/modules/tarefas-domain.ts'
 import {
-  buildTaskConfirmationMessage,
-  buildTaskDayMessage,
-  buildTaskPersonMessage,
   paginateItems,
   rowsPerPrintPage,
 } from '../src/modules/tarefas-output.ts'
@@ -159,26 +156,6 @@ test('geração somente de datas pendentes ignora reuniões anteriores', () => {
   assert.ok(result.patch['2026-09/meetings/m1/assignments/leitor'])
   assert.ok(result.patch['2026-09/meetings/m1/assignments/mic1'])
   assert.equal(result.patch['2026-09/meetings/old/assignments/leitor'], undefined)
-})
-
-test('mensagem individual reúne todas as designações em ordem cronológica', () => {
-  const text = buildTaskPersonMessage('Ana', 'Olá, veja suas designações.', [
-    { date: '2026-09-20', type: 'weekend', roles: ['mic1'] },
-    { date: '2026-09-09', type: 'midweek', roles: ['entrada', 'auditorio'] },
-  ])
-  assert.match(text, /^Olá, Ana! Veja suas designações\./)
-  assert.doesNotMatch(text, /Olá, Ana! Olá/i)
-  assert.ok(text.indexOf('09/09/2026') < text.indexOf('20/09/2026'))
-  assert.match(text, /Entrada, Auditório/)
-})
-
-test('mensagem do dia omite funções vazias e confirmação exige dados completos', () => {
-  const day = buildTaskDayMessage('Segue a escala.', '2026-09-12', [{
-    type: 'weekend', assignments: { presidente: 'Nome muito longo para validar que o texto permanece inteiro', mic1: 'Carlos' },
-  }])
-  assert.match(day, /Presidente: Nome muito longo/)
-  assert.doesNotMatch(day, /Leitor:/)
-  assert.equal(buildTaskConfirmationMessage('', '2026-09-12', ['mic1'], 'Confirma?'), '')
 })
 
 test('paginação mantém todos os itens e nunca cria página vazia', () => {

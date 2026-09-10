@@ -3,7 +3,6 @@ import type {
   ConfigReunioes,
   LimpezaPeriodoGerado,
   LimpezaSemanaGerada,
-  MasterPessoa,
   RawPessoas,
 } from '../types'
 
@@ -59,14 +58,6 @@ export function monthLabel(value: string): string {
   return MONTHS[date.getUTCMonth()] ?? value
 }
 
-function approvedText(config: ConfigLimpeza, group: number): string {
-  const values: string[] = []
-  if (config.textoPadraoAprovadoEm && config.textoPadrao?.trim()) values.push(config.textoPadrao.trim())
-  const item = config.gruposConfig?.[String(group)]
-  if (item?.aprovadoEm && item.textoInstrucoes?.trim()) values.push(item.textoInstrucoes.trim())
-  return values.join('\n\n')
-}
-
 function memberIds(group: number, people: RawPessoas): string[] {
   return Object.entries(people)
     .filter(([, person]) => person.active && person.limpeza?.grupo === group)
@@ -112,24 +103,8 @@ export function generateCleaningPeriod(
       superintendenteMid: groupConfig?.superintendenteMid ?? '',
       ajudantesMid: Array.isArray(groupConfig?.ajudantesMid) ? groupConfig.ajudantesMid : Object.values(groupConfig?.ajudantesMid ?? {}),
       membrosMid: members,
-      textoAprovado: approvedText(config, group),
     })
   }
 
   return { ...bounds, modo: mode, geradoEm: generatedAt, congregacao: congregation, semanas }
-}
-
-function personName(id: string, people: Record<string, Pick<MasterPessoa, 'name'>>): string {
-  return people[id]?.name?.trim() || id
-}
-
-export function cleaningTextForTasks(period: LimpezaPeriodoGerado, people: RawPessoas): string {
-  const lines = [`LIMPEZA DO SALÃO - ${period.congregacao.toUpperCase()}`]
-  for (const week of period.semanas) {
-    lines.push('', `${formatCleaningDate(week.dataMeioSemana)} / ${formatCleaningDate(week.dataFimSemana)} - GRUPO ${week.grupo}: ${week.grupoNome}`)
-    if (week.superintendenteMid) lines.push(`Responsavel: ${personName(week.superintendenteMid, people)}`)
-    if (week.ajudantesMid.length) lines.push(`Ajudantes: ${week.ajudantesMid.map(id => personName(id, people)).join(', ')}`)
-    if (week.textoAprovado) lines.push(week.textoAprovado)
-  }
-  return lines.join('\n')
 }

@@ -19,7 +19,7 @@ export interface Talk {
   temaId?: string; temaNumero?: number; temaTitulo?: string; congregacaoId?: string
   congregacaoOrigemId?: string; congregacaoOrigemNome?: string
   congregacaoDestinoId?: string; congregacaoDestinoNome?: string
-  localCongregacaoId?: string; localCongregacaoNome?: string; avisadoEm?: string; updatedAt?: string
+  localCongregacaoId?: string; localCongregacaoNome?: string; updatedAt?: string
 }
 
 export function speakerName(speaker?: Speaker, fallback = ''): string {

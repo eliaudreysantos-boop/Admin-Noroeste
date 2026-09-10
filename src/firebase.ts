@@ -94,9 +94,6 @@ export const tarefasRef: DatabaseReference =
 export const tarefasEventosRef: DatabaseReference =
   ref(db, 'tarefas/events')
 
-export const tarefasSettingsRef: DatabaseReference =
-  ref(db, 'tarefas/settings')
-
 export const escalaParticipantsRef: DatabaseReference =
   ref(db, 'escala/participants')
 

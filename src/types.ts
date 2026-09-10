@@ -84,8 +84,6 @@ export interface ConfigLimpezaGrupo {
   nome?:              string
   superintendenteMid: string
   ajudantesMid:       string[]
-  textoInstrucoes:    string
-  aprovadoEm:         string   // 'YYYY-MM-DD' | ''
 }
 
 export interface LimpezaSemanaGerada {
@@ -97,7 +95,6 @@ export interface LimpezaSemanaGerada {
   superintendenteMid:  string
   ajudantesMid:        string[]
   membrosMid:          string[]
-  textoAprovado:       string
 }
 
 export interface LimpezaPeriodoGerado {
@@ -115,9 +112,6 @@ export interface ConfigLimpeza {
   aproveitarGruposServicoCampo?: boolean
   grupos:                number       // qtd de grupos
   inicioRotacao:         string       // 'YYYY-MM-DD'
-  coordenadorMid:        string
-  textoPadrao:           string
-  textoPadraoAprovadoEm: string       // 'YYYY-MM-DD' | ''
   gruposConfig:          Record<string, ConfigLimpezaGrupo>
   gruposServicoConfig?:  Record<string, ConfigLimpezaGrupo>
 }
