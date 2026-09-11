@@ -30,7 +30,6 @@ import {
   createMasterId,
   linkIssueSource,
   normalizeWhatsapp,
-  personalUserConflict,
   sanitizeFailureReportValue,
   sharedWhatsappPeople,
 } from './mestre-domain'
@@ -134,10 +133,10 @@ function sexLabel(sex: Sex | null): string {
 function appsList(apps: Usuario['apps']): string {
   const labels: Record<string, string> = {
     mestre:'Admin', tarefas:'Tarefas', limpeza:'Limpeza', oradores:'Oradores', escala:'Escala TPL',
-    programacao:'Programação', secretario:'Secretário', individual:'Minha agenda',
+    programacao:'Programação', secretario:'Secretário',
   }
   return (Object.keys(apps) as Array<keyof typeof apps>)
-    .filter(k => apps[k]).map(k => labels[k]).join(', ') || '—'
+    .filter(k => k !== 'individual' && apps[k]).map(k => labels[k]).join(', ') || '—'
 }
 
 function appCheck(id: string, label: string, checked: boolean): string {
@@ -352,15 +351,6 @@ function collectLinkIssues(data: Record<string, unknown>): LinkIssue[] {
     ...collectDirectLinkIssues('Secretário', collections.secretario),
     ...collectDirectLinkIssues('Programação', collections.programacao),
   ]
-
-  Object.entries(usuarios).forEach(([uid, user]) => {
-    if (!user.apps.individual) return
-    if (!user.masterId) {
-      issues.push({ module: 'Usuários', id: uid, kind: 'sem_vinculo', detail: 'Minha Agenda sem pessoa vinculada' })
-    } else if (!pessoas[user.masterId]) {
-      issues.push({ module: 'Usuários', id: uid, kind: 'orfao', detail: `masterId inexistente: ${user.masterId}` })
-    }
-  })
 
   Object.entries(collections.oradores).forEach(([id, orador]) => {
     if (orador['ativo'] === false || orador['tipo'] === 'visitante') return
@@ -932,7 +922,6 @@ function usuarioCard(uid: string, u: Usuario): string {
   const badge = u.ativo
     ? `<span style="background:#E3F5EB;color:#1A6B3C;padding:1px 7px;border-radius:10px;font-size:.7rem;font-weight:600">Ativo</span>`
     : `<span style="background:#FEE;color:#B3261E;padding:1px 7px;border-radius:10px;font-size:.7rem;font-weight:600">Inativo</span>`
-  const person = u.masterId ? pessoas[u.masterId] : undefined
   return `
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;
       padding:10px 12px;margin-bottom:6px;display:flex;align-items:center;gap:8px">
@@ -941,7 +930,6 @@ function usuarioCard(uid: string, u: Usuario): string {
           ${escapeHtml(u.nome)} ${badge}
         </div>
         <div style="font-size:.75rem;color:var(--ink-3);margin-top:2px">Apps: ${escapeHtml(appsList(u.apps))}</div>
-        ${u.apps.individual ? `<div style="font-size:.72rem;color:${person ? '#1A6B3C' : '#B3261E'};margin-top:2px">Minha Agenda: ${escapeHtml(person?.name ?? 'pessoa não vinculada')}</div>` : ''}
         <div style="font-size:.7rem;color:var(--ink-3);margin-top:1px;font-family:monospace">${escapeHtml(uid)}</div>
       </div>
       <button class="btn btn-ghost" data-edit-usuario="${escapeHtml(uid)}"
@@ -957,12 +945,6 @@ function openUsuarioModal(uid: string | null): void {
     mestre:false, tarefas:false, limpeza:false, escala:false,
     oradores:false, programacao:false, secretario:false,
   }
-  const personOptions = Object.entries(pessoas)
-    .filter(([masterId, person]) => person.active || masterId === u?.masterId)
-    .sort(([, a], [, b]) => a.name.localeCompare(b.name, 'pt-BR'))
-    .map(([masterId, person]) => `<option value="${escapeHtml(masterId)}" ${masterId === u?.masterId ? 'selected' : ''}>${escapeHtml(person.name)} · ${escapeHtml(masterId)}</option>`)
-    .join('')
-
   const overlay = document.createElement('div')
   overlay.className = 'modal-overlay'
   overlay.innerHTML = `
@@ -992,12 +974,6 @@ function openUsuarioModal(uid: string | null): void {
         ${appCheck('escala',      'Escala TPL',   apps.escala)}
         ${appCheck('programacao', 'Programação',  apps.programacao)}
         ${appCheck('secretario',  'Secretário',   apps.secretario)}
-        <div id="uAgendaPermission">${appCheck('individual', 'Minha agenda', apps.individual ?? false)}</div>
-      </div>
-      <div id="uPessoaAgenda" class="form-group">
-        <label class="form-label" for="uMasterId">Pessoa vinculada à Minha Agenda</label>
-        <select id="uMasterId" class="form-select"><option value="">Selecionar pessoa...</option>${personOptions}</select>
-        <p class="form-help">Nome, ID e WhatsApp permanecem no cadastro central de Pessoas.</p>
       </div>
       <div style="display:flex;gap:8px;margin-top:8px">
         <button id="btnCancelUsuario" class="btn btn-ghost" style="flex:1">Cancelar</button>
@@ -1006,16 +982,6 @@ function openUsuarioModal(uid: string | null): void {
     </div>`
 
   document.body.appendChild(overlay)
-
-  const syncAgendaPerson = () => {
-    const enabled = (document.getElementById('uApp_individual') as HTMLInputElement).checked
-    const wrap = document.getElementById('uPessoaAgenda')
-    const select = document.getElementById('uMasterId') as HTMLSelectElement
-    wrap?.classList.toggle('hidden', !enabled)
-    select.disabled = !enabled
-  }
-  document.getElementById('uApp_individual')!.addEventListener('change', syncAgendaPerson)
-  syncAgendaPerson()
 
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove() })
   document.getElementById('btnCancelUsuario')!.addEventListener('click', () => overlay.remove())
@@ -1027,8 +993,6 @@ async function saveUsuario(uid: string | null, overlay: HTMLElement): Promise<vo
   const nome     = (document.getElementById('uNome')     as HTMLInputElement).value.trim()
   const senha    = (document.getElementById('uSenha')    as HTMLInputElement).value
   const ativo    = (document.getElementById('uAtivo')    as HTMLInputElement).checked
-  const masterId = (document.getElementById('uMasterId') as HTMLSelectElement).value
-
   if (!nome)  { toast('Preencha o nome');  return }
   if (!senha) { toast('Preencha a senha'); return }
 
@@ -1038,19 +1002,15 @@ async function saveUsuario(uid: string | null, overlay: HTMLElement): Promise<vo
   const selectedApps = {
     mestre: checkApp('mestre'), tarefas: checkApp('tarefas'), limpeza: checkApp('limpeza'),
     oradores: checkApp('oradores'), escala: checkApp('escala'), programacao: checkApp('programacao'),
-    secretario: checkApp('secretario'), individual: checkApp('individual'),
+    secretario: checkApp('secretario'),
   }
   const apps = selectedApps
-  if (apps.individual && !masterId) { toast('Selecione a pessoa vinculada à Minha Agenda'); return }
-  if (apps.individual && !pessoas[masterId]) { toast('A pessoa selecionada não existe mais no cadastro central'); return }
-  if (apps.individual && personalUserConflict(usuarios, masterId, uid)) { toast('Esta pessoa já possui um usuário para Minha Agenda'); return }
   const usuario: Usuario = {
     ...(uid && usuarios[uid] ? usuarios[uid] : {}),
     nome, senha, ativo,
     apps,
   }
-  if (!apps.individual) delete usuario.masterId
-  else usuario.masterId = masterId
+  delete usuario.masterId
   if (!['secretario', 'publicador', 'assistencia'].includes(String(usuario.secretarioPapel ?? ''))) delete usuario.secretarioPapel
   const finalUid = uid ?? genId('u_')
   const proposedUsuarios: RawUsuarios = { ...usuarios, [finalUid]: usuario }

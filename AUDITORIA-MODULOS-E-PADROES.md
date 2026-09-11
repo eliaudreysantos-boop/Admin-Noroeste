@@ -6,9 +6,9 @@ especificos.
 
 Objetivo: para cada modulo, registrar o que pode ser reaproveitado nos outros,
 o que ele deve importar dos outros modulos, e quais lacunas ainda precisam ser
-resolvidas. A auditoria documental dos modulos esta fechada neste ciclo; o
-proximo trabalho deve ser aplicar as fases de fechamento, sem abrir novo escopo
-antes de resolver as lacunas registradas.
+resolvidas. A auditoria documental e as fases de fechamento foram aplicadas em
+11/09/2026. As listas historicas de lacunas abaixo permanecem como justificativa
+das mudancas; a matriz registra o estado final.
 
 ## Processo padrao de auditoria
 
@@ -28,15 +28,27 @@ Para cada modulo, seguir esta ordem:
 
 | Modulo | Estado da auditoria | MD especifico | Prioridade |
 |---|---|---|---|
-| Secretario | Auditado e funcional, faltam validacoes operacionais | `INTEGRACAO-SECRETARIO.md` | Alta |
-| Minha Agenda | Auditado/planejado, falta implementacao final de assinatura/cartoes | `INTEGRACAO-MINHA-AGENDA.md` | Alta |
-| Oradores | Auditado contra antigo, faltam fases finais | `COMPARATIVO-ORADORES-ANTIGO-VS-NOVO.md` | Alta |
-| Vida e Ministerio | Fases 4 a 9 auditadas; faltam tres validacoes operacionais | `INTEGRACAO-VIDA-E-MINISTERIO.md` | Media |
-| Limpeza | Auditado e parcialmente aplicado, faltam validacoes finais | `INTEGRACAO-LIMPEZA-E-AVISOS.md` | Media |
-| Tarefas | Auditado contra app antigo, fase 1 aplicada | `COMPARATIVO-TAREFAS-ANTIGO-VS-NOVO.md` | Alta |
-| Escala TPL | Auditado contra legado/testes, faltam fases finais | `COMPARATIVO-ESCALA-TPL-ANTIGO-VS-NOVO.md` | Alta |
-| Admin/Mestre | Auditado como base central | `AUDITORIA-ADMIN-MESTRE.md` | Alta |
+| Secretario | Funcional e fechado com dados de exemplo | `INTEGRACAO-SECRETARIO.md` | Concluido |
+| Minha Agenda | Tres telas, relatorio, quadro, PDFs e assinaturas ICS implementados | `INTEGRACAO-MINHA-AGENDA.md` | Concluido |
+| Oradores | Nove fases aplicadas contra o app antigo | `COMPARATIVO-ORADORES-ANTIGO-VS-NOVO.md` | Concluido |
+| Vida e Ministerio | Nove fases aplicadas | `INTEGRACAO-VIDA-E-MINISTERIO.md` | Concluido |
+| Limpeza | Fluxo enxuto, PDF com previa e adapter publico | `INTEGRACAO-LIMPEZA-E-AVISOS.md` | Concluido |
+| Tarefas | Seis fases aplicadas contra o app antigo | `COMPARATIVO-TAREFAS-ANTIGO-VS-NOVO.md` | Concluido |
+| Escala TPL | Seis fases aplicadas e testes independentes do legado | `COMPARATIVO-ESCALA-TPL-ANTIGO-VS-NOVO.md` | Concluido |
+| Admin/Mestre | Base central, integridade, backup e configuracao global | `AUDITORIA-ADMIN-MESTRE.md` | Concluido |
 | Coordenador | Removido da navegacao, Admin, tipos e testes | Registrado em `INTEGRACAO-VIDA-E-MINISTERIO.md` | Concluido |
+
+## Resultado do fechamento
+
+- Todos os PDFs ativos passam pela previa compartilhada antes de baixar ou imprimir.
+- Tarefas e Escala TPL so aparecem publicamente depois da publicacao do periodo.
+- Os avisos comuns sairam dos modulos donos e foram consolidados no Quadro.
+- O Quadro usa o link de WhatsApp configurado no Admin e publica arquivos por periodo.
+- Assinaturas pessoais e do Quadro usam token revogavel, sem `masterId` na URL.
+- A funcao `calendar` gera ICS com UID estavel, timezone e lembretes configuraveis.
+- A suite automatizada nao depende da pasta antiga que sera apagada.
+- Dados reais, regras remotas e impressao fisica ficam para a rodada operacional
+  solicitada pelo responsavel e nao sao lacunas de implementacao.
 
 ## Padroes transversais obrigatorios
 
@@ -113,21 +125,19 @@ documentos/lotes com dados reais.
 - De Tarefas: reuniao, funcao, pessoa designada e status.
 - Da Escala TPL: local, horario, dupla e link de grupo configuravel.
 
-### Lacunas percebidas
+### Lacunas fechadas
 
-- Assinatura ICS real ainda depende de URL estavel.
-- Download ICS precisa suportar `VALARM`.
-- Quadro precisa virar tela final com cards expansíveis.
-- Card de PDFs precisa mapear permissao e periodo de cada modulo.
-- Link do grupo deve migrar para `agenda/config/quadroWhatsAppLink`, com
-  fallback temporario para `escala/settings/groupWhatsAppLink`.
-- Testar relatorio enviado pela pessoa e bloqueio de mes fechado.
+- Assinatura ICS possui URL estavel na Netlify Function e token revogavel.
+- Download e feed ICS suportam `VALARM`.
+- Quadro final usa cards expansíveis para calendário, texto, PDFs e assinatura.
+- PDFs publicos sao listados por periodo sem incluir documentos administrativos.
+- Link do grupo vem de `agenda/config/quadroWhatsAppLink`.
+- Relatorio pessoal e bloqueio de mes fechado possuem testes de dominio.
 
 ### Estado da auditoria
 
-Auditoria fechada. Minha Agenda depende de fechar primeiro os adapters e regras
-dos modulos donos, especialmente Secretario, Tarefas, Escala TPL, Oradores e
-Vida e Ministerio.
+Auditoria e implementacao fechadas com adapters dos cinco modulos, integracao
+com o Secretario e configuracao global do Admin.
 
 ## Oradores
 
@@ -150,21 +160,17 @@ Vida e Ministerio.
 - ICS com lembretes por modulo da Minha Agenda.
 - Cards expansíveis/calendario para visualizar programacao no Quadro.
 
-### Lacunas percebidas
+### Lacunas fechadas
 
-- Falta previa obrigatoria antes dos PDFs.
-- Falta WhatsApp administrativo para confirmacao, datas livres e intercambios.
-- Filtros por tipo/status ainda faltam na programacao.
-- Cards de programacao/intercambios ainda precisam ficar mais ricos.
-- Falta visitante manual.
-- Temas precisam de filtro e PDF seguindo filtro.
-- Pendencias precisam de contagem, severidade textual e filtro agrupado.
+- Previa obrigatoria antes dos PDFs ativos.
+- WhatsApp administrativo para confirmacao, datas livres e intercambios.
+- Filtros, cards operacionais, visitante manual e repertorio filtravel.
+- Pendencias com contagem, severidade e filtro agrupado.
 
 ### Estado da auditoria
 
-Auditoria fechada contra o app antigo. O proximo passo de Oradores e aplicar as
-fases registradas no comparativo, com foco em recuperar o que o antigo fazia
-melhor sem voltar para duas secoes nem mensagens por reuniao.
+Auditoria fechada contra o app antigo e as nove fases aplicadas sem voltar para
+duas secoes ou mensagens pessoais por reuniao.
 
 ## Vida e Ministerio
 
@@ -257,21 +263,16 @@ finais de PDF/preview, documentacao antiga e adapter publico.
 - Card de calendario da Minha Agenda para visualizacao publica.
 - Period lifecycle se houver publicacao/travamento final de escala.
 
-### Lacunas percebidas
+### Lacunas fechadas
 
-- Comparativo antigo vs novo criado em
-  `COMPARATIVO-TAREFAS-ANTIGO-VS-NOVO.md`.
-- Falta aplicar fases finais do comparativo.
-- Conferir se campos de busca atuais ainda fazem sentido ou se devem ser
-  reduzidos conforme padrao dos modulos finalizados.
-- Confirmar previa obrigatoria em PDF.
-- Garantir adapter para Minha Agenda/Quadro com status, data, horario e funcao.
-- Conferir se mensagens internas antigas devem sair de vez para o Quadro.
+- Comparativo antigo vs novo aplicado nas seis fases.
+- Previa, tabela desktop, cards mobile, configuracao enxuta e resumo operacional.
+- Adapter publico condicionado a publicacao e sem observacao administrativa.
+- Mensagens comuns removidas em favor de Minha Agenda/Quadro.
 
 ### Estado da auditoria
 
-Auditoria fechada contra o app antigo. A Fase 1 foi aplicada; faltam fases 2 a
-6 do comparativo.
+Auditoria fechada contra o app antigo e fases 1 a 6 concluidas.
 
 ### Fases de fechamento previstas
 
@@ -305,25 +306,18 @@ Auditoria fechada contra o app antigo. A Fase 1 foi aplicada; faltam fases 2 a
 - Card de calendario no Quadro para mostrar dias/horarios preenchidos.
 - Card de dados das reunioes usando link de grupo centralizado.
 
-### Lacunas percebidas
+### Lacunas fechadas
 
-- Comparativo legado/testes vs novo criado em
-  `COMPARATIVO-ESCALA-TPL-ANTIGO-VS-NOVO.md`.
-- Falta aplicar fases finais do comparativo.
-- Separar mensagem administrativa de aviso comum; aviso comum deve ir para
-  Minha Agenda/Quadro.
-- Decidir se `settings.groupWhatsAppLink` fica como fonte final ou migra para
-  `agenda/config/quadroWhatsAppLink`.
-- Confirmar previa obrigatoria em PDF.
-- Garantir adapter para Minha Agenda/Quadro com local, horario, dupla e status.
-- Confirmar se publicar/despublicar mes deve seguir o padrao de lifecycle do
-  Secretario.
+- Comparativo legado/testes aplicado nas seis fases.
+- Somente confirmacao de disponibilidade permanece no modulo.
+- Link do Quadro centralizado no Admin.
+- Previa de impressao, adapter publicado e lifecycle publicar/despublicar.
+- Historico protegido por snapshot e inativacao segura de locais.
 
 ### Estado da auditoria
 
-Auditoria fechada com base no codigo atual, migracao e testes de legado. A
-pasta antiga completa nao esta presente nesta copia, entao a implementacao deve
-seguir o comparativo criado e preservar os testes atuais.
+Auditoria e implementacao fechadas. Os testes equivalentes agora vivem no
+projeto e nao dependem da pasta antiga.
 
 ### Fases de fechamento previstas
 

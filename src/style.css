@@ -230,7 +230,7 @@ body {
 
 /* ─── Login overlay ────────────────────────────────────────────────────── */
 
-#loginOverlay {
+#loginOverlay, .login-overlay {
   position: fixed;
   inset: 0;
   background: var(--blue-deep);
@@ -241,9 +241,9 @@ body {
   padding: 24px;
 }
 
-#loginOverlay.hidden { display: none; }
+#loginOverlay.hidden, .login-overlay.hidden { display: none; }
 
-#loginBox {
+#loginBox, .login-box {
   background: var(--surface);
   border-radius: var(--radius-lg);
   padding: 32px 28px;
@@ -252,14 +252,14 @@ body {
   box-shadow: var(--shadow-lg);
 }
 
-#loginBox h1 {
+#loginBox h1, .login-box h1 {
   font-size: 1.4rem;
   font-weight: 800;
   color: var(--blue-deep);
   margin-bottom: 4px;
 }
 
-#loginBox .subtitle {
+#loginBox .subtitle, .login-box .subtitle {
   font-size: .82rem;
   color: var(--ink-3);
   margin-bottom: 24px;
@@ -416,6 +416,10 @@ textarea.form-input {
   margin-bottom: 18px;
   color: var(--blue-deep);
 }
+
+.login-agenda-link { margin-top: 10px; text-decoration: none; }
+.agenda-standalone #agendaShell { min-height: 100vh; }
+.agenda-standalone .login-box > p { margin: 4px 0 18px; color: var(--ink-3); text-align: center; }
 
 .pending-summary {
   display: flex;
@@ -752,6 +756,8 @@ textarea.form-input {
 }
 
 @media (max-width: 560px) {
+  .task-desktop-scale { display:none; }
+  .task-mobile-scale { display:flex !important; }
   .module-form-grid { grid-template-columns: 1fr; }
   .program-period { align-items: stretch; flex-direction: column; }
   .program-period-modes { display: grid; grid-template-columns: repeat(3, 1fr); }
@@ -938,6 +944,9 @@ textarea.form-input {
 .scale-slot:disabled { cursor: default; opacity: .82; }
 
 .escala-print-doc { display: none; font-family: Arial, Helvetica, sans-serif; color: #000; background: #fff; font-size: var(--escala-print-font, 12pt); }
+.escala-preview-modal { width: min(1120px, calc(100vw - 28px)); max-width: none; }
+.escala-print-preview { max-height: 70vh; overflow: auto; padding: 12px; border: 1px solid var(--border); background: #dfe3e6; font-family: Arial, Helvetica, sans-serif; font-size: var(--escala-print-font, 12pt); color: #000; }
+.escala-print-preview .escala-print-page { width: 281mm; min-height: 194mm; margin: 0 auto 12px; padding: 10mm; background: #fff; box-shadow: 0 2px 8px #0002; }
 .escala-print-doc[data-measuring='true'] { display: block; position: absolute; left: -10000px; top: 0; width: 281mm; }
 .escala-print-doc[data-measuring='true'] .escala-print-page { min-height: 194mm; }
 .escala-print-page { break-after: page; page-break-after: always; }
@@ -970,6 +979,43 @@ textarea.form-input {
 .agenda-status { white-space: nowrap; color: var(--ink-3); font-size: .68rem; font-weight: 700; text-transform: uppercase; }
 .agenda-status.confirmacao-pendente { color: var(--danger); }
 .agenda-status.realizado { color: var(--success); }
+.agenda-board-sections { display: grid; gap: 10px; }
+.agenda-board-card { margin: 0; padding: 0; overflow: hidden; }
+.agenda-board-card > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; cursor: pointer; list-style: none; }
+.agenda-board-card > summary::-webkit-details-marker { display: none; }
+.agenda-board-card > summary::after { content: '+'; width: 24px; color: var(--ink-3); font-size: 1.15rem; text-align: center; }
+.agenda-board-card[open] > summary::after { content: '−'; }
+.agenda-board-card > summary span { margin-left: auto; color: var(--ink-3); font-size: .76rem; font-weight: 600; }
+.agenda-board-body { padding: 0 16px 16px; border-top: 1px solid var(--border); }
+.agenda-board-body > :first-child { margin-top: 14px; }
+.agenda-document-list { display: grid; gap: 8px; margin-top: 12px; }
+.agenda-document { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 12px; border: 1px solid var(--border); border-radius: 6px; color: var(--ink); text-decoration: none; }
+.agenda-document:hover { border-color: var(--primary); background: var(--surface-2); }
+.agenda-document span, .agenda-document small { display: block; }
+.agenda-document small { margin-top: 3px; color: var(--ink-3); font-size: .74rem; }
+.agenda-document b { white-space: nowrap; color: var(--primary); font-size: .76rem; }
+.agenda-module-options { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-bottom: 12px; }
+.agenda-module-check { color: var(--ink-2); font-size: .84rem; }
+.oradores-section-head { display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:10px; }
+.oradores-section-head h3 { margin:0; font-size:.95rem; color:#5C6062; }
+.oradores-program-card { overflow:hidden; border:1px solid var(--border); border-left:4px solid var(--talk-color, #5C6062); border-radius:8px; background:var(--surface); }
+.oradores-program-head { display:flex; justify-content:space-between; gap:10px; padding:10px 12px; border-bottom:1px solid var(--border); }
+.oradores-program-head strong, .oradores-program-head small, .oradores-program-body strong, .oradores-program-body span, .oradores-program-body small { display:block; }
+.oradores-program-head small, .oradores-program-body small { margin-top:3px; color:var(--ink-3); font-size:.74rem; }
+.oradores-program-body { padding:10px 12px; }
+.oradores-program-body span { margin-top:3px; color:var(--ink-2); font-size:.8rem; }
+.oradores-card-actions { display:flex; flex-wrap:wrap; gap:6px; padding:0 12px 10px; }
+.oradores-card-actions .btn { padding:5px 8px; font-size:.72rem; }
+.task-mobile-scale { display:none !important; }
+.task-scale-table-wrap { overflow:auto; border:1px solid var(--border); border-radius:8px; background:var(--surface); }
+.task-scale-table { width:100%; min-width:1180px; border-collapse:collapse; font-size:.75rem; }
+.task-scale-table th, .task-scale-table td { padding:7px; border-right:1px solid var(--border); border-bottom:1px solid var(--border); vertical-align:top; }
+.task-scale-table thead th { position:sticky; top:0; z-index:1; background:var(--surface-2); color:var(--ink-2); text-align:left; }
+.task-scale-table tbody th { min-width:92px; text-align:left; }
+.task-scale-table tbody th small { display:block; margin-top:3px; color:var(--ink-3); }
+.task-scale-table .tarefas-assignment-select { min-width:125px; }
+.task-scale-table .tarefas-assignment-select + span, .task-scale-table label > span { display:none; }
+.task-not-applicable { color:var(--ink-3); }
 
 .admin-reminder-grid { display: grid; grid-template-columns: minmax(90px, 1fr) minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
 .admin-reminder-grid .form-select { width: 100%; min-width: 0; }

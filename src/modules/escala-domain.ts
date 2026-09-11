@@ -38,6 +38,7 @@ export interface EscalaParticipant {
 }
 
 export interface EscalaLocal {
+  active?: boolean
   name?: string
   daysActive?: number[]
   slots?: string[]

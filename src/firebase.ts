@@ -87,6 +87,15 @@ export const tarefasScaleRef: DatabaseReference =
 export const tarefasDiscursosRef: DatabaseReference =
   ref(db, 'tarefas/discursos')
 
+export const tarefasOradoresRef: DatabaseReference =
+  ref(db, 'tarefas/discursos/oradores')
+
+export const tarefasProgramacaoOradoresRef: DatabaseReference =
+  ref(db, 'tarefas/discursos/programacao')
+
+export const tarefasCongregacoesRef: DatabaseReference =
+  ref(db, 'tarefas/discursos/congregacoes')
+
 export const tarefasPlanejamentoRef: DatabaseReference =
   ref(db, 'tarefas/planning')
 
@@ -106,6 +115,18 @@ export function escalaParticipantRef(eid: string): DatabaseReference {
 export const escalaPubSnapshotsRef: DatabaseReference =
   ref(db, 'escala/publishedSnapshots')
 
+export const escalaScalesRef: DatabaseReference =
+  ref(db, 'escala/scales')
+
+export const escalaTablesRef: DatabaseReference =
+  ref(db, 'escala/tables')
+
+export const escalaPublishedMonthRef: DatabaseReference =
+  ref(db, 'escala/publishedMonth')
+
+export const escalaPublishedMonthsRef: DatabaseReference =
+  ref(db, 'escala/publishedMonths')
+
 export const escalaSettingsRef: DatabaseReference =
   ref(db, 'escala/settings')
 
@@ -120,3 +141,12 @@ export const secretarioRef: DatabaseReference =
 
 export const agendaConfigRef: DatabaseReference =
   ref(db, 'agenda/config')
+
+export const agendaRef: DatabaseReference =
+  ref(db, 'agenda')
+
+export const agendaDocumentsRef: DatabaseReference =
+  ref(db, 'agenda/documentos')
+
+export const agendaSubscriptionsRef: DatabaseReference =
+  ref(db, 'agenda/assinaturas')

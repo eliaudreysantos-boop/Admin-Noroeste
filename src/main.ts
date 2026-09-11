@@ -9,6 +9,7 @@ import {
 import { initRouter, navigateBack, navigateModuleIndex } from './router'
 import type { RawUsuarios, Usuario } from './types'
 import { animateKpis } from './ui/animations'
+import { refreshServiceWorkerWeekly } from './pwa-sync'
 
 // ─── Elementos ──────────────────────────────────────────────────────────────
 
@@ -219,7 +220,9 @@ btnBack.addEventListener('click', handleBack)
 
 window.addEventListener('app-route-change', (event) => {
   const detail = (event as CustomEvent<{ canBack: boolean }>).detail
-  btnBack.classList.toggle('hidden', !detail?.canBack)
+  const canBack = detail?.canBack === true
+  btnBack.classList.toggle('hidden', !canBack)
+  btnSair.classList.toggle('hidden', canBack)
 })
 
 // ─── Start ───────────────────────────────────────────────────────────────────
@@ -231,7 +234,7 @@ void init()
 if ('serviceWorker' in navigator) {
   const isLocalDevelopment = location.hostname === '127.0.0.1' || location.hostname === 'localhost'
   if (!isLocalDevelopment) {
-    void navigator.serviceWorker.register('/sw.js')
+    void navigator.serviceWorker.register('/sw.js').then(registration => refreshServiceWorkerWeekly(registration, 'noroeste_admin_shell_sync'))
   } else {
     // Evita que o shell PWA publicado interfira no desenvolvimento local.
     void navigator.serviceWorker.getRegistrations()

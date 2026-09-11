@@ -1,3 +1,5 @@
+import type { MasterPessoa } from '../types'
+
 export type AgendaSource = 'tarefas' | 'limpeza' | 'escala' | 'oradores' | 'programacao'
 export type AgendaStatus = 'futuro' | 'confirmacao-pendente' | 'alterado' | 'realizado'
 
@@ -7,6 +9,23 @@ export interface AgendaEvent {
 }
 
 export interface AnnouncementEvent extends AgendaEvent { people: string[] }
+
+export interface AgendaIcsOptions {
+  reminders?: Partial<Record<AgendaSource, string[]>>
+  namespace?: string
+  calendarName?: string
+}
+
+export function sanitizeAgendaPeople(source: Record<string, MasterPessoa>): Record<string, MasterPessoa> {
+  return Object.fromEntries(Object.entries(source).map(([id, person]) => [id, {
+    name:person.name,
+    active:person.active,
+    sex:person.sex,
+    role:person.role,
+    whatsapp:'',
+    limpeza:{ grupo:null },
+  } satisfies MasterPessoa]))
+}
 
 export function upcomingAgendaEvents(events: AgendaEvent[], today: string): AgendaEvent[] {
   return events.filter(event => event.date >= today && event.status !== 'realizado')
@@ -26,13 +45,17 @@ export function collectAgendaEvents(rootValue: unknown, masterId: string, allowe
   const result: AgendaEvent[] = []
   const add = (event: AgendaEvent): void => { if (validDate(event.date)) result.push({ ...event, note: text(event.note).slice(0, 250) || undefined }) }
 
-  if (allowed.tarefas !== false) Object.entries(rows(rows(rows(tarefas['scale'])['periods']))).forEach(([periodId, periodValue]) => Object.entries(rows(rows(periodValue)['meetings'])).forEach(([meetingId, meetingValue]) => {
+  if (allowed.tarefas !== false) Object.entries(rows(rows(rows(tarefas['scale'])['periods']))).forEach(([periodId, periodValue]) => {
+    const period = rows(periodValue)
+    if (period['locked'] !== true) return
+    Object.entries(rows(period['meetings'])).forEach(([meetingId, meetingValue]) => {
     const meeting = rows(meetingValue), date = text(meeting['date']) || meetingId.split('__')[0]
     Object.entries(rows(meeting['assignments'])).forEach(([role, assignment]) => {
       const personId = text(rows(assignment)['id']) || text(rows(assignment)['personId']) || text(assignment)
       if (taskIds.has(personId)) add({ id:`tarefas:${periodId}:${meetingId}:${role}`, source:'tarefas', date, title:TASK_LABELS[role] || role, detail:text(meeting['type']) === 'midweek' ? 'Reunião do meio de semana' : 'Reunião do fim de semana', status:'futuro' })
     })
-  }))
+    })
+  })
 
   if (allowed.limpeza !== false) Object.entries(rows(rows(root['limpeza'])['periodos'])).forEach(([periodId, periodValue]) => values(rows(periodValue)['semanas']).forEach((weekValue, index) => {
     const week = rows(weekValue), ids = [text(week['superintendenteMid']), ...values(week['ajudantesMid']).map(text), ...values(week['membrosMid']).map(text)]
@@ -41,12 +64,24 @@ export function collectAgendaEvents(rootValue: unknown, masterId: string, allowe
 
   if (allowed.escala !== false) {
     const escala = rows(root['escala']), participantIds = new Set(Object.entries(rows(escala['participants'])).filter(([, person]) => text(rows(person)['masterId']) === masterId).map(([id]) => id))
+    const publishedMonths = rows(escala['publishedMonths']), snapshots = rows(escala['publishedSnapshots']), currentPublished = text(escala['publishedMonth'])
+    const participantName = (id: string): string => {
+      const participant = rows(rows(escala['participants'])[id]), participantMasterId = text(participant['masterId'])
+      return text(rows(rows(rows(root['master'])['pessoas'])[participantMasterId])['name']) || text(participant['name'])
+    }
     Object.entries(rows(escala['tables'])).forEach(([localId, monthsValue]) => {
-      const local = rows(escala['scales'])[localId], location = text(rows(local)['name']) || localId
-      Object.entries(rows(monthsValue)).forEach(([month, tableValue]) => Object.entries(rows(rows(tableValue)['rows'])).forEach(([date, rowValue]) => Object.entries(rows(rows(rowValue)['slots'])).forEach(([time, cellValue]) => {
+      const local = rows(escala['scales'])[localId] ?? rows(rows(escala['settings'])['locals'])[localId], location = text(rows(local)['name']) || localId
+      Object.entries(rows(monthsValue)).forEach(([month, tableValue]) => {
+        if (currentPublished !== month && publishedMonths[month] !== true && !(month in snapshots)) return
+        Object.entries(rows(rows(tableValue)['rows'])).forEach(([date, rowValue]) => Object.entries(rows(rows(rowValue)['slots'])).forEach(([time, cellValue]) => {
         const cell = rows(cellValue)
-        if ([text(cell['p1']), text(cell['p2'])].some(id => participantIds.has(id))) add({ id:`escala:${localId}:${month}:${date}:${time}`, source:'escala', date, time, title:'Serviço de campo', detail:`Dupla em ${location}`, location, status:'futuro' })
-      })))
+        const ids = [text(cell['p1']), text(cell['p2'])]
+        if (ids.some(id => participantIds.has(id))) {
+          const partner = ids.find(id => id && !participantIds.has(id))
+          add({ id:`escala:${localId}:${month}:${date}:${time}`, source:'escala', date, time, title:'Serviço de campo', detail:partner ? `Dupla com ${participantName(partner) || 'parceiro definido'}` : 'Dupla de serviço de campo', location, status:'futuro' })
+        }
+      }))
+      })
     })
   }
 
@@ -126,12 +161,29 @@ export function collectAnnouncementEvents(rootValue: unknown, allowed: Partial<R
 
 const icsEscape = (value: string): string => value.replace(/\\/g, '\\\\').replace(/\r?\n/g, '\\n').replace(/,/g, '\\,').replace(/;/g, '\\;')
 const utcStamp = (value: string): string => value.replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z')
-export function agendaToIcs(events: AgendaEvent[], generatedAt: string): string {
+const validReminder = (value: string): boolean => /^P(?:\d+D)?(?:T\d+[HM])?$/.test(value) && value !== 'P'
+function nextCivilDate(value: string): string {
+  const date = new Date(`${value}T12:00:00Z`)
+  date.setUTCDate(date.getUTCDate() + 1)
+  return date.toISOString().slice(0, 10).replace(/-/g, '')
+}
+export function agendaToIcs(events: AgendaEvent[], generatedAt: string, options: AgendaIcsOptions = {}): string {
+  const namespace = options.namespace?.replace(/[^a-zA-Z0-9_-]/g, '') || 'noroeste'
   const body = events.map(event => {
-    const date = event.date.replace(/-/g, ''), start = event.time ? `DTSTART;TZID=America/Fortaleza:${date}T${event.time.replace(':', '')}00` : `DTSTART;VALUE=DATE:${date}`, details = [event.detail, event.note].filter(Boolean).join('\n')
-    return ['BEGIN:VEVENT', `UID:${icsEscape(event.id)}@noroeste`, `DTSTAMP:${utcStamp(generatedAt)}`, start, `SUMMARY:${icsEscape(event.title)}`, `DESCRIPTION:${icsEscape(details)}`, ...(event.location ? [`LOCATION:${icsEscape(event.location)}`] : []), 'END:VEVENT'].join('\r\n')
+    const date = event.date.replace(/-/g, ''), start = event.time ? `DTSTART;TZID=America/Fortaleza:${date}T${event.time.replace(':', '')}00` : `DTSTART;VALUE=DATE:${date}`, details = [event.detail, event.note, `Origem: ${event.source}`, `Status: ${event.status}`].filter(Boolean).join('\n')
+    const end = event.time ? 'DURATION:PT1H' : `DTEND;VALUE=DATE:${nextCivilDate(event.date)}`
+    const alarms = [...new Set(options.reminders?.[event.source] ?? [])].filter(validReminder).slice(0, 2).flatMap(offset => ['BEGIN:VALARM', 'ACTION:DISPLAY', `DESCRIPTION:${icsEscape(`Lembrete: ${event.title}`)}`, `TRIGGER:-${offset}`, 'END:VALARM'])
+    return ['BEGIN:VEVENT', `UID:${icsEscape(event.id)}@${namespace}`, `DTSTAMP:${utcStamp(generatedAt)}`, start, end, `SUMMARY:${icsEscape(event.title)}`, `DESCRIPTION:${icsEscape(details)}`, ...(event.location ? [`LOCATION:${icsEscape(event.location)}`] : []), ...alarms, 'END:VEVENT'].join('\r\n')
   }).join('\r\n')
-  return `BEGIN:VCALENDAR\r\nVERSION:2.0\r\nCALSCALE:GREGORIAN\r\nPRODID:-//Noroeste//Minha agenda//PT-BR\r\n${body}\r\nEND:VCALENDAR\r\n`
+  return `BEGIN:VCALENDAR\r\nVERSION:2.0\r\nCALSCALE:GREGORIAN\r\nMETHOD:PUBLISH\r\nPRODID:-//Noroeste//Minha agenda//PT-BR\r\nX-WR-CALNAME:${icsEscape(options.calendarName || 'Minha agenda Noroeste')}\r\nX-WR-TIMEZONE:America/Fortaleza\r\n${body}\r\nEND:VCALENDAR\r\n`
+}
+
+export function eventsInFeedWindow(events: AgendaEvent[], today: string): AgendaEvent[] {
+  const anchor = new Date(`${today}T12:00:00Z`)
+  const start = new Date(anchor); start.setUTCMonth(start.getUTCMonth() - 2)
+  const end = new Date(anchor); end.setUTCMonth(end.getUTCMonth() + 12)
+  const startDate = start.toISOString().slice(0, 10), endDate = end.toISOString().slice(0, 10)
+  return events.filter(event => event.date >= startDate && event.date <= endDate).sort((a, b) => a.date.localeCompare(b.date) || (a.time || '').localeCompare(b.time || ''))
 }
 
 export function agendaMessage(events: AgendaEvent[]): string {

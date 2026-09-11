@@ -250,40 +250,43 @@ Aplicar:
 
 ### Fase 1 - PDF com previa
 
-- Criar previa obrigatoria da escala do carrinho.
-- Reutilizar `scalePrintHtml` como fonte da previa.
-- Manter ajuste automatico de fonte antes da impressao.
-- Testar que gerar previa nao altera tabelas nem publicacao.
+- [x] Criar previa obrigatoria da escala do carrinho.
+- [x] Reutilizar `scalePrintHtml` como fonte da previa.
+- [x] Manter ajuste automatico de fonte antes da impressao.
+- [x] Testar que gerar previa nao altera tabelas nem publicacao.
 
 ### Fase 2 - Mensagens e link central
 
-- Manter apenas confirmacao de disponibilidade dentro da Escala TPL.
-- Migrar mensagem para pessoa e mensagem do dia para Minha Agenda/Quadro.
-- Ler link do grupo central do Quadro/Admin com fallback legado.
-- Atualizar textos do modulo para nao prometer avisos comuns.
+- [x] Manter apenas confirmacao de disponibilidade dentro da Escala TPL.
+- [x] Migrar mensagem para pessoa e mensagem do dia para Minha Agenda/Quadro.
+- [x] Centralizar o link de grupo em `agenda/config/quadroWhatsAppLink`.
+- [x] Atualizar textos do modulo para nao prometer avisos comuns.
 
 ### Fase 3 - Pendencias
 
-- Padronizar severidade e contadores.
-- Agrupar locais sem escala.
-- Destacar duplas incompletas e disponibilidade vencida.
-- Direcionar clique para pessoa/local correto.
+- [x] Padronizar severidade e contadores.
+- [x] Agrupar locais sem escala.
+- [x] Destacar duplas incompletas e disponibilidade vencida.
+- [x] Direcionar clique para pessoa/local correto.
 
 ### Fase 4 - Adapter publico
 
-- Criar coletor de eventos publicados da Escala TPL.
-- Expor `masterId`, data, horario, local, parceiro, modulo, status e `uid`.
-- Preparar campo de lembrete ICS `P1D`.
-- Garantir que Minha Agenda/Quadro nao leem rascunho por padrao.
+- [x] Criar coletor de eventos publicados da Escala TPL.
+- [x] Expor vinculo, data, horario, local, parceiro, modulo, status e UID estavel.
+- [x] Preparar lembrete ICS `P1D` configuravel no Admin.
+- [x] Garantir que Minha Agenda/Quadro nao leem rascunho por padrao.
 
 ### Fase 5 - Integridade de cadastro
 
-- Substituir exclusao perigosa de local por inativacao quando possivel.
-- Melhorar aviso de participantes legados sem `masterId`.
-- Garantir que pessoa removida do Admin nao quebre historico publicado.
+- [x] Substituir exclusao perigosa de local por inativacao quando possivel.
+- [x] Melhorar aviso de participantes legados sem `masterId`.
+- [x] Garantir que pessoa removida do Admin nao quebre historico publicado.
 
 ### Fase 6 - Testes e fechamento
 
-- Corrigir testes que dependem da pasta ausente.
-- Testar geracao, bloqueios, excecoes, publicacao, snapshot e adapter.
-- Atualizar `PADROES-REAPROVEITAVEIS.md` com os padroes realmente extraiveis.
+- [x] Corrigir testes que dependem da pasta ausente.
+- [x] Testar geracao, bloqueios, excecoes, publicacao, snapshot e adapter.
+- [x] Atualizar `PADROES-REAPROVEITAVEIS.md` com os padroes realmente extraiveis.
+
+Status final em 11/09/2026: as seis fases foram aplicadas. Os testes agora sao
+autossuficientes e a pasta-base antiga pode ser apagada sem quebrar a suite.

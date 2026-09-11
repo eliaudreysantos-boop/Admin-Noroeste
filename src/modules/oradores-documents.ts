@@ -1,6 +1,7 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf-lib/cjs/index.js'
 import { speakerName, themeHistory, type Congregation, type Speaker, type Talk, type Theme } from './oradores-domain.ts'
 import { agendaToIcs, type AgendaEvent } from './individual-domain.ts'
+import { previewPdf } from '../ui/pdf-preview.ts'
 
 const A4: [number, number] = [595.28, 841.89]
 const MARGIN = 42
@@ -17,12 +18,6 @@ export interface SchedulePdfRow {
   orador: string
   tema: string
   congregacao: string
-}
-
-export interface ApprovedSpeakerRow {
-  nome: string
-  telefone: string
-  temas: string
 }
 
 export interface ThemeCatalogRow {
@@ -165,13 +160,7 @@ export async function downloadAvailableThemesPdf(params: {
     page.drawText('Nenhum orador com tema disponivel.', { x: MARGIN, y, size: 11, font: regular })
   }
 
-  const bytes = await pdf.save()
-  const url = URL.createObjectURL(new Blob([Uint8Array.from(bytes)], { type: 'application/pdf' }))
-  const link = document.createElement('a')
-  link.href = url
-  link.download = 'temas-disponiveis.pdf'
-  link.click()
-  setTimeout(() => URL.revokeObjectURL(url), 1000)
+  previewPdf(Uint8Array.from(await pdf.save()), 'temas-disponiveis.pdf', 'Previa dos temas disponiveis')
 }
 
 function formatDate(value: string): string {
@@ -229,46 +218,10 @@ export async function downloadSchedulePdf(params: {
     }
   }
 
-  const bytes = await pdf.save()
-  const url = URL.createObjectURL(new Blob([Uint8Array.from(bytes)], { type: 'application/pdf' }))
-  const link = document.createElement('a')
-  link.href = url
-  link.download = `programacao-oradores-${params.periodLabel}.pdf`
-  link.click()
-  setTimeout(() => URL.revokeObjectURL(url), 1000)
-}
-
-export async function downloadApprovedSpeakersPdf(params: {
-  congregation: string
-  rows: ApprovedSpeakerRow[]
-}): Promise<void> {
-  const pdf = await PDFDocument.create()
-  const regular = await pdf.embedFont(StandardFonts.Helvetica)
-  const bold = await pdf.embedFont(StandardFonts.HelveticaBold)
-  const chunks = params.rows.length ? Array.from({ length: Math.ceil(params.rows.length / 24) }, (_, index) => params.rows.slice(index * 24, index * 24 + 24)) : [[]]
-  chunks.forEach((rows, index) => {
-    const page = pdf.addPage(A4)
-    let y = drawHeader(page, bold, regular, params.congregation || 'Congregacao', index + 1)
-    page.drawText('ORADORES APROVADOS PARA SAÍDA', { x: MARGIN, y, size: 12, font: bold, color: rgb(.08, .1, .14) })
-    y -= 22
-    const columns = [MARGIN, 250, 380]
-    ;['Orador', 'Telefone', 'Temas'].forEach((label, column) => page.drawText(label, { x: columns[column], y, size: 8, font: bold, color: rgb(.32, .34, .38) }))
-    y -= 14
-    rows.forEach(row => {
-      page.drawText(row.nome || '—', { x: columns[0], y, size: 9, font: regular })
-      page.drawText(row.telefone || '—', { x: columns[1], y, size: 9, font: regular })
-      wrapText(regular, row.temas || '—', 9, 160).forEach((line, lineIndex) => page.drawText(line, { x: columns[2], y: y - lineIndex * 10, size: 9, font: regular }))
-      y -= Math.max(15, wrapText(regular, row.temas || '—', 9, 160).length * 10 + 4)
-    })
-    if (!rows.length) page.drawText('Nenhum orador aprovado para saída.', { x: MARGIN, y, size: 10, font: regular })
-  })
-  const bytes = await pdf.save()
-  const url = URL.createObjectURL(new Blob([Uint8Array.from(bytes)], { type: 'application/pdf' }))
-  const link = document.createElement('a')
-  link.href = url
-  link.download = 'oradores-aprovados-para-saida.pdf'
-  link.click()
-  setTimeout(() => URL.revokeObjectURL(url), 1000)
+  const bytes = Uint8Array.from(await pdf.save())
+  const filename = `programacao-oradores-${params.periodLabel}.pdf`
+  previewPdf(bytes, filename, 'Previa da programacao de oradores')
+  void import('./agenda-documents.ts').then(({ archiveAgendaPdf }) => archiveAgendaPdf(bytes, { modulo:'oradores', periodo:params.periodLabel, nome:filename })).catch(() => undefined)
 }
 
 export async function downloadThemeCatalogPdf(params: {
@@ -298,11 +251,5 @@ export async function downloadThemeCatalogPdf(params: {
     })
     if (!rows.length) page.drawText('Nenhum tema cadastrado.', { x: MARGIN, y, size: 10, font: regular })
   })
-  const bytes = await pdf.save()
-  const url = URL.createObjectURL(new Blob([Uint8Array.from(bytes)], { type: 'application/pdf' }))
-  const link = document.createElement('a')
-  link.href = url
-  link.download = 'catalogo-de-temas.pdf'
-  link.click()
-  setTimeout(() => URL.revokeObjectURL(url), 1000)
+  previewPdf(Uint8Array.from(await pdf.save()), 'catalogo-de-temas.pdf', 'Previa do catalogo de temas')
 }

@@ -9,6 +9,12 @@ escala, nao recalcula designacoes e nao altera dados administrativos dos
 modulos. Ele apenas consome eventos, permite envio do relatorio pessoal ao
 Secretario e centraliza compartilhamentos pessoais.
 
+Decisao arquitetural de 11/09/2026: Minha Agenda deixou de ser um modulo do
+painel administrativo e passou a ter app, manifesto, service worker e link
+proprios em `/agenda/`. Sua politica e offline-first; os demais modulos
+permanecem online-first. Os detalhes estao em
+`ARQUITETURA-PWA-E-SINCRONIZACAO.md`.
+
 ## Escopo final
 
 Minha Agenda tera tres telas:
@@ -26,13 +32,12 @@ deve seguir o layout padrao do app e funcionar bem no celular.
 
 ### Identidade
 
-- Todo acesso pessoal depende de `masterId`.
+- Todo acesso pessoal depende do `masterId` escolhido no select do app.
 - O Admin e o unico que cria pessoa, ID e telefone.
-- Minha Agenda seleciona a pessoa/usuario e usa os dados recebidos do cadastro
-  central.
+- Minha Agenda seleciona a pessoa e usa os dados recebidos do cadastro central;
+  nao cria usuario nem permissao administrativa.
 - Nome e telefone nao devem ser editados em Minha Agenda.
-- Se o usuario nao tiver `masterId`, mostrar aviso e bloquear as funcoes
-  pessoais.
+- Se a pessoa salva nao existir mais ou estiver inativa, voltar ao select.
 
 ### Eventos pessoais
 
@@ -340,6 +345,20 @@ editar os modulos donos.
 
 ## Fases de implementacao
 
+**Status em 11/09/2026:** fases 1 a 10 concluidas no codigo. A assinatura usa uma
+Netlify Function, tokens aleatorios revogaveis e janela de dois meses anteriores
+ate doze meses futuros. A validacao posterior com dados reais nao bloqueia o
+fechamento funcional com os dados de exemplo.
+
+### Fase 10 - App proprio e offline-first
+
+- [x] Criar entrada, manifesto e service worker em `/agenda/`.
+- [x] Remover Minha Agenda do menu e das permissoes do painel administrativo.
+- [x] Abrir o ultimo snapshot sanitizado antes da rede.
+- [x] Atualizar dados pelo Firebase em ciclo de 24 horas ao abrir/retomar.
+- [x] Verificar nova versao hospedada em ciclo de sete dias.
+- [x] Manter os modulos administrativos online-first.
+
 ### Fase 1 - Auditoria do app atual
 
 Objetivo: confirmar o que ja esta pronto e separar lacunas reais.
@@ -545,13 +564,12 @@ Objetivo: fechar Minha Agenda depois do Secretario e antes de publicar.
 - Enviar WhatsApp automaticamente para telefone escolhido pelo app.
 - Criar tabela propria de anuncios enquanto o quadro derivado atender.
 
-## Perguntas pendentes
+## Decisoes fechadas
 
-- A assinatura ICS deve ficar para depois da publicacao inicial ou entra antes
-  de fechar Minha Agenda?
-- A hospedagem final tera Cloud Functions/endpoint dinamico ou apenas app
-  estatico?
-- O link de assinatura pessoal deve poder ser gerado pelo proprio publicador,
-  pelo Admin, ou pelos dois?
-- O link do grupo do WhatsApp do Quadro deve morar no Admin, em Minha Agenda ou
-  migrar do campo atual da Escala TPL?
+- A assinatura ICS entrou antes do fechamento da Minha Agenda.
+- O endpoint dinamico e `/.netlify/functions/calendar`.
+- O proprio publicador gera sua assinatura; o Admin tambem pode gerar por
+  pessoa usando o seletor vinculado por ID.
+- O link do grupo pertence ao Admin em `agenda/config/quadroWhatsAppLink`.
+- O Quadro possui cards expansivos para calendario, texto das reunioes, PDFs
+  publicados por periodo e assinatura dos modulos escolhidos.

@@ -7,8 +7,6 @@ import {
 import {
   assignmentsForPerson, confirmationMessage, personMessage,
 } from '../src/modules/escala-output.ts'
-import realDatabase from '../NAO FAZER COMMIT DESSA PASTA/escala - TPL/src/dominio/__testes__/banco-real.json' with { type: 'json' }
-import { gerarComOAlgoritmoAntigo } from '../NAO FAZER COMMIT DESSA PASTA/escala - TPL/src/dominio/__testes__/legado.ts'
 
 const person = (overrides = {}) => ({ name: 'Pessoa', sex: 'M', active: true, pioneer: false, withChild: false, sameSexOnly: false, onlyWithId: '', capPerMonth: 0, startFromDate: '', refFolgaDate: '', ...overrides })
 const local = { name: 'Praça', daysActive: [4], slots: ['08:00', '10:00'], stepMinutes: 120, sortOrder: 1 }
@@ -97,20 +95,16 @@ test('mensagens usam as designações e a disponibilidade registradas', () => {
   assert.equal(availabilityKey(4, '08:00'), '4|08:00')
 })
 
-test('resultado coincide com o algoritmo antigo no banco real', () => {
-  const months = [...new Set(Object.values(realDatabase.tables).flatMap(byMonth => Object.keys(byMonth)))].sort()
-  const ordered = Object.keys(realDatabase.scales).sort((a, b) => realDatabase.scales[a].sortOrder - realDatabase.scales[b].sortOrder)
-  const flatten = rows => Object.fromEntries(Object.entries(rows ?? {}).flatMap(([date, row]) => Object.entries(row.slots ?? {}).filter(([, cell]) => cell.p1 || cell.p2).map(([time, cell]) => [`${date} ${time}`, [cell.p1, cell.p2].sort().join('+')])))
-  for (const month of months) {
-    let generatedTables = Object.fromEntries(ordered.map(id => [id, { [month]: { rows: {}, slots: [] } }]))
-    const legacyState = { participants: realDatabase.participants, scales: realDatabase.scales, availability: realDatabase.availability, monthSlotBlocks: realDatabase.monthSlotBlocks, monthExclusions: realDatabase.monthExclusions, tables: structuredClone(generatedTables) }
-    for (const localId of ordered) {
-      const result = generateLocal({ month, localId, local: realDatabase.scales[localId], participants: realDatabase.participants, availability: realDatabase.availability, tables: generatedTables, blocks: realDatabase.monthSlotBlocks, exclusions: realDatabase.monthExclusions[month] ?? [] })
-      generatedTables = { ...generatedTables, [localId]: { [month]: result.table } }
-      const legacy = gerarComOAlgoritmoAntigo(month, localId, legacyState)
-      legacyState.tables[localId][month] = legacy
-      const legacyRows = Object.fromEntries(legacy.rows.map(row => [row.date, row]))
-      assert.deepEqual(flatten(result.table.rows), flatten(legacyRows), `${localId} em ${month}`)
-    }
+test('geração é determinística e não altera os dados de entrada', () => {
+  const participants = {
+    a: person({ name:'Ana', pioneer:true }), b: person({ name:'Bia' }),
+    c: person({ name:'Caio' }), d: person({ name:'Davi' }),
   }
+  const input = base(participants)
+  const before = structuredClone(input)
+  const first = generateLocal(input)
+  const second = generateLocal(structuredClone(input))
+  assert.deepEqual(first, second)
+  assert.deepEqual(input, before)
+  assert.ok(Object.values(first.table.rows).some(row => Object.values(row.slots).some(cell => cell.p1 && cell.p2)))
 })

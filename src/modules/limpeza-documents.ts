@@ -1,5 +1,6 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf-lib/cjs/index.js'
 import type { LimpezaPeriodoGerado, LimpezaSemanaGerada } from '../types'
+import { previewPdf } from '../ui/pdf-preview.ts'
 
 export interface CleaningPdfOptions {
   requestedFontSize: number
@@ -22,16 +23,6 @@ function formatCleaningDate(value: string): string {
 function monthLabel(value: string): string {
   const month = Number(value.slice(5, 7))
   return MONTHS[month - 1] ?? value
-}
-
-function download(bytes: Uint8Array, filename: string): void {
-  const copy = Uint8Array.from(bytes)
-  const url = URL.createObjectURL(new Blob([copy.buffer], { type: 'application/pdf' }))
-  const link = document.createElement('a')
-  link.href = url
-  link.download = filename
-  link.click()
-  setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
 function upper(value: string): string {
@@ -169,6 +160,8 @@ export async function createCleaningPdf(period: LimpezaPeriodoGerado, options: C
 
 export async function downloadCleaningPdf(period: LimpezaPeriodoGerado, options: CleaningPdfOptions): Promise<CleaningPdfResult> {
   const result = await createCleaningPdf(period, options)
-  download(result.bytes, `limpeza-${period.id}.pdf`)
+  const filename = `limpeza-${period.id}.pdf`
+  previewPdf(result.bytes, filename, 'Previa da escala de limpeza')
+  void import('./agenda-documents.ts').then(({ archiveAgendaPdf }) => archiveAgendaPdf(result.bytes, { modulo:'limpeza', periodo:period.inicio.slice(0, 7), nome:filename })).catch(() => undefined)
   return result
 }

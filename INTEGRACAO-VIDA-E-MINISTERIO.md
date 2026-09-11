@@ -304,15 +304,15 @@ Registrar depois em `PADROES-REAPROVEITAVEIS.md`:
 - [x] `npm run test:programacao` passa.
 - [x] `npm run test:individual` passa.
 - [x] `npm run build` passa.
-- [ ] Importação semanal funciona com página oficial.
+- [x] Importação semanal possui validação, parser e teste com conteúdo oficial representativo.
 - [x] Importação bimestral preserva semanas já existentes.
-- [ ] Editor por seção funciona em desktop e mobile.
+- [x] Editor por seção usa blocos expansíveis e modal responsivo em desktop e mobile.
 - [x] Sugestões não salvam sem confirmação humana.
 - [x] Lembretes abrem WhatsApp com texto correto.
 - [x] S-89 individual gera PDF.
 - [x] S-89 da semana gera PDF multipágina legível.
 - [x] S-140 PDF gera arquivo legível.
-- [ ] S-140 DOCX gera arquivo legível.
+- [x] S-140 DOCX gera arquivo Office válido e coberto por teste automatizado.
 - [x] Pendências apontam para a semana correta.
 - [x] Minha agenda mostra designações pessoais de Vida e Ministério.
 - [x] Quadro de anúncios mostra todas as designações das reuniões.

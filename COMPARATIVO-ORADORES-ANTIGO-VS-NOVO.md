@@ -3,6 +3,10 @@
 Este documento lista apenas o que existia no Oradores antigo funcional e nao
 esta presente, ou esta mais fraco, no Oradores atual do Admin SPA.
 
+**Status em 11/09/2026:** as fases 1 a 9 foram aplicadas. O comparativo abaixo
+fica como registro das decisoes; as lacunas descritas eram o estado anterior a
+esta implementacao.
+
 Decisao base: nao voltar com duas secoes. A antiga S1 fica fora; tudo que for
 reaproveitado deve ser adaptado para uma unica programacao.
 
@@ -303,16 +307,15 @@ Ja esta ok ou parcialmente recuperado:
 - Pendencias com resolver/ignorar/reativar e abertura basica do contexto.
 - PDF da programacao separado em locais/visitantes e saidas.
 
-Principais lacunas para fechar:
+Lacunas fechadas nesta implementacao:
 
-- Previa obrigatoria antes de qualquer PDF.
-- WhatsApp administrativo e registros de abertura, sem voltar com avisos
-  pessoais por reuniao dentro de Oradores.
-- Filtros por tipo/status na programacao.
-- Cards de programacao/intercambios mais ricos.
-- Visitante manual.
-- Temas filtraveis e PDF seguindo filtro.
-- Pendencias agrupadas com contagem e severidade textual.
+- previa obrigatoria em todos os PDFs ativos;
+- WhatsApp apenas nos fluxos administrativos permitidos, com registro de abertura;
+- filtros por tipo/status e cards operacionais na programacao;
+- visitante manual, cadastro unico e detalhe antes da edicao;
+- temas filtraveis e PDF seguindo o filtro visivel;
+- pendencias agrupadas, contadas e classificadas por severidade;
+- Emergencia e aprovados para saida como texto copiavel, sem PDF nem telefone.
 
 ## Programacao
 

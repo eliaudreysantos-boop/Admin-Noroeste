@@ -1,4 +1,4 @@
-const CACHE = 'noroeste-admin-v3'
+const CACHE = 'noroeste-admin-v4'
 const ASSETS = ['/', '/index.html'] // vite adiciona o resto no build
 
 self.addEventListener('install', e => {
@@ -15,6 +15,11 @@ self.addEventListener('activate', e => {
       ))
       .then(() => self.clients.claim()),
   )
+})
+
+self.addEventListener('message', e => {
+  if (e.data?.type !== 'REFRESH_SHELL') return
+  e.waitUntil(fetch('/index.html', { cache:'no-store' }).then(response => response.ok ? caches.open(CACHE).then(cache => cache.put('/index.html', response)) : undefined))
 })
 
 self.addEventListener('fetch', e => {

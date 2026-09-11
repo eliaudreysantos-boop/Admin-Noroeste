@@ -6,13 +6,15 @@ export interface Speaker {
   temaIds?: string[]; pessoaId?: string; congregacaoId?: string
   origemNome?: string; aprovadoParaSaida?: boolean; podePresidir?: boolean
   sentinelaDirigente?: boolean; sentinelaSubstituto?: boolean
+  ativo?: boolean
 }
 export interface Congregation {
   nome?: string; cidade?: string; tipo?: string; contato?: string; telefone?: string
   diaReuniao?: string; horario?: string; localizacao?: string; observacoes?: string
+  ativa?: boolean; datasLivresAvisadasEm?: string
 }
-export interface Theme { numero?: number; titulo?: string }
-export interface Confirmation { status?: boolean; confirmadoEm?: string }
+export interface Theme { numero?: number; titulo?: string; ativo?: boolean }
+export interface Confirmation { status?: boolean; confirmadoEm?: string; whatsappAbertoEm?: string }
 export interface Talk {
   data?: string; tipo?: string; status?: string; confirmacao?: Confirmation; reconfirmacao?: Confirmation
   oradorId?: string; oradorNome?: string
@@ -20,6 +22,7 @@ export interface Talk {
   congregacaoOrigemId?: string; congregacaoOrigemNome?: string
   congregacaoDestinoId?: string; congregacaoDestinoNome?: string
   localCongregacaoId?: string; localCongregacaoNome?: string; updatedAt?: string
+  horarioLocal?: string; intercambioAvisadoEm?: string
 }
 
 export function speakerName(speaker?: Speaker, fallback = ''): string {

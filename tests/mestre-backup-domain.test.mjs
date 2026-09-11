@@ -28,16 +28,16 @@ test('recusa dados sem raiz necessária e chaves incompatíveis com Firebase', (
   assert.match(validateFirebaseValue({ 'a/b': true }) ?? '', /chave inválida/)
 })
 
-test('recusa pessoas malformadas e contas pessoais inconsistentes', () => {
+test('recusa pessoas malformadas e tolera vínculos legados da Minha Agenda', () => {
   const base = {
     master: { pessoas: { m1: { name: 'Pessoa', whatsapp: '', active: true } } },
     usuarios: { admin: { nome: 'Admin', senha: 'x', ativo: true, apps: { mestre: true } } },
   }
   assert.equal(validateBackup({ ...base, master: { pessoas: { m1: { whatsapp: '', active: true } } } }).ok, false)
-  assert.equal(validateBackup({ ...base, usuarios: { ...base.usuarios, pessoa: { nome: 'Pessoa', senha: 'x', ativo: true, apps: { mestre: false, individual: true }, masterId: 'inexistente' } } }).ok, false)
+  assert.equal(validateBackup({ ...base, usuarios: { ...base.usuarios, pessoa: { nome: 'Pessoa', senha: 'x', ativo: true, apps: { mestre: false, individual: true }, masterId: 'inexistente' } } }).ok, true)
   assert.equal(validateBackup({ ...base, usuarios: {
     ...base.usuarios,
     pessoa1: { nome: 'Pessoa 1', senha: 'x', ativo: true, apps: { mestre: false, individual: true }, masterId: 'm1' },
     pessoa2: { nome: 'Pessoa 2', senha: 'x', ativo: true, apps: { mestre: false, individual: true }, masterId: 'm1' },
-  } }).ok, false)
+  } }).ok, true)
 })

@@ -2,7 +2,6 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { planEscalaIdMigration } from '../src/modules/escala-migration.ts'
 import { participantDirectoryForHistory } from '../src/modules/escala-domain.ts'
-import database from '../NAO FAZER COMMIT DESSA PASTA/oradoress2-default-rtdb-export (1).json' with { type: 'json' }
 
 test('une disponibilidade, preserva só participa com e remapeia histórico', () => {
   const plan = planEscalaIdMigration({
@@ -33,12 +32,21 @@ test('bloqueia aplicação quando regras específicas divergem', () => {
   assert.equal(plan.conflicts[0].field, 'capPerMonth')
 })
 
-test('export real gera prévia sem modificar a origem', () => {
-  const before = JSON.stringify(database.escala)
-  const plan = planEscalaIdMigration(database.escala)
-  assert.equal(JSON.stringify(database.escala), before)
-  assert.equal(plan.stats.legacyProfiles, 57)
-  assert.equal(plan.stats.duplicateProfilesMerged, 3)
+test('prévia representativa não modifica a origem', () => {
+  const escala = {
+    participants: {
+      legado1:{ masterId:'m_1', active:true }, legado2:{ masterId:'m_1', active:false },
+      legado3:{ masterId:'m_2', active:true },
+    },
+    availability:{ local:{ legado1:{ '4|08:00':true }, legado2:{ '4|10:00':true } } },
+    tables:{ local:{ '2026-09':{ rows:{ '2026-09-03':{ slots:{ '08:00':{ p1:'legado1', p2:'legado3' } } } } } } },
+    publishedSnapshots:{ '2026-08':{ participants:{ removido:{ name:'Nome histórico' } } } },
+  }
+  const before = JSON.stringify(escala)
+  const plan = planEscalaIdMigration(escala)
+  assert.equal(JSON.stringify(escala), before)
+  assert.equal(plan.stats.legacyProfiles, 3)
+  assert.equal(plan.stats.duplicateProfilesMerged, 1)
   assert.equal(plan.canApply, true)
   assert.deepEqual(plan.conflicts, [])
   assert.ok(plan.stats.tableReferencesRemapped > 0)
@@ -46,10 +54,15 @@ test('export real gera prévia sem modificar a origem', () => {
 })
 
 test('snapshot publicado resolve participantes removidos do cadastro atual', () => {
-  const plan = planEscalaIdMigration(database.escala)
+  const escala = {
+    participants:{ atual:{ masterId:'m_atual', active:true } },
+    tables:{ local:{ '2026-08':{ rows:{ '2026-08-06':{ slots:{ '08:00':{ p1:'removido', p2:'atual' } } } } } } },
+    publishedSnapshots:{ '2026-08':{ participants:{ removido:{ name:'Nome histórico' } } } },
+  }
+  const plan = planEscalaIdMigration(escala)
   const directory = participantDirectoryForHistory(
     plan.migrated.participants,
-    database.escala.publishedSnapshots,
+    escala.publishedSnapshots,
   )
   const missing = []
   for (const [localId, byMonth] of Object.entries(plan.migrated.tables ?? {})) {

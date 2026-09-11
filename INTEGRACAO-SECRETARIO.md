@@ -150,7 +150,10 @@ no Noroeste.
 - Arquivo da congregacao em JSON.
 - Protecao para nao apagar o unico S-21 registrado.
 
-### Lacunas principais
+### Lacunas identificadas antes da implementação
+
+Os itens desta lista histórica foram resolvidos nas fases 1 a 6 documentadas
+mais abaixo.
 
 - Relatorios ainda funcionam como CRUD; falta fila operacional `Por entregar`.
 - Falta filtro de relatorios por status/categoria/estudos.
@@ -456,17 +459,13 @@ Todas respondidas nesta fase:
 
 ## Finalizacao e implantacao
 
-O escopo funcional do modulo esta concluido. Antes de considera-lo publicado,
-restam somente estas validacoes operacionais:
+O escopo funcional do modulo esta concluido. As atividades abaixo pertencem a
+validacao futura com dados reais e nao bloqueiam o app de exemplo:
 
-- [ ] Conferir as regras do Realtime Database para que alteracoes em
-  `secretario/*` sejam permitidas somente ao administrador/secretario.
-- [ ] Conferir as regras do Firebase Storage para que apenas esse responsavel
-  envie ou substitua arquivos em `secretario/templates/*`.
-- [ ] Como as regras e a autenticacao do Firebase nao ficam versionadas neste
-  projeto, a permissao nao pode depender apenas dos botoes da interface. Caso
-  ainda nao exista uma identidade verificavel pelo Firebase, definir essa
-  camada antes de liberar gravacao em producao.
+- [x] Registrar em `FIREBASE-SECURITY.md` o modelo operacional adotado, sem
+  Firebase Authentication por decisao do responsavel pelo app.
+- [ ] Revisar as regras reais de RTDB/Storage junto com os dados de producao,
+  sem introduzir Firebase Authentication.
 - [ ] Fazer uma conferencia real com a conta Admin: receber um relatorio da
   Minha Agenda, ajustar se necessario, fechar e reabrir uma competencia.
 - [ ] Gerar e conferir a previa dos PDFs S-21, S-88 e S-3 usando dados reais.

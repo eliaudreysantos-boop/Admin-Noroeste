@@ -30,6 +30,11 @@ novo e:
 | PDFs por dados operacionais reais | Tarefas, Limpeza, Oradores, Vida e Ministerio, Secretario | Padronizar controles de periodo, fonte e preview quando possivel |
 | Quadro derivado sem tabela nova | Minha Agenda | Apps publicos e visoes de consulta que nao devem recalcular escalas |
 | Texto editavel antes do WhatsApp | Minha Agenda | Compartilhamento de Quadro e rascunhos pessoais; nao voltar aos modulos operacionais |
+| Publicacao como fronteira do adapter | Tarefas, Escala TPL | Rascunhos administrativos nao aparecem em Minha Agenda, Quadro ou ICS |
+| Registro de PDFs publicos | Limpeza, Oradores, Vida e Ministerio | Qualquer PDF destinado ao Quadro grava metadados e URL por periodo depois de abrir a previa |
+| Assinatura ICS por token revogavel | Minha Agenda, Quadro | Calendarios externos recebem atualizacoes sem expor `masterId` na URL |
+| Configuracao central de lembretes | Admin, Minha Agenda | Cada origem aplica zero, um ou dois `VALARM` sem alterar o evento original |
+| Inativacao preservando historico | Escala TPL, Oradores | Cadastros referenciados deixam de participar de novas geracoes sem quebrar periodos antigos |
 
 ## Vida e Ministerio
 
@@ -207,6 +212,34 @@ de fechar Minha Agenda, o Secretario precisa validar este contrato:
 | `validated destructive import` | Admin/Mestre | So libera restauracao depois de validar estrutura, vinculos e invariantes administrativas |
 | `sanitized integrity report` | Admin/Mestre | Exporta falhas com severidade, acao e caminho exato sem expor senha ou contato pessoal |
 | `two-level module navigation` | Admin/Mestre | Separa voltar dentro do modulo de retornar ao indice global de aplicativos |
+| `published public document registry` | Minha Agenda | Lista PDFs por modulo e periodo sem acoplar o Quadro aos geradores |
+| `revocable calendar feed` | Minha Agenda | Separa download pontual de assinatura atualizavel e permite invalidar links antigos |
+| `offline-first sanitized snapshot` | Minha Agenda | Apps publicos podem abrir o ultimo estado sem guardar senhas, telefones ou dados de terceiros |
+| `weekly shell refresh` | Admin, Minha Agenda | PWAs verificam uma nova versao hospedada sem transformar Netlify em banco de dados |
+| `publication gate` | Tarefas/Escala TPL | Impede que rascunhos vazem para adapters publicos sem duplicar dados |
+
+## Contratos consolidados no fechamento
+
+### Documento publico
+
+O modulo gera bytes, abre a previa obrigatoria e, quando o documento e proprio
+para o Quadro, grava em `agenda/documentos` apenas `id`, modulo, periodo, nome,
+URL e data de criacao. Documentos administrativos do Secretario nao entram
+nesse registro.
+
+### Feed de calendario
+
+`agenda/assinaturas/{token}` define assinatura pessoal ou do Quadro. O token e
+aleatorio, pode ser revogado e substitui qualquer identificador pessoal na URL.
+O endpoint aplica janela de dois meses anteriores e doze meses futuros, filtra
+somente dados publicados e usa os lembretes de `agenda/config/icsReminders`.
+
+### Publicacao
+
+Quando um modulo possui rascunho, seu adapter publico precisa de uma marca
+explicita de publicacao. Tarefas usa o periodo bloqueado/publicado; Escala TPL
+usa `publishedMonths` e snapshots. Reabrir ou despublicar remove o periodo das
+visoes publicas sem apagar o trabalho administrativo.
 
 ## Tarefas
 
@@ -303,8 +336,9 @@ de fechar Minha Agenda, o Secretario precisa validar este contrato:
 
 - Todos os modulos devem consultar o Admin para nome, ID, telefone, sexo,
   privilegio e status central.
-- Minha Agenda deve usar o `masterId` do usuario quando existir, com select por
-  ID/nome como fallback.
+- Minha Agenda e um app proprio em `/agenda/`: usa select por nome/ID e guarda
+  apenas o `masterId` escolhido no dispositivo. Nao depende de permissao ou
+  conta criada em `usuarios`.
 - Quadro deve ler `agenda/config/quadroWhatsAppLink` como fonte principal.
 - Os adapters publicos devem ser verificados pela aba de vinculos antes de
   publicar dados para publicadores.
@@ -343,6 +377,17 @@ Este passa a ser um padrao obrigatorio para todos os documentos do sistema:
 
 Aplicacao obrigatoria: Tarefas, Limpeza, Oradores, Vida e Ministerio, Secretario,
 Escala TPL e futuros documentos da Minha Agenda quando existirem.
+
+### PWA e sincronizacao
+
+- Minha Agenda e offline-first: abre o snapshot sanitizado da pessoa e verifica
+  o Firebase a cada 24 horas ao abrir, retomar ou recuperar conexao.
+- Modulos administrativos sao online-first e continuam usando o Firebase como
+  fonte imediata.
+- Ambos verificam o shell publicado no Netlify a cada sete dias pelo service
+  worker. Netlify nao recebe uma copia semanal dos dados do Firebase.
+- O navegador pode suspender um app fechado; os ciclos sao garantidos na
+  proxima abertura/retomada, nao em horario exato com o app encerrado.
 
 ## Ordem recomendada a partir daqui
 

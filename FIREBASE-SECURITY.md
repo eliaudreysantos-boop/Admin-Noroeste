@@ -24,9 +24,10 @@ ativos são obrigatórios antes de liberar o app a alguém.
 ## Controles operacionais obrigatórios
 
 - Apenas o Admin cria, altera, desativa ou remove usuários.
-- Cada conta de Minha Agenda fica vinculada a uma única pessoa por `masterId`.
-- Ao remover acesso pessoal, desmarcar Minha Agenda ou desativar o usuário no
-  Admin; nunca reaproveitar uma conta sem revisar a pessoa vinculada.
+- Minha Agenda nao possui conta administrativa: a pessoa escolhe o proprio
+  nome no app separado e o dispositivo guarda apenas o `masterId` escolhido.
+- Para retirar uma pessoa do app, o Admin a desativa no cadastro central; na
+  proxima sincronizacao ela deixa de ser uma identidade selecionavel.
 - Rever a aba Vínculos antes de alterações em massa ou restauração de backup.
 - Backup e restauração permanecem exclusivos do Admin.
 

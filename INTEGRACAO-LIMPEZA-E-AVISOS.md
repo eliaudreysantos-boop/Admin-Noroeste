@@ -353,13 +353,17 @@ Essa decisao vale para Limpeza, Tarefas e Oradores. Vida e Ministerio ja foi con
 
 #### Checklist
 
-- [ ] Atualizar `Limpeza.md`.
-- [ ] Atualizar `Minha-agenda.md`.
-- [ ] Atualizar `Tarefas.md`.
-- [ ] Atualizar `Oradores.md`.
-- [ ] Registrar padroes reaproveitaveis em `PADROES-REAPROVEITAVEIS.md`.
-- [ ] Rodar testes dos modulos afetados.
-- [ ] Rodar build completo.
+- [x] Consolidar a decisao de Limpeza neste documento versionado.
+- [x] Atualizar `INTEGRACAO-MINHA-AGENDA.md`.
+- [x] Atualizar o comparativo versionado de Tarefas.
+- [x] Atualizar o comparativo versionado de Oradores.
+- [x] Registrar padroes reaproveitaveis em `PADROES-REAPROVEITAVEIS.md`.
+- [x] Rodar testes dos modulos afetados.
+- [x] Rodar build completo.
+
+Status final em 11/09/2026: Limpeza ficou sem textos e aprovacoes, gera PDF
+com previa obrigatoria, publica o arquivo para o Quadro e alimenta a agenda sem
+recalcular a escala.
 
 ## Riscos
 

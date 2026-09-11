@@ -10,10 +10,9 @@ import {
   type EscalaLocal, type EscalaParticipant, type EscalaPublishedSnapshot, type EscalaTable, type EscalaTables,
 } from './escala-domain'
 import {
-  assignmentsForDay, assignmentsForPerson, confirmationMessage, dayLabel, dayMessage,
-  monthLabel, personMessage,
+  confirmationMessage, dayLabel, monthLabel,
 } from './escala-output'
-import { printScaleSchedule } from './escala-documents'
+import { prepareScalePrint, printPreparedScale } from './escala-documents'
 
 type Tab = 'indice' | 'locais' | 'participantes' | 'disponibilidade' | 'escalaAtual' | 'mensagens' | 'pendencias' | 'config'
 type Participants = Record<string, EscalaParticipant>
@@ -24,6 +23,7 @@ interface Data {
   participants?: Participants; scales?: Locals; availability?: EscalaAvailability
   tables?: EscalaTables; monthSlotBlocks?: EscalaBlocks; monthExclusions?: Record<string, string[]>
   settings?: Settings; greetings?: Greetings; publishedMonth?: string; editingMonth?: string
+  publishedMonths?: Record<string, boolean>
   publishedSnapshots?: Record<string, EscalaPublishedSnapshot>
   notified?: Record<string, Record<string, string>>
 }
@@ -34,7 +34,7 @@ let historicalSnapshots: Record<string, EscalaPublishedSnapshot> = {}
 let availability: EscalaAvailability = {}, tables: EscalaTables = {}, blocks: EscalaBlocks = {}
 let exclusions: Record<string, string[]> = {}, settings: Settings = {}, greetings: Greetings = {}
 let publishedMonth = '', selectedMonth = monthNow(), selectedLocalId = '', selectedParticipantId = ''
-let notified: Record<string, Record<string, string>> = {}
+let publishedMonths: Record<string, boolean> = {}
 let tab: Tab = 'indice'
 let pendingParticipantId = ''
 
@@ -42,7 +42,7 @@ const ESCALA_MONTH_KEY = 'noroeste:escala:month'
 const ESCALA_LOCAL_KEY = 'noroeste:escala:local'
 
 const root = () => document.getElementById('escalaContent')!
-const orderedLocals = () => Object.entries(locals).sort((a, b) => Number(a[1].sortOrder ?? 0) - Number(b[1].sortOrder ?? 0))
+const orderedLocals = (includeInactive = false) => Object.entries(locals).filter(([, local]) => includeInactive || local.active !== false).sort((a, b) => Number(a[1].sortOrder ?? 0) - Number(b[1].sortOrder ?? 0))
 const orderedPeople = (active = false) => Object.entries(participants).filter(([, p]) => !active || p.active !== false).sort((a, b) => name(a[0]).localeCompare(name(b[0]), 'pt-BR'))
 const centralId = (id: string) => participants[id]?.masterId ?? (pessoas[id] ? id : '')
 const participantDirectory = () => participantDirectoryForHistory(participants, historicalSnapshots)
@@ -80,7 +80,7 @@ async function load(): Promise<void> {
     locals = data.scales ?? {}; availability = data.availability ?? {}
     tables = data.tables ?? {}; blocks = data.monthSlotBlocks ?? {}; exclusions = data.monthExclusions ?? {}
     settings = data.settings ?? {}; greetings = data.greetings ?? {}; publishedMonth = data.publishedMonth ?? ''
-    notified = data.notified ?? {}
+    publishedMonths = data.publishedMonths ?? {}
     const savedMonth = localStorage.getItem(ESCALA_MONTH_KEY) ?? data.editingMonth
     selectedMonth = /^\d{4}-\d{2}$/.test(savedMonth ?? '') ? savedMonth! : monthNow()
     pessoas = peopleSnap.exists() ? peopleSnap.val() as RawPessoas : {}
@@ -115,9 +115,9 @@ function renderIndex(): void {
     { id: 'participantes', titulo: 'Participantes', subtitulo: 'Cadastro e regras de participação', icone: '♙', corFundo: '#1A6B3C' },
     { id: 'disponibilidade', titulo: 'Disponibilidade', subtitulo: 'Dias, locais e horários disponíveis', icone: '◫', corFundo: '#006EB6' },
     { id: 'locais', titulo: 'Locais', subtitulo: 'Pontos de carrinho, dias e horários', icone: '⌖', corFundo: '#8A5B00' },
-    { id: 'mensagens', titulo: 'Mensagens', subtitulo: 'Pessoa, dia e confirmação', icone: '✉', corFundo: '#7E3AF2' },
+    { id: 'mensagens', titulo: 'Confirmar disponibilidade', subtitulo: 'Rascunho administrativo por participante', icone: '✉', corFundo: '#7E3AF2' },
     { id: 'pendencias', titulo: 'Pendências', subtitulo: 'Conflitos e dados que precisam de atenção', icone: '!', corFundo: '#B3261E' },
-    { id: 'config', titulo: 'Configuração', subtitulo: 'Textos, WhatsApp e impressão', icone: '⚙', corFundo: '#5C6062' },
+    { id: 'config', titulo: 'Configuração', subtitulo: 'Disponibilidade, exceções e impressão', icone: '⚙', corFundo: '#5C6062' },
   ]
   renderMenuCards(root().querySelector<HTMLElement>('#escalaMenu')!, items, id => go(id as Tab))
 }
@@ -136,10 +136,10 @@ function bindPeriod(rerender: () => void): void {
 const DOW_LABELS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
 
 function renderLocais(): void {
-  root().innerHTML = `<div style="display:flex;gap:8px;margin-bottom:12px"><span style="flex:1"></span>${isAdmin() ? '<button id="lNew" class="btn btn-primary" type="button">Novo local</button>' : ''}</div><div id="lList" class="module-option-list">${orderedLocals().map(([id, l]) => {
+  root().innerHTML = `<div style="display:flex;gap:8px;margin-bottom:12px"><span style="flex:1"></span>${isAdmin() ? '<button id="lNew" class="btn btn-primary" type="button">Novo local</button>' : ''}</div><div id="lList" class="module-option-list">${orderedLocals(true).map(([id, l]) => {
     const dias = (l.daysActive ?? []).map(d => DOW_LABELS[d]).join(', ') || 'nenhum dia ativo'
     const horarios = localSlots(l)
-    return `<button class="module-menu-btn" type="button" data-local="${esc(id)}"><div class="mod-icon" style="background:#8A5B0020;color:#8A5B00">⌖</div><div><div class="mod-label">${esc(l.name ?? id)}</div><div class="mod-desc">${esc(dias)} · ${horarios.length} horário(s)/dia</div></div></button>`
+    return `<button class="module-menu-btn" type="button" data-local="${esc(id)}"><div class="mod-icon" style="background:#8A5B0020;color:#8A5B00">⌖</div><div><div class="mod-label">${esc(l.name ?? id)}${l.active === false ? ' · Inativo' : ''}</div><div class="mod-desc">${esc(dias)} · ${horarios.length} horário(s)/dia</div></div></button>`
   }).join('') || '<p class="empty-state">Nenhum local cadastrado ainda.</p>'}</div>`
   document.querySelectorAll<HTMLButtonElement>('[data-local]').forEach(button => button.addEventListener('click', () => { if (!isAdmin()) { toast('Somente o Admin pode editar locais'); return } localModal(button.dataset['local']!) }))
   document.getElementById('lNew')?.addEventListener('click', () => localModal(''))
@@ -147,7 +147,7 @@ function renderLocais(): void {
 function localModal(id: string): void {
   const l = locals[id] ?? {}
   const overlay = document.createElement('div'); overlay.className = 'modal-overlay'
-  overlay.innerHTML = `<div class="modal"><h2>${id ? 'Editar local' : 'Novo local'}</h2><div class="form-group"><label class="form-label">Nome</label><input id="lmName" class="form-input" value="${esc(l.name ?? '')}"></div><div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">${DOW_LABELS.map((label, dow) => `<label><input type="checkbox" data-lmday="${dow}" ${(l.daysActive ?? []).includes(dow) ? 'checked' : ''}> ${label}</label>`).join('')}</div><div class="module-form-grid"><div class="form-group"><label class="form-label">Início</label><input id="lmStart" class="form-input" type="time" value="${esc(l.startTime ?? l.start ?? '08:00')}"></div><div class="form-group"><label class="form-label">Fim</label><input id="lmEnd" class="form-input" type="time" value="${esc(l.endTime ?? l.end ?? '18:00')}"></div><div class="form-group"><label class="form-label">Intervalo (min)</label><input id="lmStep" class="form-input" type="number" min="15" step="15" value="${Number(l.stepMinutes ?? l.intervalMin ?? 120)}"></div><div class="form-group"><label class="form-label">Ordem de exibição</label><input id="lmOrder" class="form-input" type="number" value="${Number(l.sortOrder ?? Object.keys(locals).length)}"></div></div><p class="form-help">Pré-visualização dos horários:</p><p id="lmPreview" class="form-help" style="font-weight:600"></p><div style="display:flex;gap:8px">${id ? '<button id="lmDelete" class="btn btn-danger" type="button">Apagar local</button>' : ''}<span style="flex:1"></span><button id="lmCancel" class="btn btn-ghost">Cancelar</button><button id="lmSave" class="btn btn-primary">Salvar</button></div></div>`
+  overlay.innerHTML = `<div class="modal"><h2>${id ? 'Editar local' : 'Novo local'}</h2><div class="form-group"><label class="form-label">Nome</label><input id="lmName" class="form-input" value="${esc(l.name ?? '')}"></div><label style="display:flex;gap:8px;margin-bottom:12px"><input id="lmActive" type="checkbox" ${l.active !== false ? 'checked' : ''}> Local ativo</label><div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">${DOW_LABELS.map((label, dow) => `<label><input type="checkbox" data-lmday="${dow}" ${(l.daysActive ?? []).includes(dow) ? 'checked' : ''}> ${label}</label>`).join('')}</div><div class="module-form-grid"><div class="form-group"><label class="form-label">Início</label><input id="lmStart" class="form-input" type="time" value="${esc(l.startTime ?? l.start ?? '08:00')}"></div><div class="form-group"><label class="form-label">Fim</label><input id="lmEnd" class="form-input" type="time" value="${esc(l.endTime ?? l.end ?? '18:00')}"></div><div class="form-group"><label class="form-label">Intervalo (min)</label><input id="lmStep" class="form-input" type="number" min="15" step="15" value="${Number(l.stepMinutes ?? l.intervalMin ?? 120)}"></div><div class="form-group"><label class="form-label">Ordem de exibição</label><input id="lmOrder" class="form-input" type="number" value="${Number(l.sortOrder ?? Object.keys(locals).length)}"></div></div><p class="form-help">Pré-visualização dos horários:</p><p id="lmPreview" class="form-help" style="font-weight:600"></p><div style="display:flex;gap:8px">${id ? '<button id="lmDelete" class="btn btn-danger" type="button">Remover local</button>' : ''}<span style="flex:1"></span><button id="lmCancel" class="btn btn-ghost">Cancelar</button><button id="lmSave" class="btn btn-primary">Salvar</button></div></div>`
   document.body.appendChild(overlay)
   const preview = () => {
     const start = (document.getElementById('lmStart') as HTMLInputElement).value, end = (document.getElementById('lmEnd') as HTMLInputElement).value, step = Number((document.getElementById('lmStep') as HTMLInputElement).value) || 120
@@ -173,12 +173,19 @@ async function saveLocal(id: string, overlay: HTMLElement): Promise<void> {
     name: nome, daysActive,
     startTime, endTime, stepMinutes,
     sortOrder: Number((document.getElementById('lmOrder') as HTMLInputElement).value) || 0,
+    active: (document.getElementById('lmActive') as HTMLInputElement).checked,
   }
   const target = id || `loc_${Date.now()}`
   try { await update(child(escalaRef, `scales/${target}`), local); locals[target] = local; overlay.remove(); toast('Local salvo'); renderLocais() } catch { toast('Não foi possível salvar o local') }
 }
 async function deleteLocal(id: string, overlay: HTMLElement): Promise<void> {
-  if (!confirm(`Apagar "${locals[id]?.name ?? id}"? Isso apaga também escalas, disponibilidade, bloqueios e edições manuais deste local. Esta ação não pode ser desfeita.`)) return
+  const used = Boolean(tables[id] && Object.keys(tables[id]).length)
+  if (used) {
+    if (!confirm(`Este local possui histórico. Inativar "${locals[id]?.name ?? id}" sem apagar as escalas?`)) return
+    try { await update(escalaRef, { [`scales/${id}/active`]: false }); locals[id]!.active = false; overlay.remove(); toast('Local inativado; histórico preservado'); renderLocais() } catch { toast('Não foi possível inativar o local') }
+    return
+  }
+  if (!confirm(`Remover "${locals[id]?.name ?? id}"? O local ainda não possui escala registrada.`)) return
   try {
     const patch: Record<string, unknown> = { [`scales/${id}`]: null, [`tables/${id}`]: null, [`availability/${id}`]: null, [`manualEdits/${id}`]: null }
     Object.keys(blocks).forEach(scope => { patch[`monthSlotBlocks/${scope}/${id}`] = null })
@@ -358,12 +365,12 @@ async function savePair(date: string, time: string, overlay: HTMLElement): Promi
 }
 async function publish(): Promise<void> {
   if (!hasData(selectedMonth)) { toast('Gere e revise a escala antes de publicar'); return }
-  const snapshot = { publicadoEm: now(), nomes: Object.fromEntries(Object.keys(participants).map(id => [id, name(id)])), locais: Object.fromEntries(orderedLocals().map(([id, local]) => [id, local.name ?? id])) }
-  try { await update(escalaRef, { publishedMonth: selectedMonth, [`publishedSnapshots/${selectedMonth}`]: snapshot }); publishedMonth = selectedMonth; toast('Mês publicado e bloqueado'); renderScale() } catch { toast('Não foi possível publicar') }
+  const snapshot = { publicadoEm: now(), participants: Object.fromEntries(Object.keys(participants).map(id => [id, { name:name(id), masterId:centralId(id) || undefined, active:participants[id]?.active !== false }])), nomes: Object.fromEntries(Object.keys(participants).map(id => [id, name(id)])), locais: Object.fromEntries(orderedLocals().map(([id, local]) => [id, local.name ?? id])) }
+  try { await update(escalaRef, { publishedMonth: selectedMonth, [`publishedMonths/${selectedMonth}`]: true, [`publishedSnapshots/${selectedMonth}`]: snapshot }); publishedMonth = selectedMonth; publishedMonths[selectedMonth] = true; toast('Mês publicado e bloqueado'); renderScale() } catch { toast('Não foi possível publicar') }
 }
 async function unpublish(): Promise<void> {
   if (!confirm(`Despublicar ${monthLabel(selectedMonth)}?`)) return
-  try { await update(escalaRef, { publishedMonth: '' }); publishedMonth = ''; toast('Mês aberto para edição'); renderScale() } catch { toast('Não foi possível despublicar') }
+  try { await update(escalaRef, { publishedMonth: '', [`publishedMonths/${selectedMonth}`]: null }); publishedMonth = ''; delete publishedMonths[selectedMonth]; toast('Mês aberto para edição'); renderScale() } catch { toast('Não foi possível despublicar') }
 }
 
 async function deleteMonth(): Promise<void> {
@@ -382,49 +389,23 @@ async function deleteMonth(): Promise<void> {
 }
 
 function renderMessages(): void {
-  const directory = participantDirectory()
-  const assignedPeople = orderedPeople(true).map(([id]) => ({ id, count: assignmentsForPerson(id, selectedMonth, tables, locals, directory).length }))
-    .filter(item => item.count > 0)
-    .sort((a, b) => Number(Boolean(notified[a.id]?.[selectedMonth])) - Number(Boolean(notified[b.id]?.[selectedMonth])) || name(a.id).localeCompare(name(b.id), 'pt-BR'))
-  const today = new Date().toISOString().slice(0, 10)
-  const tomorrow = new Date(new Date(`${today}T12:00:00`).getTime() + 86_400_000).toISOString().slice(0, 10)
-  const dates = [today, tomorrow].filter(date => assignmentsForDay(date, selectedMonth, tables, locals, directory).length > 0)
   const confirmationPeople = orderedPeople(true).map(([id, person]) => ({ id, person, updated: person.availabilityUpdatedAt ? new Date(person.availabilityUpdatedAt).getTime() : 0 }))
     .sort((a, b) => a.updated - b.updated || name(a.id).localeCompare(name(b.id), 'pt-BR'))
-  root().innerHTML = `${periodControls(false)}<div class="module-form-grid"><div class="form-group"><label class="form-label">Tipo</label><select id="mType" class="form-select"><option value="person">Mensagem para pessoa</option><option value="day">Mensagem do dia</option><option value="confirm">Confirmar disponibilidade</option></select></div><div class="form-group" id="mTargetWrap"></div></div><div class="form-group"><label class="form-label">Texto</label><textarea id="mText" class="form-input" rows="12"></textarea></div><div id="mConfirmAction"></div><div class="scale-actions"><button id="mCopy" class="btn btn-ghost">Copiar</button><button id="mWhats" class="btn btn-primary">Abrir WhatsApp</button><button id="mGroup" class="btn btn-ghost" ${settings.groupWhatsAppLink ? '' : 'disabled'}>Abrir grupo</button></div>`
+  root().innerHTML = `${periodControls(false)}<div class="notice">Avisos de designação ficam no Quadro de Anúncios. Aqui permanece somente a confirmação administrativa de disponibilidade.</div><div class="form-group"><label class="form-label">Pessoa</label><select id="mTarget" class="form-select">${confirmationPeople.map(({ id, person }) => `<option value="${esc(id)}">${esc(name(id))} · ${person.availabilityUpdatedAt ? `revisada em ${esc(String(person.availabilityUpdatedAt).slice(0, 10))}` : 'nunca revisada'}</option>`).join('')}</select></div><div class="form-group"><label class="form-label">Texto</label><textarea id="mText" class="form-input" rows="10"></textarea></div><div class="scale-actions"><button id="mConfirmDone" class="btn btn-ghost" type="button">Respondeu que está certo</button><button id="mCopy" class="btn btn-ghost">Copiar</button><button id="mWhats" class="btn btn-primary">Abrir WhatsApp</button></div>`
   bindPeriod(renderMessages)
-  const type = document.getElementById('mType') as HTMLSelectElement
-  const targets = () => {
-    const wrap = document.getElementById('mTargetWrap')!
-    const confirmAction = document.getElementById('mConfirmAction')!
-    confirmAction.innerHTML = ''
-    if (type.value === 'day') {
-      wrap.innerHTML = dates.length ? `<label class="form-label">Dia</label><select id="mTarget" class="form-select">${dates.map(date => `<option value="${date}">${esc(dayLabel(date))}</option>`).join('')}</select>` : '<p class="form-help">Hoje e amanhã não têm duplas marcadas.</p>'
-    } else if (type.value === 'confirm') {
-      wrap.innerHTML = `<label class="form-label">Pessoa</label><select id="mTarget" class="form-select">${confirmationPeople.map(({ id, person }) => `<option value="${esc(id)}">${esc(name(id))} · ${person.availabilityUpdatedAt ? `revisada em ${esc(String(person.availabilityUpdatedAt).slice(0, 10))}` : 'nunca revisada'}</option>`).join('')}</select>`
-      confirmAction.innerHTML = '<button id="mConfirmDone" class="btn btn-ghost" type="button">Respondeu que está certo</button>'
-      document.getElementById('mConfirmDone')!.addEventListener('click', () => void confirmAvailability((document.getElementById('mTarget') as HTMLSelectElement).value))
-    } else {
-      wrap.innerHTML = assignedPeople.length ? `<label class="form-label">Pessoa</label><select id="mTarget" class="form-select">${assignedPeople.map(({ id, count }) => `<option value="${esc(id)}">${notified[id]?.[selectedMonth] ? 'Avisado · ' : ''}${esc(name(id))} · ${count} horário(s)</option>`).join('')}</select>` : '<p class="form-help">Ninguém está escalado neste período.</p>'
-    }
-    const target = document.getElementById('mTarget') as HTMLSelectElement | null
-    const hasTarget = Boolean(target)
-    ;(document.getElementById('mCopy') as HTMLButtonElement).disabled = !hasTarget
-    ;(document.getElementById('mWhats') as HTMLButtonElement).disabled = !hasTarget || type.value === 'day'
-    ;(document.getElementById('mGroup') as HTMLButtonElement).disabled = !hasTarget || !settings.groupWhatsAppLink
-    if (!target) { (document.getElementById('mText') as HTMLTextAreaElement).value = ''; return }
-    target.addEventListener('change', fillMessage)
-    fillMessage()
-  }
-  type.addEventListener('change', targets); targets()
+  const target = document.getElementById('mTarget') as HTMLSelectElement
+  const enabled = confirmationPeople.length > 0
+  ;(document.getElementById('mCopy') as HTMLButtonElement).disabled = !enabled
+  ;(document.getElementById('mWhats') as HTMLButtonElement).disabled = !enabled
+  ;(document.getElementById('mConfirmDone') as HTMLButtonElement).disabled = !enabled
+  target.addEventListener('change', fillMessage); fillMessage()
+  document.getElementById('mConfirmDone')!.addEventListener('click', () => void confirmAvailability(target.value))
   document.getElementById('mCopy')!.addEventListener('click', () => void copyMessage())
   document.getElementById('mWhats')!.addEventListener('click', () => void openWhatsApp())
-  document.getElementById('mGroup')!.addEventListener('click', () => { void copyMessage(); window.open(settings.groupWhatsAppLink, '_blank', 'noopener') })
 }
 function fillMessage(): void {
-  const type = (document.getElementById('mType') as HTMLSelectElement).value, target = (document.getElementById('mTarget') as HTMLSelectElement)?.value ?? ''
-  const directory = participantDirectory()
-  const text = type === 'day' ? dayMessage(greetings.date ?? '', target, assignmentsForDay(target, selectedMonth, tables, locals, directory)) : type === 'confirm' ? confirmationMessage(greetings.confirm ?? '', target, participants[target], locals, availability) : personMessage(greetings.participant ?? '', participants[target], selectedMonth, assignmentsForPerson(target, selectedMonth, tables, locals, directory))
+  const target = (document.getElementById('mTarget') as HTMLSelectElement)?.value ?? ''
+  const text = target ? confirmationMessage(greetings.confirm ?? '', target, participants[target], locals, availability) : ''
   ;(document.getElementById('mText') as HTMLTextAreaElement).value = text
 }
 async function copyMessage(): Promise<void> {
@@ -432,18 +413,11 @@ async function copyMessage(): Promise<void> {
 }
 function digits(value: unknown): string { const result = String(value ?? '').replace(/\D/g, ''); return result.length === 11 ? `55${result}` : result }
 async function openWhatsApp(): Promise<void> {
-  const type = (document.getElementById('mType') as HTMLSelectElement).value, target = (document.getElementById('mTarget') as HTMLSelectElement)?.value ?? ''
-  const phone = type === 'day' ? '' : digits(phoneOf(target))
+  const target = (document.getElementById('mTarget') as HTMLSelectElement)?.value ?? ''
+  const phone = digits(phoneOf(target))
   if (!phone) { toast('Este destino não tem WhatsApp cadastrado'); return }
   const popup = window.open(`https://wa.me/${phone}?text=${encodeURIComponent((document.getElementById('mText') as HTMLTextAreaElement).value)}`, '_blank', 'noopener')
-  if (!popup || type !== 'person') return
-  const stamp = now()
-  try {
-    await update(escalaRef, { [`notified/${target}/${selectedMonth}`]: stamp })
-    notified[target] ??= {}; notified[target][selectedMonth] = stamp
-    toast('WhatsApp aberto e aviso registrado')
-    renderMessages()
-  } catch { toast('WhatsApp aberto, mas não foi possível registrar o aviso') }
+  if (popup) toast('WhatsApp aberto para revisão')
 }
 
 function renderPending(): void {
@@ -462,7 +436,10 @@ function renderPending(): void {
     const halves = Object.values(table?.rows ?? {}).flatMap(row => Object.values(row.slots ?? {}).filter(cell => Boolean(cell.p1) !== Boolean(cell.p2)))
     if (halves.length) pending.push({ level: 'high', title: `${local.name ?? localId} tem ${halves.length} dupla(s) incompleta(s)`, detail: 'Abra a escala e complete ou deixe o horário vago.', target: 'escalaAtual', localId })
   }
-  root().innerHTML = `${periodControls(false)}<div class="module-option-list">${pending.map(item => `<button class="module-menu-btn" data-pending="${item.target}"><div class="mod-icon" style="background:${item.level === 'high' ? '#B3261E20' : '#C8922A20'};color:${item.level === 'high' ? '#B3261E' : '#8A5B00'}">!</div><div><div class="mod-label">${esc(item.title)}</div><div class="mod-desc">${esc(item.detail)}</div></div></button>`).join('') || '<p class="empty-state">Nenhuma pendência identificada.</p>'}</div>`
+  const counts = { high:pending.filter(item => item.level === 'high').length, medium:pending.filter(item => item.level === 'medium').length, low:pending.filter(item => item.level === 'low').length }
+  const labels: Record<string, string> = { high:'Urgente', medium:'Atenção', low:'Quando puder' }
+  const colors: Record<string, string> = { high:'#B3261E', medium:'#8A5B00', low:'#006EB6' }
+  root().innerHTML = `${periodControls(false)}${pending.length ? `<div class="pending-summary"><span style="background:${colors.high}">Urgentes: ${counts.high}</span><span style="background:${colors.medium}">Atenção: ${counts.medium}</span><span style="background:${colors.low}">Quando puder: ${counts.low}</span></div>` : ''}<div class="module-option-list">${pending.map(item => `<button class="module-menu-btn" data-pending="${item.target}" style="border-left:4px solid ${colors[item.level]}"><div class="mod-icon" style="background:${colors[item.level]}20;color:${colors[item.level]}">!</div><div><div class="mod-label">${esc(item.title)} · ${labels[item.level]}</div><div class="mod-desc">${esc(item.detail)}</div></div></button>`).join('') || '<p class="empty-state">Nenhuma pendência identificada.</p>'}</div>`
   bindPeriod(renderPending); document.querySelectorAll<HTMLButtonElement>('[data-pending]').forEach((button, index) => button.addEventListener('click', () => {
     const item = pending[index]; if (!item) return
     pendingParticipantId = item.personId ?? ''
@@ -476,7 +453,7 @@ function renderConfig(): void {
   const font = Math.min(18, Math.max(8, Number(settings.printFontPt ?? 12)))
   const hasLocals = orderedLocals().length > 0
   const scope = '__persist__'
-  root().innerHTML = `${periodControls()}<div class="form-group"><label class="form-label">Link do grupo do WhatsApp</label><input id="cGroup" class="form-input" value="${esc(settings.groupWhatsAppLink ?? '')}"></div><div class="form-group"><label class="form-label">Tamanho máximo no PDF: <strong id="cFontValue">${font}pt</strong></label><input id="cFont" type="range" min="8" max="18" value="${font}" style="width:100%"><p class="form-help">O app reduz a partir deste teto até encontrar a maior letra que caiba sem quebrar nomes.</p></div><div class="form-group"><label class="form-label">Mensagem para pessoa</label><textarea id="cPerson" class="form-input">${esc(greetings.participant ?? '')}</textarea></div><div class="form-group"><label class="form-label">Mensagem do dia</label><textarea id="cDay" class="form-input">${esc(greetings.date ?? '')}</textarea></div><div class="form-group"><label class="form-label">Confirmação de disponibilidade</label><textarea id="cConfirm" class="form-input">${esc(greetings.confirm ?? '')}</textarea></div><button id="cSave" class="btn btn-primary">Salvar textos e impressão</button><hr style="border:0;border-top:1px solid var(--border);margin:18px 0"><h3 style="font-size:.9rem;margin-bottom:8px">Exceções de ${esc(monthLabel(selectedMonth))}</h3><div style="display:flex;gap:8px;margin-bottom:8px"><input id="cExclusion" class="form-input" type="date" min="${selectedMonth}-01" max="${selectedMonth}-31"><button id="cAddExclusion" class="btn btn-ghost">Adicionar</button></div><div class="module-option-list">${(exclusions[selectedMonth] ?? []).map(date => `<div class="module-menu-btn" style="cursor:default"><div><div class="mod-label">${esc(dayLabel(date))}</div><div class="mod-desc">Sem carrinho em todos os locais</div></div><button class="btn btn-danger" data-remove-exclusion="${date}">Remover</button></div>`).join('') || '<p class="empty-state">Nenhuma data excluída neste mês.</p>'}</div>${hasLocals ? `<hr style="border:0;border-top:1px solid var(--border);margin:18px 0"><div class="module-form-grid" style="margin-bottom:8px"><div class="form-group"><label class="form-label">Bloqueios</label><select id="cBlockScope" class="form-select"><option value="__persist__">Todos os meses</option><option value="${selectedMonth}">Somente este mês</option></select></div><div class="form-group"><label class="form-label">Vale para</label><select id="cBlockTarget" class="form-select"><option value="__all__">Todos os locais</option>${orderedLocals().map(([id, local]) => `<option value="${esc(id)}" ${id === selectedLocalId ? 'selected' : ''}>${esc(local.name ?? id)}</option>`).join('')}</select></div></div><div id="cBlocks">${blockGrid(selectedLocalId, scope)}</div>` : ''}`
+  root().innerHTML = `${periodControls()}<div class="form-group"><label class="form-label">Tamanho máximo no PDF: <strong id="cFontValue">${font}pt</strong></label><input id="cFont" type="range" min="8" max="18" value="${font}" style="width:100%"><p class="form-help">O app reduz a partir deste teto até encontrar a maior letra que caiba sem quebrar nomes.</p></div><div class="form-group"><label class="form-label">Confirmação de disponibilidade</label><textarea id="cConfirm" class="form-input">${esc(greetings.confirm ?? '')}</textarea></div><button id="cSave" class="btn btn-primary">Salvar confirmação e impressão</button><hr style="border:0;border-top:1px solid var(--border);margin:18px 0"><h3 style="font-size:.9rem;margin-bottom:8px">Exceções de ${esc(monthLabel(selectedMonth))}</h3><div style="display:flex;gap:8px;margin-bottom:8px"><input id="cExclusion" class="form-input" type="date" min="${selectedMonth}-01" max="${selectedMonth}-31"><button id="cAddExclusion" class="btn btn-ghost">Adicionar</button></div><div class="module-option-list">${(exclusions[selectedMonth] ?? []).map(date => `<div class="module-menu-btn" style="cursor:default"><div><div class="mod-label">${esc(dayLabel(date))}</div><div class="mod-desc">Sem carrinho em todos os locais</div></div><button class="btn btn-danger" data-remove-exclusion="${date}">Remover</button></div>`).join('') || '<p class="empty-state">Nenhuma data excluída neste mês.</p>'}</div>${hasLocals ? `<hr style="border:0;border-top:1px solid var(--border);margin:18px 0"><div class="module-form-grid" style="margin-bottom:8px"><div class="form-group"><label class="form-label">Bloqueios</label><select id="cBlockScope" class="form-select"><option value="__persist__">Todos os meses</option><option value="${selectedMonth}">Somente este mês</option></select></div><div class="form-group"><label class="form-label">Vale para</label><select id="cBlockTarget" class="form-select"><option value="__all__">Todos os locais</option>${orderedLocals().map(([id, local]) => `<option value="${esc(id)}" ${id === selectedLocalId ? 'selected' : ''}>${esc(local.name ?? id)}</option>`).join('')}</select></div></div><div id="cBlocks">${blockGrid(selectedLocalId, scope)}</div>` : ''}`
   bindPeriod(renderConfig)
   document.getElementById('cFont')!.addEventListener('input', e => { document.getElementById('cFontValue')!.textContent = `${(e.target as HTMLInputElement).value}pt` })
   document.getElementById('cSave')!.addEventListener('click', () => void saveConfig())
@@ -520,11 +497,16 @@ async function removeExclusion(date: string): Promise<void> {
 }
 async function saveConfig(): Promise<void> {
   const value = (id: string) => (document.getElementById(id) as HTMLInputElement | HTMLTextAreaElement).value.trim()
-  const nextSettings = { groupWhatsAppLink: value('cGroup'), printFontPt: Number(value('cFont')) }, nextGreetings = { participant: value('cPerson'), date: value('cDay'), confirm: value('cConfirm') }
+  const nextSettings = { ...settings, printFontPt: Number(value('cFont')) }, nextGreetings = { ...greetings, confirm: value('cConfirm') }
   try { await update(escalaRef, { settings: nextSettings, greetings: nextGreetings }); settings = nextSettings; greetings = nextGreetings; toast('Configurações salvas') } catch { toast('Não foi possível salvar') }
 }
 
 function printPdf(): void {
-  const chosen = printScaleSchedule({ month: selectedMonth, locals, tables, participants: participantDirectory(), exclusions: exclusions[selectedMonth] ?? [], requestedFontPt: Number(settings.printFontPt ?? 12) })
-  toast(`PDF em ${chosen} pt`)
+  const prepared = prepareScalePrint({ month: selectedMonth, locals, tables, participants: participantDirectory(), exclusions: exclusions[selectedMonth] ?? [], requestedFontPt: Number(settings.printFontPt ?? 12) })
+  const overlay = document.createElement('div'); overlay.className = 'modal-overlay'
+  overlay.innerHTML = `<div class="modal escala-preview-modal"><h2>Prévia da Escala TPL</h2><p class="form-help">Fonte ajustada para ${prepared.fontPt} pt. Confira antes de imprimir.</p><div class="escala-print-preview" style="--escala-print-font:${prepared.fontPt}pt">${prepared.html}</div><div class="pdf-preview-actions"><button class="btn btn-ghost" id="closeScalePreview" type="button">Fechar</button><button class="btn btn-primary" id="printScalePreview" type="button">Imprimir</button></div></div>`
+  document.body.appendChild(overlay)
+  document.getElementById('closeScalePreview')?.addEventListener('click', () => overlay.remove())
+  document.getElementById('printScalePreview')?.addEventListener('click', () => { printPreparedScale(prepared, selectedMonth); toast(`Impressão preparada em ${prepared.fontPt} pt`) })
+  overlay.addEventListener('click', event => { if (event.target === overlay) overlay.remove() })
 }

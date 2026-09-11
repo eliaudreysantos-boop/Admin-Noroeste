@@ -141,6 +141,25 @@ export interface AgendaConfig {
   icsReminders?: Partial<Record<AgendaReminderModule, string[]>>
 }
 
+export interface AgendaPublicDocument {
+  id: string
+  modulo: 'limpeza' | 'oradores' | 'programacao'
+  periodo: string
+  nome: string
+  url: string
+  criadoEm: string
+}
+
+export interface AgendaSubscription {
+  token: string
+  tipo: 'pessoal' | 'quadro'
+  masterId?: string
+  modulos?: AgendaReminderModule[]
+  ativo: boolean
+  criadoEm: string
+  revogadoEm?: string
+}
+
 // ─── Usuários ──────────────────────────────────────────────────────────────
 
 export interface AppPermissions {
@@ -160,7 +179,7 @@ export interface Usuario {
   ativo:            boolean
   apps:             AppPermissions
   secretarioPapel?: SecretarioPapel
-  masterId?:        string       // obrigatório quando houver acesso à Minha Agenda
+  masterId?:        string       // campo legado da antiga Minha Agenda interna
 }
 
 // ─── Firebase raw snapshots ────────────────────────────────────────────────

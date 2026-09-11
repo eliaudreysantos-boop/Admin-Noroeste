@@ -40,7 +40,7 @@ import {
 import { formatTaskDate } from './tarefas-output'
 import { prepareTaskPrint, printPreparedTaskSchedule } from './tarefas-documents'
 
-type TarefasTab = 'indice' | 'resumo' | 'escala' | 'participantes' | 'pendencias'
+type TarefasTab = 'indice' | 'resumo' | 'escala' | 'participantes' | 'pendencias' | 'config'
 
 const PRINT_FONT_KEY = 'noroeste_tarefas_print_font_pt'
 const PRINT_MIN_PT = 8
@@ -258,7 +258,8 @@ function renderContent(): void {
   if (activeTab === 'resumo') renderIndex()
   else if (activeTab === 'escala') renderEscala()
   else if (activeTab === 'participantes') renderParticipantes()
-  else renderPendencias()
+  else if (activeTab === 'pendencias') renderPendencias()
+  else renderTaskConfig()
 }
 
 function renderIndex(): void {
@@ -269,6 +270,7 @@ function renderIndex(): void {
     { id: 'escala', titulo: 'Escala', subtitulo: 'Escolha o período, gere e revise a escala', icone: '▣', corFundo: '#003F72' },
     { id: 'participantes', titulo: 'Pessoas', subtitulo: 'Participantes e vínculos com Admin', icone: '♙', corFundo: '#006EB6' },
     { id: 'pendencias', titulo: 'Pendências', subtitulo: 'Funções vazias e vínculos incompletos', icone: '!', corFundo: '#B3261E' },
+    { id: 'config', titulo: 'Configuração', subtitulo: 'Período, datas excluídas e impressão', icone: '⚙', corFundo: '#5C6062' },
   ]
   renderMenuCards(content.querySelector<HTMLElement>('#tarefasMenu')!, items, id => { activeTab = id as TarefasTab; renderContent() })
 }
@@ -284,10 +286,11 @@ function renderEscala(): void {
     .filter(meeting => canonicalMeetingType(meeting.type))
     .sort((a, b) => String(a.date ?? '').localeCompare(String(b.date ?? '')))
   const font = printFont()
+  const preservedMeetings = scaleMeetingEntries().filter(entry => entry.periodId !== selectedPeriodId && assignmentCount(entry.meeting) > 0).sort((a, b) => String(b.meeting.date).localeCompare(String(a.meeting.date))).slice(0, 12)
 
   content.innerHTML = `
     ${sectionTitle('Escala de tarefas', '')}
-    ${locked ? '<div class="notice warning" style="margin-bottom:12px">Esta escala está travada. Destrave para gerar, limpar ou editar.</div>' : ''}
+    ${locked ? '<div class="notice">Esta escala está publicada no Minha Agenda e bloqueada para edição.</div>' : '<div class="notice warning">Rascunho administrativo: publique para aparecer no Minha Agenda.</div>'}
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:12px">
       <div class="module-form-grid">
         <div class="form-group" style="margin:0"><label class="form-label" for="tarefasPeriodMode">Formato</label><select id="tarefasPeriodMode" class="form-select"><option value="month" ${periodMode === 'month' ? 'selected' : ''}>Mensal</option><option value="bimester" ${periodMode === 'bimester' ? 'selected' : ''}>Bimestral</option></select></div>
@@ -295,7 +298,7 @@ function renderEscala(): void {
       </div>
       <div class="scale-actions" style="margin-top:8px">
         <button id="btnGenerateScale" class="btn btn-primary" type="button" ${locked ? 'disabled' : ''}>Gerar escala</button>
-        <button id="btnToggleTaskLock" class="btn btn-ghost" type="button">${locked ? 'Destravar escala' : 'Travar escala'}</button>
+        <button id="btnToggleTaskLock" class="btn btn-ghost" type="button">${locked ? 'Reabrir escala' : 'Publicar escala'}</button>
         <button id="btnClearTaskScale" class="btn btn-danger" type="button" ${locked || !allPeriodMeetings.length ? 'disabled' : ''}>Limpar escala</button>
       </div>
       <details style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border)">
@@ -308,11 +311,13 @@ function renderEscala(): void {
         <div style="display:flex;gap:8px;align-items:center;margin-top:12px"><label class="form-label" for="tarefasPrintFont" style="margin:0;white-space:nowrap">Letra do PDF</label><input id="tarefasPrintFont" class="form-input" type="range" min="${PRINT_MIN_PT}" max="${PRINT_MAX_PT}" step="1" value="${font}" style="padding:0;flex:1"><span id="tarefasPrintFontValue" style="min-width:42px;text-align:right;font-size:.82rem;font-weight:700;color:var(--ink-2)">${font} pt</span><button id="btnTarefasPdf" class="btn btn-ghost" type="button">Gerar PDF</button></div>
       </details>
     </div>
-    <div style="display:flex;flex-direction:column;gap:8px">
+    <div class="task-desktop-scale">${taskDesktopTable(allPeriodMeetings)}</div>
+    <div class="task-mobile-scale" style="display:flex;flex-direction:column;gap:8px">
       ${allPeriodMeetings.length
         ? allPeriodMeetings.map(meeting => meetingCard(meeting)).join('')
         : emptyState('Nenhuma reunião cadastrada neste período.')}
-    </div>`
+    </div>
+    ${preservedMeetings.length ? `<details class="form-panel" style="margin-top:12px"><summary>Registros preservados fora do período atual (${preservedMeetings.length})</summary><div class="module-option-list" style="margin-top:10px">${preservedMeetings.map(entry => `<div class="secretary-row"><div><strong>${escapeHtml(formatDate(entry.meeting.date))}</strong><small>${canonicalMeetingType(entry.meeting.type) === 'midweek' ? 'Meio de semana' : 'Fim de semana'} · ${assignmentCount(entry.meeting)} função(ões)</small></div></div>`).join('')}</div></details>` : ''}`
 
   document.getElementById('tarefasPrintFont')?.addEventListener('input', (event) => {
     const value = Number((event.target as HTMLInputElement).value)
@@ -385,7 +390,7 @@ async function toggleTaskLock(periodId: string): Promise<void> {
     await update(tarefasScaleRef, { [`${periodId}/locked`]: !locked })
     periods[periodId] ??= {}
     periods[periodId].locked = !locked
-    toast(locked ? 'Escala destravada' : 'Escala travada')
+    toast(locked ? 'Escala reaberta para edição' : 'Escala publicada no Minha Agenda')
     renderEscala()
   } catch { toast('Não foi possível alterar o travamento') }
 }
@@ -488,11 +493,12 @@ function renderParticipantes(): void {
   usageSince.setMonth(usageSince.getMonth() - 6)
   const usageFloor = usageSince.toISOString().slice(0, 10)
   const usage = Object.fromEntries(Object.keys(pessoas).map(id => [id, 0])) as Record<string, number>
+  const lastUse = Object.fromEntries(Object.keys(pessoas).map(id => [id, ''])) as Record<string, string>
   scaleMeetingEntries().forEach(({ meeting }) => {
     if (!meeting.date || meeting.date < usageFloor) return
     GENERATED_ROLES.forEach(role => {
       const id = assignmentForRole(meeting, role)
-      if (id && id in usage) usage[id] += 1
+      if (id && id in usage) { usage[id] += 1; if (meeting.date && meeting.date > lastUse[id]) lastUse[id] = meeting.date }
     })
   })
   const targetPersonId = pendingTarget?.personId
@@ -517,7 +523,7 @@ function renderParticipantes(): void {
     </div>
     <div style="display:flex;flex-direction:column;gap:6px">
       ${rows.length
-        ? rows.map(([id, p]) => pessoaRow(id, p, usage[id] ?? 0, id === targetPersonId)).join('')
+        ? rows.map(([id, p]) => pessoaRow(id, p, usage[id] ?? 0, lastUse[id] ?? '', id === targetPersonId)).join('')
         : emptyState('Nenhum participante. Adicione pelo módulo Admin.')}
     </div>`
   document.getElementById('btnAddTaskPerson')?.addEventListener('click', () => openTaskPersonModal(null))
@@ -529,6 +535,37 @@ function renderParticipantes(): void {
   document.getElementById('taskPersonRoleFilter')?.addEventListener('change', event => { participantRoleFilter = (event.target as HTMLSelectElement).value; renderParticipantes() })
   document.getElementById('taskClearPersonFilters')?.addEventListener('click', () => { participantSearch = ''; participantMeetingRule = ''; participantRoleFilter = ''; renderParticipantes() })
   if (targetPersonId && pessoas[targetPersonId] && context.usuario.apps.mestre) openTaskPersonModal(targetPersonId)
+}
+
+function planningExcludedDates(): string[] {
+  return Array.isArray(planning.excludedDates)
+    ? planning.excludedDates
+    : Object.entries(planning.excludedDates ?? {}).filter(([, enabled]) => Boolean(enabled)).map(([date]) => date)
+}
+
+function renderTaskConfig(): void {
+  const content = document.getElementById('tarefasContent')
+  if (!content) return
+  const dates = planningExcludedDates().sort()
+  content.innerHTML = `${sectionTitle('Configuração', 'Preferências próprias de Tarefas. Dias e horários das reuniões continuam vindo do Admin.')}
+    <div class="form-panel"><div class="module-form-grid"><label class="form-field"><span>Formato padrão</span><select id="taskConfigMode"><option value="month" ${selectedPeriodMode === 'month' ? 'selected' : ''}>Mensal</option><option value="bimester" ${selectedPeriodMode === 'bimester' ? 'selected' : ''}>Bimestral</option></select></label><label class="form-field"><span>Fonte preferida do PDF: <strong id="taskConfigFontValue">${printFont()} pt</strong></span><input id="taskConfigFont" type="range" min="${PRINT_MIN_PT}" max="${PRINT_MAX_PT}" value="${printFont()}"></label></div><button id="saveTaskConfig" class="btn btn-primary" type="button">Salvar preferências</button></div>
+    <div class="form-panel"><h3 style="margin-top:0">Datas sem reunião</h3><div style="display:flex;gap:8px"><input id="taskExcludedDate" class="form-input" type="date"><button id="addTaskExcludedDate" class="btn btn-ghost" type="button">Adicionar</button></div><div class="module-option-list" style="margin-top:10px">${dates.map(date => `<div class="secretary-row"><strong>${escapeHtml(formatDate(date))}</strong><button class="btn btn-danger" data-remove-task-date="${escapeHtml(date)}" type="button">Remover</button></div>`).join('') || '<p class="empty-state">Nenhuma data excluída.</p>'}</div></div>`
+  document.getElementById('taskConfigFont')?.addEventListener('input', event => { const value = (event.target as HTMLInputElement).value; document.getElementById('taskConfigFontValue')!.textContent = `${value} pt` })
+  document.getElementById('saveTaskConfig')?.addEventListener('click', async () => {
+    const mode = (document.getElementById('taskConfigMode') as HTMLSelectElement).value === 'month' ? 'month' : 'bimester'
+    const font = Number((document.getElementById('taskConfigFont') as HTMLInputElement).value)
+    try { await update(tarefasPlanejamentoRef, { periodMode:mode }); selectedPeriodMode = mode; planning.periodMode = mode; localStorage.setItem(TAREFAS_PERIOD_MODE_KEY, mode); localStorage.setItem(PRINT_FONT_KEY, String(font)); toast('Preferências salvas') } catch { toast('Não foi possível salvar as preferências') }
+  })
+  document.getElementById('addTaskExcludedDate')?.addEventListener('click', async () => {
+    const date = (document.getElementById('taskExcludedDate') as HTMLInputElement).value
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { toast('Escolha uma data válida'); return }
+    const next = [...new Set([...dates, date])].sort()
+    try { await update(tarefasPlanejamentoRef, { excludedDates:next }); planning.excludedDates = next; toast('Data excluída'); renderTaskConfig() } catch { toast('Não foi possível excluir a data') }
+  })
+  content.querySelectorAll<HTMLButtonElement>('[data-remove-task-date]').forEach(button => button.addEventListener('click', async () => {
+    const next = dates.filter(date => date !== button.dataset['removeTaskDate'])
+    try { await update(tarefasPlanejamentoRef, { excludedDates:next.length ? next : null }); planning.excludedDates = next; renderTaskConfig() } catch { toast('Não foi possível remover a data') }
+  }))
 }
 
 type PendingLevel = 'alta' | 'media' | 'baixa'
@@ -646,6 +683,11 @@ function sectionTitle(title: string, desc: string): string {
     </div>`
 }
 
+function taskDesktopTable(meetings: TarefasMeeting[]): string {
+  if (!meetings.length) return emptyState('Nenhuma reunião cadastrada neste período.')
+  return `<div class="task-scale-table-wrap"><table class="task-scale-table"><thead><tr><th>Reunião</th>${TASK_ROLES.map(role => `<th>${escapeHtml(TASK_ROLE_LABELS[role])}</th>`).join('')}</tr></thead><tbody>${meetings.map(meeting => { const ref = meetingRefFor(meeting), locked = ref ? periods[ref.periodId]?.locked === true : false; return `<tr data-task-meeting-id="${escapeHtml(ref?.meetingId)}"><th><strong>${escapeHtml(formatDate(meeting.date))}</strong><small>${canonicalMeetingType(meeting.type) === 'midweek' ? 'Meio' : 'Fim'}</small></th>${TASK_ROLES.map(role => `<td>${meetingAllowsRole(meeting, role) && ref ? assignmentEditor(ref.periodId, ref.meetingId, meeting, role, locked) : '<span class="task-not-applicable">—</span>'}</td>`).join('')}</tr>` }).join('')}</tbody></table></div>`
+}
+
 function meetingCard(meeting: TarefasMeeting): string {
   const count = assignmentCount(meeting)
   const type = canonicalMeetingType(meeting.type) === 'midweek' ? 'Meio de semana' : 'Fim de semana'
@@ -735,7 +777,7 @@ async function saveAssignment(periodId: string, meetingId: string, role: string,
   }
 }
 
-function pessoaRow(id: string, p: TarefasPessoa, recentUsage: number, focused = false): string {
+function pessoaRow(id: string, p: TarefasPessoa, recentUsage: number, lastUse: string, focused = false): string {
   const linked = Boolean(p.masterId)
   const active = isActive(p)
   const meetings = p.rule === 'midweek' ? 'Meio de semana' : p.rule === 'weekend' ? 'Fim de semana' : p.rule === 'none' ? 'Fora da escala' : 'Todas as reuniões'
@@ -749,7 +791,7 @@ function pessoaRow(id: string, p: TarefasPessoa, recentUsage: number, focused = 
           ${escapeHtml(pessoaNome(p, id))}
         </div>
         <div style="font-size:.72rem;color:var(--ink-3)">
-          ${active ? 'Ativo' : 'Inativo'} · ${meetings} · ${recentUsage} função${recentUsage === 1 ? '' : 'ões'} em 6 meses
+          ${active ? 'Ativo' : 'Inativo'} · ${meetings} · ${recentUsage} função${recentUsage === 1 ? '' : 'ões'} em 6 meses${lastUse ? ` · Última ${formatDate(lastUse)}` : ''}
         </div>
         <div style="font-size:.72rem;color:var(--ink-3);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(roles)}</div>
       </div>

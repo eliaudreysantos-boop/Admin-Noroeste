@@ -50,7 +50,8 @@ cadastro paralelo nem editar dados pessoais.
 - Permissoes por app.
 - Protecao para manter ao menos um Admin ativo.
 - Senha local simples, coerente com o app atual de teste.
-- Campo `individual` para Minha Agenda.
+- Minha Agenda removida da lista de permissoes: o app proprio usa o cadastro
+  central de pessoas por select/ID.
 
 ### Configuracoes
 
@@ -67,7 +68,6 @@ cadastro paralelo nem editar dados pessoais.
   - item sem `masterId`;
   - `masterId` inexistente;
   - duplicidade de vinculo no mesmo modulo;
-  - usuario publicador sem `masterId`;
   - Oradores local ligado indiretamente por Tarefas.
 - Mostra contadores e lista acionavel para revisao manual.
 
@@ -76,8 +76,7 @@ cadastro paralelo nem editar dados pessoais.
 - Backup completo em JSON.
 - Validacao estrutural antes de restaurar.
 - Protecao contra restauracao sem Admin ativo.
-- Protecao contra pessoa malformada, conta pessoal orfa e duas contas pessoais
-  ligadas ao mesmo `masterId`.
+- Protecao contra pessoa malformada e usuario administrativo invalido.
 - Validacao de chaves incompatíveis com Firebase.
 
 ## Decisoes de fechamento
@@ -92,8 +91,8 @@ Estado:
 
 - [x] Admin definido como tela principal.
 - [x] Campo e persistencia implementados.
-- [ ] Preencher o link real na configuracao.
-- [ ] Consumir o link no Quadro durante o fechamento da Minha Agenda.
+- [ ] Preencher o link real na configuracao quando os dados reais forem revisados.
+- [x] Consumir o link no Quadro durante o fechamento da Minha Agenda.
 
 ### 2. Lembretes ICS por modulo
 
@@ -111,8 +110,8 @@ Estado:
   - Escala TPL: `P1D`;
   - Quadro: desligado por padrao;
 - [x] O Admin nao altera os eventos originais.
-- [ ] Salvar a configuracao real no Firebase; a tela ainda exibe os defaults.
-- [ ] Consumir os valores como `VALARM` durante o fechamento da Minha Agenda.
+- [x] Salvar a configuracao no Firebase quando o Admin confirma a tela.
+- [x] Consumir os valores como `VALARM` no download e na assinatura da Minha Agenda.
 
 ### 3. Vinculos com acao direta
 
@@ -128,15 +127,16 @@ Estado:
 
 ### 4. Diferenciar usuario e pessoa
 
-O Admin cria pessoa e usuario, mas o usuario publicador precisa estar ligado a
-um `masterId` quando Minha Agenda depender de acesso pessoal.
+O Admin cria pessoas e usuarios administrativos. Minha Agenda agora e um app
+independente: a pessoa escolhe seu nome e o app usa o `masterId` do cadastro,
+sem criar uma conta administrativa paralela.
 
 Estado:
 
-- [x] Campo de pessoa vinculada exposto quando Minha Agenda esta habilitada.
+- [x] Permissao e vinculo legados de Minha Agenda removidos do modal de usuario.
 - [x] Usuario Admin de teste mantido como padrao operacional.
-- [x] Novo usuario com Minha Agenda nao pode ser salvo sem `masterId` valido.
-- [x] O painel detecta contas legadas sem vinculo.
+- [x] Backups antigos com os campos legados continuam aceitos.
+- [x] A aba Vinculos deixou de tratar conta antiga de Minha Agenda como falha.
 
 ### 5. Configuracoes que nao devem voltar aos modulos
 
@@ -182,14 +182,14 @@ cuidados correspondentes estao documentados em `FIREBASE-SECURITY.md`.
 - [x] Adicionado link do grupo do Quadro em `agenda/config/quadroWhatsAppLink`.
 - [x] Adicionados lembretes ICS por modulo em `agenda/config/icsReminders`.
 - [x] Mantidos os defaults planejados em `INTEGRACAO-MINHA-AGENDA.md`.
-- [ ] Consumir os lembretes na exportacao ICS quando a Minha Agenda for fechada.
+- [x] Consumir os lembretes na exportacao ICS e no feed assinado da Minha Agenda.
 
-### Fase 2 - Usuario vinculado a pessoa
+### Fase 2 - Identidade do app Minha Agenda
 
-- [x] Permitir vincular usuario com Minha Agenda a uma pessoa do Admin.
-- [x] Garantir que Minha Agenda use `masterId` do usuario quando existir.
-- [x] Manter select por ID/nome como fallback controlado.
-- [x] Impedir duas contas pessoais para a mesma pessoa.
+- [x] Remover Minha Agenda do menu e das permissoes administrativas.
+- [x] Usar select de pessoa por nome/ID no app proprio em `/agenda/`.
+- [x] Manter o Admin como unica origem de pessoa, `masterId` e telefone.
+- [x] Nao interpretar campos legados de conta pessoal como erro de backup.
 
 ### Fase 3 - Integridade acionavel
 
@@ -210,7 +210,7 @@ cuidados correspondentes estao documentados em `FIREBASE-SECURITY.md`.
 ## Criterios de pronto
 
 - Admin continua sendo unica fonte de nome, ID e telefone.
-- Usuario publicador pode ser vinculado a `masterId`.
+- Minha Agenda seleciona uma pessoa existente sem criar usuario administrativo.
 - Link do grupo do Quadro fica centralizado.
 - Lembretes ICS por modulo ficam configuraveis.
 - Aba de vinculos aponta problemas reais sem alterar dados sozinha.
@@ -223,7 +223,7 @@ Validacao automatizada concluida em 10/09/2026:
 - [x] `masterId` novo e aleatorio, sem derivacao do telefone.
 - [x] Duas ou mais pessoas podem compartilhar o mesmo WhatsApp.
 - [x] Editar uma pessoa nao a acusa como contato duplicado de si mesma.
-- [x] Uma pessoa nao pode ter duas contas com acesso pessoal a Minha Agenda.
+- [x] Minha Agenda nao depende mais de contas pessoais duplicadas no Admin.
 - [x] O relatorio de falhas remove senha, telefone e WhatsApp, inclusive em
   estruturas aninhadas.
 - [x] Backup valido preserva ao menos um Admin ativo.
@@ -232,10 +232,8 @@ Validacao automatizada concluida em 10/09/2026:
 - [x] `npm run build`: aprovado.
 - [x] Regressao aprovada em Tarefas, Oradores, Coordenador, Vida e Ministerio,
   Limpeza, Secretario e Minha Agenda.
-- [ ] A suite da Escala TPL nao executa fora da pasta-base antiga porque ainda
-  importa `banco-real.json`, `legado.ts` e um backup por caminhos locais. Esta
-  dependencia deve ser removida na auditoria da Escala; nao indica falha de
-  execucao do Admin/Mestre.
+- [x] A suite da Escala TPL foi tornada autossuficiente e nao depende mais da
+  pasta-base antiga, de backups locais ou do algoritmo legado.
 
 Validacao manual com a conta Admin e dados reais:
 
@@ -262,7 +260,7 @@ mas nao devem ser corrigidas nesta fase:
 
 - 63 registros sem `masterId`, principalmente perfis temporarios de Programacao.
 - 16 registros com `masterId` que nao existe mais no cadastro central.
-- Conta `u_mestre` com Minha Agenda habilitada e sem pessoa vinculada.
+- Campos legados de Minha Agenda em usuarios antigos nao afetam o app proprio.
 - Link real do grupo do Quadro ainda nao preenchido.
 - Lembretes ICS ainda nao persistidos; a interface mostra os defaults.
 

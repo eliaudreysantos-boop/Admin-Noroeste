@@ -56,18 +56,10 @@ export function validateBackup(value: unknown): BackupValidation {
     }
   }
 
-  const personalAccounts = new Map<string, string>()
   for (const [uid, user] of Object.entries(users)) {
     const apps = row(user.apps)
     if (typeof user.nome !== 'string' || typeof user.senha !== 'string' || typeof user.ativo !== 'boolean' || !user.apps || Array.isArray(user.apps) || typeof apps.mestre !== 'boolean') {
       return { ok: false, error: `O usuário ${uid} não tem a estrutura esperada.` }
-    }
-    if (apps.individual === true) {
-      const masterId = typeof user.masterId === 'string' ? user.masterId.trim() : ''
-      if (!masterId || !people[masterId]) return { ok: false, error: `O usuário ${uid} da Minha Agenda não possui uma pessoa válida.` }
-      const existingUid = personalAccounts.get(masterId)
-      if (existingUid) return { ok: false, error: `Os usuários ${existingUid} e ${uid} estão ligados à mesma pessoa ${masterId}.` }
-      personalAccounts.set(masterId, uid)
     }
   }
   if (!hasActiveAdmin(users)) return { ok: false, error: 'O backup precisa manter ao menos um Admin ativo.' }

@@ -1,18 +1,23 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { agendaMessage, agendaToIcs, announcementMessage, collectAgendaEvents, collectAnnouncementEvents, upcomingAgendaEvents } from '../src/modules/individual-domain.ts'
+import { agendaMessage, agendaToIcs, announcementMessage, collectAgendaEvents, collectAnnouncementEvents, eventsInFeedWindow, sanitizeAgendaPeople, upcomingAgendaEvents } from '../src/modules/individual-domain.ts'
 
 const root = {
   master: { pessoas:{ m1:{ name:'Ana', active:true }, m2:{ name:'Bruno', active:true } } },
   tarefas: {
     people: { task1: { masterId: 'm1' }, task2: { masterId: 'm2' } },
-    scale: { periods: { '2026-09': { meetings: { a: { date:'2026-09-09', type:'midweek', assignments:{ leitor:'task1', mic1:'task2' } } } } } },
+    scale: { periods: { '2026-09': { locked:true, meetings: { a: { date:'2026-09-09', type:'midweek', assignments:{ leitor:'task1', mic1:'task2' } } } } } },
     discursos: { oradores:{ o1:{ pessoaId:'task1' } }, programacao:{ p1:{ data:'2026-09-13', tipo:'saida_orador', oradorId:'o1', temaTitulo:'Esperança', congregacaoDestinoNome:'Centro' } } },
   },
   limpeza: { periodos:{ p:{ semanas:[{ dataMeioSemana:'2026-09-10', grupo:2, grupoNome:'Grupo 2', membrosMid:['m1'] }] } } },
-  escala: { participants:{ e1:{ masterId:'m1' } }, settings:{ locals:{ l1:{ name:'Praça' } } }, tables:{ l1:{ '2026-09':{ rows:{ '2026-09-12':{ slots:{ '08:00':{ p1:'e1', p2:'e2' } } } } } } } },
+  escala: { participants:{ e1:{ masterId:'m1' } }, publishedMonths:{ '2026-09':true }, settings:{ locals:{ l1:{ name:'Praça' } } }, tables:{ l1:{ '2026-09':{ rows:{ '2026-09-12':{ slots:{ '08:00':{ p1:'e1', p2:'e2' } } } } } } } },
   programacao: { pessoas:{ m1:{ masterId:'m1' } }, settings:{ meetingTime:'19:30', rooms:[{ id:'main', name:'Salão principal' }] }, programs:{ w:{ meetingDate:'2026-09-16', parts:[{ id:'x', title:'Leitura da Bíblia', assignedPersonId:'m1', confirmedAt:'2026-09-01' }] } } },
 }
+
+test('cache de identidades remove telefone e grupo de limpeza', () => {
+  const people = sanitizeAgendaPeople({ m1:{ name:'Ana', whatsapp:'5585999999999', active:true, sex:'F', role:'publicador', limpeza:{ grupo:3 } } })
+  assert.deepEqual(people.m1, { name:'Ana', whatsapp:'', active:true, sex:'F', role:'publicador', limpeza:{ grupo:null } })
+})
 
 test('agrega apenas atribuicoes do masterId solicitado', () => {
   const events = collectAgendaEvents(root, 'm1')
@@ -34,6 +39,32 @@ test('ICS preserva data civil, horario, local e escape', () => {
   assert.match(ics, /DTSTART;TZID=America\/Fortaleza:20260912T080000/)
   assert.match(ics, /SUMMARY:Campo\\, manhã/)
   assert.match(ics, /DESCRIPTION:Dupla\\; confirmada/)
+  assert.match(ics, /DURATION:PT1H/)
+  assert.match(ics, /METHOD:PUBLISH/)
+})
+
+test('ICS aplica no máximo dois lembretes configurados por módulo', () => {
+  const event = { id:'lembrete', source:'tarefas', date:'2026-09-12', title:'Leitura', detail:'Reunião', status:'futuro' }
+  const ics = agendaToIcs([event], '2026-09-01T12:00:00.000Z', { reminders:{ tarefas:['P7D', 'P1D', 'PT1H'] } })
+  assert.equal((ics.match(/BEGIN:VALARM/g) ?? []).length, 2)
+  assert.match(ics, /TRIGGER:-P7D/)
+  assert.match(ics, /TRIGGER:-P1D/)
+  assert.match(ics, /DTEND;VALUE=DATE:20260913/)
+})
+
+test('janela da assinatura mantém dois meses anteriores e doze seguintes', () => {
+  const event = date => ({ id:date, source:'tarefas', date, title:date, detail:'', status:'futuro' })
+  const result = eventsInFeedWindow([event('2026-07-09'), event('2026-07-10'), event('2027-09-10'), event('2027-09-11')], '2026-09-10')
+  assert.deepEqual(result.map(item => item.date), ['2026-07-10', '2027-09-10'])
+})
+
+test('agenda ignora tarefas e escala ainda não publicadas', () => {
+  const copy = structuredClone(root)
+  copy.tarefas.scale.periods['2026-09'].locked = false
+  copy.escala.publishedMonths['2026-09'] = false
+  const events = collectAgendaEvents(copy, 'm1')
+  assert.equal(events.some(event => event.source === 'tarefas'), false)
+  assert.equal(events.some(event => event.source === 'escala'), false)
 })
 
 test('proximos compromissos ignora realizados e eventos anteriores', () => {

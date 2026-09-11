@@ -20,13 +20,6 @@ function formatDate(value = ''): string {
   return year && month && day ? `${day}/${month}/${year}` : value
 }
 
-function download(bytes: Uint8Array, filename: string): void {
-  const copy = Uint8Array.from(bytes)
-  const url = URL.createObjectURL(new Blob([copy.buffer], { type: 'application/pdf' }))
-  const link = document.createElement('a'); link.href = url; link.download = filename; link.click()
-  setTimeout(() => URL.revokeObjectURL(url), 1000)
-}
-
 function text(page: PDFPage, font: PDFFont, value: string, x: number, y: number, size = 8): void {
   page.drawText(value.slice(0, 90), { x, y, size, font, color: rgb(0, 0, 0) })
 }
@@ -110,8 +103,6 @@ export async function createS88(template: ArrayBuffer, attendance: Record<string
   form.updateFieldAppearances(await pdf.embedFont(StandardFonts.Helvetica))
   return pdf.save()
 }
-
-export function downloadSecretaryPdf(bytes: Uint8Array, filename: string): void { download(bytes, filename) }
 
 export function previewSecretaryPdf(bytes: Uint8Array, filename: string): void {
   previewPdf(bytes, filename)

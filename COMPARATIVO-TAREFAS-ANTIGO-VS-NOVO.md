@@ -215,34 +215,38 @@ Aplicado em:
 
 ### Fase 2 - Escala em tela
 
-- Adicionar visual de tabela para desktop.
-- Manter cards no mobile.
-- Melhorar seletor manual com detalhe de elegibilidade/conflito.
-- Mostrar bloco de registros preservados fora do planejamento.
+- [x] Adicionar visual de tabela para desktop.
+- [x] Manter cards no mobile.
+- [x] Melhorar seletor manual com detalhe de elegibilidade/conflito.
+- [x] Mostrar bloco de registros preservados fora do planejamento.
 
 ### Fase 3 - Configuracoes enxutas
 
-- Criar area de configuracao do Tarefas sem limpeza e sem secoes.
-- Expor periodo, datas excluidas e fonte preferida.
-- Confirmar que horarios continuam vindo da configuracao global.
+- [x] Criar area de configuracao do Tarefas sem limpeza e sem secoes.
+- [x] Expor periodo, datas excluidas e fonte preferida.
+- [x] Confirmar que horarios continuam vindo da configuracao global.
 
 ### Fase 4 - Participantes
 
-- Melhorar resumo de participante com total recente e ultima designacao.
-- Tornar inativar/reactivar mais evidente.
-- Validar remocao/desvinculo sem apagar historico.
+- [x] Melhorar resumo de participante com total recente e ultima designacao.
+- [x] Tornar inativar/reactivar mais evidente.
+- [x] Validar remocao/desvinculo sem apagar historico.
 
 ### Fase 5 - Adapter para Minha Agenda/Quadro
 
-- Exportar eventos publicos de Tarefas por `masterId`.
-- Incluir data, horario, tipo de reuniao, funcao, status e origem.
-- Preparar campos para ICS com lembretes default `P7D` e `P1D`.
-- Nao expor observacoes administrativas.
+- [x] Exportar eventos publicos de Tarefas por `masterId`.
+- [x] Incluir data, horario, tipo de reuniao, funcao, status e origem.
+- [x] Preparar campos para ICS com lembretes default `P7D` e `P1D`.
+- [x] Nao expor observacoes administrativas.
 
 ### Fase 6 - Testes e fechamento
 
-- Testar geracao preservando manual.
-- Testar conflitos de escolha manual.
-- Testar pendencias por severidade.
-- Testar previa antes da impressao.
-- Atualizar `PADROES-REAPROVEITAVEIS.md` com componentes realmente extraiveis.
+- [x] Testar geracao preservando manual.
+- [x] Testar conflitos de escolha manual.
+- [x] Testar pendencias por severidade.
+- [x] Testar previa antes da impressao.
+- [x] Atualizar `PADROES-REAPROVEITAVEIS.md` com componentes realmente extraiveis.
+
+Status final em 11/09/2026: as seis fases foram aplicadas. A escala somente
+entra na Minha Agenda e no Quadro depois de publicada; reabrir volta a ocultar
+o rascunho dos adaptadores publicos.

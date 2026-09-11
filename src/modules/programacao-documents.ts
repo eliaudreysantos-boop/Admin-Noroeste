@@ -70,7 +70,11 @@ export async function createS89(program: MeetingProgram, peopleList: ProgramPers
 
 export async function downloadS89(program: MeetingProgram, peopleList: ProgramPerson[]): Promise<number> {
   const result = await createS89(program, peopleList)
-  if (result.count) previewPdf(result.bytes, `S-89-${program.meetingDate}.pdf`, 'Prévia do S-89')
+  if (result.count) {
+    const filename = `S-89-${program.meetingDate}.pdf`
+    previewPdf(result.bytes, filename, 'Prévia do S-89')
+    void import('./agenda-documents.ts').then(({ archiveAgendaPdf }) => archiveAgendaPdf(result.bytes, { modulo:'programacao', periodo:program.meetingDate.slice(0, 7), nome:filename })).catch(() => undefined)
+  }
   return result.count
 }
 
@@ -115,7 +119,10 @@ export async function createS140Pdf(programs: MeetingProgram[], congregation: st
 
 export async function downloadS140Pdf(programs: MeetingProgram[], congregation: string, peopleList: ProgramPerson[]): Promise<void> {
   const bytes = await createS140Pdf(programs, congregation, peopleList)
-  previewPdf(bytes, `S-140-${programs[0]?.meetingDate ?? 'programacao'}.pdf`, 'Prévia do S-140')
+  const period = programs[0]?.meetingDate?.slice(0, 7) ?? 'programacao'
+  const filename = `S-140-${programs[0]?.meetingDate ?? 'programacao'}.pdf`
+  previewPdf(bytes, filename, 'Prévia do S-140')
+  void import('./agenda-documents.ts').then(({ archiveAgendaPdf }) => archiveAgendaPdf(bytes, { modulo:'programacao', periodo:period, nome:filename })).catch(() => undefined)
 }
 
 function docxMeeting(program: MeetingProgram, congregation: string, people: Map<string, ProgramPerson>): Paragraph[] {

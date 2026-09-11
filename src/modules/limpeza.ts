@@ -559,7 +559,7 @@ function renderPdf(): void {
       <div id="pdfLimpezaPreview" style="background:#fff;border:1px solid var(--border);padding:14px;margin:12px 0;min-height:180px">
         ${period ? `<div style="text-align:center;font-weight:800;font-size:1.1rem;margin-bottom:10px">LIMPEZA DO SALÃO</div>${renderPeriodRows(period)}` : '<p style="text-align:center;color:var(--ink-3)">Nenhuma escala gerada.</p>'}
       </div>
-      <button id="btnGerarPdfLimpeza" class="btn btn-primary btn-full" type="button" ${period ? '' : 'disabled'}>Baixar PDF</button>
+      <button id="btnGerarPdfLimpeza" class="btn btn-primary btn-full" type="button" ${period ? '' : 'disabled'}>Abrir previa do PDF</button>
     </div>`
   document.getElementById('pdfLimpezaPeriodo')?.addEventListener('change', event => {
     selectedPeriodId = (event.target as HTMLSelectElement).value
@@ -576,17 +576,17 @@ function renderPdf(): void {
 
 async function exportCleaningPdf(): Promise<void> {
   const period = generatedPeriod()
-  if (!period) { toast('Gere a escala antes de baixar o PDF'); return }
+  if (!period) { toast('Gere a escala antes de abrir a previa'); return }
   const button = document.getElementById('btnGerarPdfLimpeza') as HTMLButtonElement | null
   const fontSize = Number((document.getElementById('pdfLimpezaFonte') as HTMLInputElement).value)
   try {
     if (button) { button.disabled = true; button.textContent = 'Preparando PDF...' }
     const { downloadCleaningPdf } = await import('./limpeza-documents')
     const result = await downloadCleaningPdf(period, { requestedFontSize: fontSize })
-    toast(result.effectiveFontSize < fontSize ? `PDF ajustado para ${result.effectiveFontSize} pt sem quebrar texto` : 'PDF baixado')
+    toast(result.effectiveFontSize < fontSize ? `Previa ajustada para ${result.effectiveFontSize} pt sem quebrar texto` : 'Previa do PDF aberta')
   } catch {
     toast('Erro ao gerar o PDF')
   } finally {
-    if (button) { button.disabled = false; button.textContent = 'Baixar PDF' }
+    if (button) { button.disabled = false; button.textContent = 'Abrir previa do PDF' }
   }
 }
