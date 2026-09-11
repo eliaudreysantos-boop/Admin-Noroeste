@@ -6,11 +6,12 @@ import {
   set,
   update,
   remove,
+  runTransaction,
   type DatabaseReference,
 } from 'firebase/database'
 import { getStorage } from 'firebase/storage'
 
-export { get, set, update, remove }
+export { get, set, update, remove, runTransaction }
 
 // ─── Config ────────────────────────────────────────────────────────────────
 
@@ -59,6 +60,9 @@ export const configLimpezaRef: DatabaseReference =
 
 export const limpezaPeriodosRef: DatabaseReference =
   ref(db, 'limpeza/periodos')
+
+export const limpezaRef: DatabaseReference =
+  ref(db, 'limpeza')
 
 export const configDesignacoesRef: DatabaseReference =
   ref(db, 'master/config/designacoes')
@@ -145,11 +149,5 @@ export const servicoCampoRef: DatabaseReference =
 export const agendaConfigRef: DatabaseReference =
   ref(db, 'agenda/config')
 
-export const agendaRef: DatabaseReference =
-  ref(db, 'agenda')
-
 export const agendaDocumentsRef: DatabaseReference =
   ref(db, 'agenda/documentos')
-
-export const agendaSubscriptionsRef: DatabaseReference =
-  ref(db, 'agenda/assinaturas')

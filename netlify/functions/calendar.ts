@@ -1,8 +1,12 @@
 import { agendaToIcs, collectAgendaEvents, collectAnnouncementEvents, eventsInFeedWindow, type AgendaSource } from '../../src/modules/individual-domain.ts'
 import type { AgendaConfig, AgendaSubscription } from '../../src/types.ts'
+import { privateSubscriptionStore, type SubscriptionStore } from '../lib/subscription-store.ts'
 
-const DATABASE_URL = 'https://oradoress2-default-rtdb.firebaseio.com'
 const SOURCES: AgendaSource[] = ['tarefas', 'limpeza', 'escala', 'oradores', 'programacao', 'servicoCampo']
+
+function configuredDatabaseUrl(): string {
+  return ((globalThis as unknown as { process?: { env?: Record<string, string | undefined> } }).process?.env?.['FIREBASE_DATABASE_URL'] ?? '').trim().replace(/\/$/, '')
+}
 
 const json = (status: number, message: string): Response => new Response(JSON.stringify({ error:message }), {
   status,
@@ -24,7 +28,7 @@ function boardReminders(config: AgendaConfig): Partial<Record<AgendaSource, stri
   return Object.fromEntries(SOURCES.map(source => [source, source === 'servicoCampo' ? [] : values]))
 }
 
-async function loadAgendaRoot(fetcher: typeof fetch): Promise<Record<string, unknown>> {
+async function loadAgendaRoot(fetcher: typeof fetch, databaseURL: string): Promise<Record<string, unknown>> {
   const paths = [
     'master/pessoas',
     'tarefas/people', 'tarefas/scale/periods',
@@ -34,7 +38,7 @@ async function loadAgendaRoot(fetcher: typeof fetch): Promise<Record<string, unk
     'programacao', 'agenda/config', 'servicoCampo',
   ] as const
   const values = await Promise.all(paths.map(async path => {
-    const response = await fetcher(`${DATABASE_URL}/${path}.json`)
+    const response = await fetcher(`${databaseURL}/${path}.json`)
     if (!response.ok) throw new Error(`Firebase indisponível em ${path}`)
     return response.json() as Promise<unknown>
   }))
@@ -56,20 +60,21 @@ async function loadAgendaRoot(fetcher: typeof fetch): Promise<Record<string, unk
   }
 }
 
-export async function calendarResponse(request: Request, fetcher: typeof fetch = fetch): Promise<Response> {
+export async function calendarResponse(request: Request, fetcher: typeof fetch = fetch, store: SubscriptionStore = privateSubscriptionStore, databaseURL = configuredDatabaseUrl()): Promise<Response> {
   if (request.method !== 'GET') return json(405, 'Método não permitido.')
   const token = new URL(request.url).searchParams.get('token')?.trim() ?? ''
   if (!/^[a-f0-9]{48}$/.test(token)) return json(400, 'Token de calendário inválido.')
 
-  const subscriptionResponse = await fetcher(`${DATABASE_URL}/agenda/assinaturas/${token}.json`)
-  if (!subscriptionResponse.ok) return json(503, 'Não foi possível consultar a assinatura.')
-  const subscription = await subscriptionResponse.json() as AgendaSubscription | null
+  let subscription: AgendaSubscription | null
+  try { subscription = await store.get(token) }
+  catch { return json(503, 'Não foi possível consultar a assinatura.') }
   if (!subscription || subscription.token !== token) return json(404, 'Assinatura não encontrada.')
   if (!subscription.ativo) return json(410, 'Esta assinatura foi revogada.')
   if (subscription.tipo === 'pessoal' && !subscription.masterId) return json(422, 'Assinatura pessoal sem vínculo válido.')
+  if (!/^https:\/\/[A-Za-z0-9.-]+$/.test(databaseURL)) return json(503, 'Banco do calendário não configurado.')
 
   let root: Record<string, unknown>
-  try { root = await loadAgendaRoot(fetcher) }
+  try { root = await loadAgendaRoot(fetcher, databaseURL) }
   catch { return json(503, 'Não foi possível montar o calendário.') }
   const config = ((root.agenda as Record<string, unknown> | undefined)?.config ?? {}) as AgendaConfig
   const events = subscription.tipo === 'pessoal'

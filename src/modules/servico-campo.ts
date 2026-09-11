@@ -1,8 +1,8 @@
 import type { AppContext, ConfigCongregacao, MasterPessoa, RawPessoas } from '../types'
-import { configCongregacaoRef, escalaScalesRef, get, pessoasRef, servicoCampoRef, update } from '../firebase'
+import { configCongregacaoRef, get, pessoasRef, servicoCampoRef, update } from '../firebase'
 import { renderMenuCards, type ItemMenu } from '../ui/menu-cards'
 import { moduleBackButton, moduleTitle } from '../ui/module-header'
-import { generateFieldServicePeriod, suggestionsFromEscala, type FieldServiceAssignment, type FieldServicePeriod, type FieldServiceTemplate } from './servico-campo-domain'
+import { generateFieldServicePeriod, type FieldServiceAssignment, type FieldServicePeriod, type FieldServiceTemplate } from './servico-campo-domain'
 
 interface ServiceRoot {
   templates?: Record<string, FieldServiceTemplate>
@@ -16,7 +16,6 @@ const MONTH_KEY = 'noroeste_servico_campo_month'
 let screen: Screen = 'indice'
 let data: ServiceRoot = {}
 let people: RawPessoas = {}
-let escalaLocals: Record<string, Record<string, unknown>> = {}
 let congregation: ConfigCongregacao = { nome:'Noroeste', cidade:'', circuito:'', idioma:'pt-BR' }
 let selectedMonth = localStorage.getItem(MONTH_KEY) ?? new Date().toISOString().slice(0, 7)
 let editingTemplateId = ''
@@ -47,10 +46,9 @@ export default function mount(appContext: AppContext): void {
 
 async function load(): Promise<void> {
   try {
-    const [serviceSnapshot, peopleSnapshot, escalaSnapshot, congregationSnapshot] = await Promise.all([get(servicoCampoRef), get(pessoasRef), get(escalaScalesRef), get(configCongregacaoRef)])
+    const [serviceSnapshot, peopleSnapshot, congregationSnapshot] = await Promise.all([get(servicoCampoRef), get(pessoasRef), get(configCongregacaoRef)])
     data = serviceSnapshot.exists() ? serviceSnapshot.val() as ServiceRoot : {}
     people = peopleSnapshot.exists() ? peopleSnapshot.val() as RawPessoas : {}
-    escalaLocals = escalaSnapshot.exists() ? escalaSnapshot.val() as Record<string, Record<string, unknown>> : {}
     if (congregationSnapshot.exists()) congregation = { ...congregation, ...congregationSnapshot.val() as ConfigCongregacao }
   } catch { toast('Não foi possível carregar Serviço de Campo') }
   render()
@@ -153,25 +151,14 @@ async function openPdf(): Promise<void> {
 
 function renderConfiguration(): void {
   const current = templates()[editingTemplateId]
-  const suggestions = suggestionsFromEscala(escalaLocals)
-  const suggestionOptions = suggestions.map(item => `<option value="${esc(item.id)}">${DAYS[item.dow]} · ${esc(item.time)} · ${esc(item.location)}</option>`).join('')
   const templateRows = Object.values(templates()).sort((a, b) => a.sortOrder - b.sortOrder || a.dow - b.dow || a.time.localeCompare(b.time)).map(item => `<div class="secretary-row"><div><strong>${DAYS[item.dow]} · ${esc(item.time)}</strong><small>${esc(item.location)} · ${esc(item.label)} · ${item.active ? 'Ativa' : 'Inativa'}</small></div><button class="btn btn-ghost" data-edit-service-template="${esc(item.id)}">Editar</button><button class="btn btn-danger" data-delete-service-template="${esc(item.id)}" title="Remover saída">✕</button></div>`).join('')
   const leaderRows = Object.entries(people).filter(([, person]) => person.active !== false).sort((a, b) => a[1].name.localeCompare(b[1].name, 'pt-BR')).map(([masterId, person]) => `<label class="service-leader-option"><input type="checkbox" data-service-eligible="${esc(masterId)}" ${data.leaders?.[masterId] ? 'checked' : ''}><span><strong>${esc(person.name)}</strong><small>${esc(roleLabel(person))}</small></span></label>`).join('')
-  root().innerHTML = `${sectionTitle('Configuração do Serviço de Campo')}<div class="form-panel"><h3 style="margin-top:0">Aproveitar Escala TPL</h3><p class="form-help">Escolha uma combinação existente para preencher dia, horário e local. A saída só será criada quando você salvar.</p><div class="service-suggestion"><select id="serviceSuggestion" class="form-select"><option value="">Selecionar sugestão...</option>${suggestionOptions}</select><button id="applyServiceSuggestion" class="btn btn-ghost" type="button" ${suggestions.length ? '' : 'disabled'}>Preencher</button></div></div><form id="serviceTemplateForm" class="form-panel"><h3 style="margin-top:0">${current ? 'Editar saída recorrente' : 'Nova saída recorrente'}</h3><input name="templateId" type="hidden" value="${esc(current?.id)}"><div class="module-form-grid"><label class="form-field"><span>Dia</span><select name="dow">${DAYS.map((day, dow) => `<option value="${dow}" ${current?.dow === dow ? 'selected' : ''}>${day}</option>`).join('')}</select></label><label class="form-field"><span>Hora</span><input name="time" type="time" value="${esc(current?.time ?? '08:30')}" required></label><label class="form-field"><span>Local</span><input name="location" maxlength="80" value="${esc(current?.location)}" required></label><label class="form-field"><span>Descrição</span><input name="label" maxlength="60" value="${esc(current?.label ?? 'Saída de campo')}"></label><label class="form-field"><span>Ordem</span><input name="sortOrder" type="number" value="${current?.sortOrder ?? Object.keys(templates()).length}"></label><label><input name="active" type="checkbox" ${current?.active !== false ? 'checked' : ''}> Saída ativa</label></div><div class="service-actions"><button class="btn btn-primary" type="submit">Salvar saída</button>${current ? '<button id="cancelServiceTemplate" class="btn btn-ghost" type="button">Cancelar</button>' : ''}</div></form><div class="module-option-list">${templateRows || '<p class="empty-state">Nenhuma saída recorrente cadastrada.</p>'}</div><div class="form-panel"><h3 style="margin-top:0">Dirigentes do rodízio</h3><p class="form-help">O rodízio funciona com qualquer quantidade de pessoas. Em dias com várias saídas, evita repetir o dirigente enquanto houver outra pessoa disponível.</p><div class="service-leader-grid">${leaderRows || '<p class="empty-state">Nenhuma pessoa ativa no Admin.</p>'}</div><button id="saveServiceLeaders" class="btn btn-primary" type="button">Salvar dirigentes</button></div>`
+  root().innerHTML = `${sectionTitle('Configuração do Serviço de Campo')}<form id="serviceTemplateForm" class="form-panel"><h3 style="margin-top:0">${current ? 'Editar saída recorrente' : 'Nova saída recorrente'}</h3><input name="templateId" type="hidden" value="${esc(current?.id)}"><div class="module-form-grid"><label class="form-field"><span>Dia</span><select name="dow">${DAYS.map((day, dow) => `<option value="${dow}" ${current?.dow === dow ? 'selected' : ''}>${day}</option>`).join('')}</select></label><label class="form-field"><span>Hora</span><input name="time" type="time" value="${esc(current?.time ?? '08:30')}" required></label><label class="form-field"><span>Local</span><input name="location" maxlength="80" value="${esc(current?.location)}" required></label><label class="form-field"><span>Descrição</span><input name="label" maxlength="60" value="${esc(current?.label ?? 'Saída de campo')}"></label><label class="form-field"><span>Ordem</span><input name="sortOrder" type="number" value="${current?.sortOrder ?? Object.keys(templates()).length}"></label><label><input name="active" type="checkbox" ${current?.active !== false ? 'checked' : ''}> Saída ativa</label></div><div class="service-actions"><button class="btn btn-primary" type="submit">Salvar saída</button>${current ? '<button id="cancelServiceTemplate" class="btn btn-ghost" type="button">Cancelar</button>' : ''}</div></form><div class="module-option-list">${templateRows || '<p class="empty-state">Nenhuma saída recorrente cadastrada.</p>'}</div><div class="form-panel"><h3 style="margin-top:0">Dirigentes do rodízio</h3><p class="form-help">O rodízio funciona com qualquer quantidade de pessoas. Em dias com várias saídas, evita repetir o dirigente enquanto houver outra pessoa disponível.</p><div class="service-leader-grid">${leaderRows || '<p class="empty-state">Nenhuma pessoa ativa no Admin.</p>'}</div><button id="saveServiceLeaders" class="btn btn-primary" type="button">Salvar dirigentes</button></div>`
   document.getElementById('serviceTemplateForm')?.addEventListener('submit', event => { event.preventDefault(); void saveTemplate(event.currentTarget as HTMLFormElement) })
   document.getElementById('cancelServiceTemplate')?.addEventListener('click', () => { editingTemplateId = ''; render() })
   document.querySelectorAll<HTMLButtonElement>('[data-edit-service-template]').forEach(button => button.addEventListener('click', () => { editingTemplateId = button.dataset.editServiceTemplate!; render() }))
   document.querySelectorAll<HTMLButtonElement>('[data-delete-service-template]').forEach(button => button.addEventListener('click', () => void deleteTemplate(button.dataset.deleteServiceTemplate!)))
   document.getElementById('saveServiceLeaders')?.addEventListener('click', () => void saveLeaders())
-  document.getElementById('applyServiceSuggestion')?.addEventListener('click', applySuggestion)
-}
-
-function applySuggestion(): void {
-  const selected = (document.getElementById('serviceSuggestion') as HTMLSelectElement).value, suggestion = suggestionsFromEscala(escalaLocals).find(item => item.id === selected); if (!suggestion) return
-  const form = document.getElementById('serviceTemplateForm') as HTMLFormElement
-  ;(form.elements.namedItem('dow') as HTMLSelectElement).value = String(suggestion.dow)
-  ;(form.elements.namedItem('time') as HTMLInputElement).value = suggestion.time
-  ;(form.elements.namedItem('location') as HTMLInputElement).value = suggestion.location
 }
 
 async function saveTemplate(form: HTMLFormElement): Promise<void> {

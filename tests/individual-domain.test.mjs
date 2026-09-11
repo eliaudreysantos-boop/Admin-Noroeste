@@ -25,6 +25,8 @@ test('agrega apenas atribuicoes do masterId solicitado', () => {
   assert.deepEqual(events.map(event => event.source), ['tarefas', 'limpeza', 'escala', 'oradores', 'programacao', 'servicoCampo'])
   assert.equal(events.some(event => event.title === 'Microfone 1'), false)
   assert.equal(events.find(event => event.source === 'tarefas')?.status, 'futuro')
+  assert.equal(events.find(event => event.source === 'escala')?.title, 'Escala TPL')
+  assert.match(events.find(event => event.source === 'escala')?.detail ?? '', /Carrinho/)
 })
 
 test('respeita permissao por fonte e limita observacao aprovada', () => {
@@ -122,12 +124,20 @@ test('quadro de anúncios agrupa designações por pessoa e por origem', () => {
 
 test('quadro inclui discursos visitantes sem vínculo com o cadastro central', () => {
   const copy = structuredClone(root)
-  copy.tarefas.discursos.oradores.visitante = { nome:'Carlos Visitante' }
+  copy.tarefas.discursos.oradores.visitante = { nome:'Carlos Visitante', tipo:'visitante' }
   copy.tarefas.discursos.programacao.visitante = { data:'2026-09-20', tipo:'discurso_visitante', oradorId:'visitante', temaTitulo:'Esperança', congregacaoOrigemNome:'Centro' }
   const event = collectAnnouncementEvents(copy).find(item => item.id === 'oradores:visitante')
   assert.equal(event?.people[0], 'Carlos Visitante')
   assert.equal(event?.location, 'Centro')
   assert.equal(event?.note, undefined)
+})
+
+test('quadro não publica orador local órfão apenas pelo nome', () => {
+  const copy = structuredClone(root)
+  copy.tarefas.people.taskOrphan = { name:'Gabriel', masterId:'m-inexistente' }
+  copy.tarefas.discursos.oradores.orphan = { nome:'Gabriel', tipo:'local', pessoaId:'taskOrphan', masterId:'m-inexistente' }
+  copy.tarefas.discursos.programacao.orphan = { data:'2026-09-20', tipo:'discurso_local', oradorId:'orphan', temaTitulo:'Tema órfão' }
+  assert.equal(collectAnnouncementEvents(copy).some(item => item.id === 'oradores:orphan'), false)
 })
 
 test('compartilhamento do quadro usa somente dados públicos', () => {

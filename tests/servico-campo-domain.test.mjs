@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { datesForDow, generateFieldServicePeriod, publishedFieldServiceAssignments, suggestionsFromEscala } from '../src/modules/servico-campo-domain.ts'
+import { datesForDow, generateFieldServicePeriod, publishedFieldServiceAssignments } from '../src/modules/servico-campo-domain.ts'
 
 test('gera todas as ocorrências mensais e permite várias saídas no mesmo dia', () => {
   const period = generateFieldServicePeriod({
@@ -24,12 +24,6 @@ test('rodízio aceita qualquer tamanho de grupo e preserva edições manuais', (
   const regenerated = generateFieldServicePeriod({ month:'2026-09', templates:{ a:template }, leaderIds:['m1', 'm2'], existing, now:'y' })
   assert.equal(regenerated.assignments['2026-09-07-a'].leaderId, 'm9')
   assert.equal(regenerated.assignments.extra.manual, true)
-})
-
-test('sugestões leem locais, dias e horários ativos da Escala TPL', () => {
-  const suggestions = suggestionsFromEscala({ praca:{ name:'Praça', active:true, daysActive:[1, 3], slots:['08:00', '16:00'] }, antigo:{ active:false, daysActive:[2], slots:['10:00'] } })
-  assert.equal(suggestions.length, 4)
-  assert.deepEqual(suggestions[0], { id:'praca|1|08:00', dow:1, time:'08:00', location:'Praça' })
 })
 
 test('adapter público retorna somente períodos publicados', () => {

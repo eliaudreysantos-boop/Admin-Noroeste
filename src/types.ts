@@ -156,6 +156,7 @@ export interface AgendaPublicDocument {
 export interface AgendaSubscription {
   token: string
   tipo: 'pessoal' | 'quadro'
+  installationId?: string
   masterId?: string
   modulos?: AgendaReminderModule[]
   ativo: boolean

@@ -6,7 +6,6 @@ export interface FieldServiceTemplate {
   location: string
   active: boolean
   sortOrder: number
-  importedFromEscala?: boolean
 }
 
 export interface FieldServiceAssignment {
@@ -28,22 +27,6 @@ export interface FieldServicePeriod {
   publishedAt?: string
 }
 
-interface EscalaLocalLike {
-  active?: boolean
-  name?: string
-  daysActive?: number[]
-  slots?: string[]
-  startTime?: string
-  start?: string
-}
-
-export interface FieldServiceSuggestion {
-  id: string
-  dow: number
-  time: string
-  location: string
-}
-
 const validMonth = (month: string): boolean => /^\d{4}-\d{2}$/.test(month)
 const validTime = (time: string): boolean => /^([01]\d|2[0-3]):[0-5]\d$/.test(time)
 
@@ -56,20 +39,6 @@ export function datesForDow(month: string, dow: number): string[] {
     if (new Date(year, monthNumber - 1, day).getDay() !== dow) continue
     result.push(`${month}-${String(day).padStart(2, '0')}`)
   }
-  return result
-}
-
-export function suggestionsFromEscala(locals: Record<string, EscalaLocalLike>): FieldServiceSuggestion[] {
-  const result: FieldServiceSuggestion[] = []
-  Object.entries(locals)
-    .filter(([, local]) => local.active !== false)
-    .sort((a, b) => String(a[1].name ?? a[0]).localeCompare(String(b[1].name ?? b[0]), 'pt-BR'))
-    .forEach(([localId, local]) => {
-      const location = String(local.name ?? localId).trim()
-      const times = [...new Set((local.slots?.length ? local.slots : [String(local.startTime ?? local.start ?? '')]).filter(validTime))].sort()
-      const days = [...new Set((local.daysActive ?? []).filter(dow => Number.isInteger(dow) && dow >= 0 && dow <= 6))].sort()
-      for (const dow of days) for (const time of times) result.push({ id:`${localId}|${dow}|${time}`, dow, time, location })
-    })
   return result
 }
 

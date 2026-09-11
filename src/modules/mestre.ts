@@ -24,6 +24,13 @@ import {
   agendaConfigRef,
   agendaDocumentsRef,
   rootRef,
+  masterRef,
+  tarefasRef,
+  limpezaRef,
+  escalaRef,
+  programacaoRef,
+  secretarioRef,
+  servicoCampoRef,
 } from '../firebase'
 import { renderMenuCards, type ItemMenu } from '../ui/menu-cards'
 import { moduleBackButton } from '../ui/module-header'
@@ -32,11 +39,13 @@ import {
   createMasterId,
   linkIssueSource,
   normalizeWhatsapp,
+  personalUserConflict,
   sanitizeFailureReportValue,
   sharedWhatsappPeople,
 } from './mestre-domain'
 import { navigateTo } from '../router'
 import { previewPdf } from '../ui/pdf-preview'
+import { duplicateReportGroups, type SecretaryReport } from './secretario-domain'
 
 // ─── Estado do módulo ────────────────────────────────────────────────────────
 
@@ -225,8 +234,7 @@ async function loadRootData(force = false): Promise<void> {
   rootLoadError = ''
   renderContent()
   try {
-    const snap = await get(rootRef)
-    rootData = snap.exists() ? objectValue(snap.val()) : {}
+    rootData = await loadPublicRoot()
   } catch {
     rootLoadError = 'Não foi possível carregar os dados completos.'
     toast('Erro ao carregar dados para auditoria')
@@ -265,6 +273,25 @@ function renderContent(): void {
   else if (activeTab === 'vinculos') renderVinculos()
   else                               renderDados()
 
+}
+
+async function loadPublicRoot(): Promise<Record<string, unknown>> {
+  const entries = await Promise.all([
+    ['master', masterRef], ['usuarios', usuariosRef], ['tarefas', tarefasRef],
+    ['limpeza', limpezaRef], ['escala', escalaRef], ['programacao', programacaoRef],
+    ['secretario', secretarioRef], ['servicoCampo', servicoCampoRef],
+    ['agendaConfig', agendaConfigRef], ['agendaDocuments', agendaDocumentsRef],
+  ].map(async ([key, reference]) => {
+    const snapshot = await get(reference as typeof rootRef)
+    return [key, snapshot.exists() ? snapshot.val() as unknown : null] as const
+  }))
+  const values = Object.fromEntries(entries)
+  return {
+    master:values['master'], usuarios:values['usuarios'], tarefas:values['tarefas'],
+    limpeza:values['limpeza'], escala:values['escala'], programacao:values['programacao'],
+    secretario:values['secretario'], servicoCampo:values['servicoCampo'],
+    agenda:{ config:values['agendaConfig'], documentos:values['agendaDocuments'] },
+  }
 }
 
 function renderIndex(): void {
@@ -314,6 +341,7 @@ function linkCollections(data: Record<string, unknown>) {
     servicoCampo: Object.fromEntries(
       Object.entries(objectValue(servicoCampo['leaders'])).map(([masterId, active]) => [masterId, { masterId, active }]),
     ),
+    usuarios: records(data['usuarios']),
   }
 }
 
@@ -361,6 +389,7 @@ function collectLinkIssues(data: Record<string, unknown>): LinkIssue[] {
     ...collectDirectLinkIssues('Secretário', collections.secretario),
     ...collectDirectLinkIssues('Programação', collections.programacao),
     ...collectDirectLinkIssues('Serviço de Campo', collections.servicoCampo, item => item['active'] === true),
+    ...collectDirectLinkIssues('Usuários', collections.usuarios, item => item['ativo'] === true),
   ]
 
   const servicoCampo = objectValue(data['servicoCampo'])
@@ -400,6 +429,12 @@ function collectLinkIssues(data: Record<string, unknown>): LinkIssue[] {
       issues.push({ module: 'Oradores', id, kind: masterId ? 'orfao' : 'sem_vinculo', detail: masterId ? `masterId indireto inexistente: ${masterId}` : `Pessoa ${pessoaId} sem masterId` })
     }
   })
+
+  const secretario = objectValue(data['secretario']), relatorios = records(secretario['relatorios']) as unknown as Record<string, SecretaryReport>
+  duplicateReportGroups(relatorios).forEach(group => group.ids.forEach(id => issues.push({
+    module:'Relatórios', id, kind:'duplicado',
+    detail:`${group.masterId} possui mais de um relatório em ${group.competencia}: ${group.ids.join(', ')}`,
+  })))
 
   return issues.sort((a, b) => a.module.localeCompare(b.module, 'pt-BR') || a.id.localeCompare(b.id))
 }
@@ -613,7 +648,20 @@ async function restoreBackup(): Promise<void> {
   if (button) { button.disabled = true; button.textContent = 'Restaurando...' }
   try {
     downloadBackup(rootData, 'noroeste-antes-da-restauracao')
-    await set(rootRef, restoreCandidate)
+    const agenda = objectValue(restoreCandidate['agenda'])
+    await update(rootRef, {
+      master:restoreCandidate['master'] ?? null,
+      usuarios:restoreCandidate['usuarios'] ?? null,
+      tarefas:restoreCandidate['tarefas'] ?? null,
+      limpeza:restoreCandidate['limpeza'] ?? null,
+      escala:restoreCandidate['escala'] ?? null,
+      programacao:restoreCandidate['programacao'] ?? null,
+      secretario:restoreCandidate['secretario'] ?? null,
+      servicoCampo:restoreCandidate['servicoCampo'] ?? null,
+      'agenda/config':agenda['config'] ?? null,
+      'agenda/documentos':agenda['documentos'] ?? null,
+      'agenda/assinaturas':null,
+    })
     restoreCandidate = null
     restoreFileName = ''
     rootData = null
@@ -858,8 +906,7 @@ async function deletePessoa(mid: string): Promise<void> {
   const p = pessoas[mid]
   if (!p) return
   try {
-    const snap = await get(rootRef)
-    const freshRoot = snap.exists() ? objectValue(snap.val()) : {}
+    const freshRoot = await loadPublicRoot()
     const references = findMasterReferences(freshRoot, mid)
     if (references.length) {
       rootData = freshRoot
@@ -961,6 +1008,7 @@ function usuarioCard(uid: string, u: Usuario): string {
         <div style="font-weight:600;font-size:.9rem;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
           ${escapeHtml(u.nome)} ${badge}
         </div>
+        <div style="font-size:.75rem;color:var(--ink-3);margin-top:2px">Pessoa: ${escapeHtml(u.masterId ? pessoas[u.masterId]?.name ?? 'Vínculo inválido' : 'Sem vínculo')}</div>
         <div style="font-size:.75rem;color:var(--ink-3);margin-top:2px">Apps: ${escapeHtml(appsList(u.apps))}</div>
         <div style="font-size:.7rem;color:var(--ink-3);margin-top:1px;font-family:monospace">${escapeHtml(uid)}</div>
       </div>
@@ -980,12 +1028,22 @@ function openUsuarioModal(uid: string | null): void {
   }
   const overlay = document.createElement('div')
   overlay.className = 'modal-overlay'
+  const personOptions = Object.entries(pessoas)
+    .filter(([masterId, person]) => person.active !== false || masterId === u?.masterId)
+    .sort(([, a], [, b]) => a.name.localeCompare(b.name, 'pt-BR'))
+    .map(([masterId, person]) => `<option value="${escapeHtml(masterId)}" ${u?.masterId === masterId ? 'selected' : ''}>${escapeHtml(person.name)}${person.active === false ? ' (inativa)' : ''}</option>`)
+    .join('')
   overlay.innerHTML = `
     <div class="modal">
       <h2>${uid ? 'Editar Usuário' : 'Novo Usuário'}</h2>
       <div class="form-group">
         <label class="form-label">Nome *</label>
         <input id="uNome" class="form-input" value="${escapeHtml(u?.nome)}" placeholder="Nome de login">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="uMasterId">Pessoa vinculada *</label>
+        <select id="uMasterId" class="form-select"><option value="">Selecione uma pessoa</option>${personOptions}</select>
+        <p class="form-help">Nome, telefone e identidade vêm do cadastro central de pessoas.</p>
       </div>
       <div class="form-group">
         <label class="form-label">Senha *</label>
@@ -1026,9 +1084,12 @@ function openUsuarioModal(uid: string | null): void {
 async function saveUsuario(uid: string | null, overlay: HTMLElement): Promise<void> {
   const nome     = (document.getElementById('uNome')     as HTMLInputElement).value.trim()
   const senha    = (document.getElementById('uSenha')    as HTMLInputElement).value
+  const masterId = (document.getElementById('uMasterId') as HTMLSelectElement).value
   const ativo    = (document.getElementById('uAtivo')    as HTMLInputElement).checked
   if (!nome)  { toast('Preencha o nome');  return }
   if (!senha) { toast('Preencha a senha'); return }
+  if (!masterId || !pessoas[masterId]) { toast('Selecione uma pessoa válida'); return }
+  if (ativo && personalUserConflict(usuarios, masterId, uid)) { toast('Esta pessoa já possui outra conta ativa', 4000); return }
 
   const checkApp = (id: string) =>
     (document.getElementById(`uApp_${id}`) as HTMLInputElement).checked
@@ -1036,15 +1097,14 @@ async function saveUsuario(uid: string | null, overlay: HTMLElement): Promise<vo
   const selectedApps = {
     mestre: checkApp('mestre'), tarefas: checkApp('tarefas'), limpeza: checkApp('limpeza'),
     oradores: checkApp('oradores'), escala: checkApp('escala'), programacao: checkApp('programacao'),
-    secretario: checkApp('secretario'), servicoCampo:checkApp('servicoCampo'),
+    secretario: checkApp('secretario'), servicoCampo:checkApp('servicoCampo'), individual:true,
   }
   const apps = selectedApps
   const usuario: Usuario = {
     ...(uid && usuarios[uid] ? usuarios[uid] : {}),
-    nome, senha, ativo,
+    nome, senha, ativo, masterId,
     apps,
   }
-  delete usuario.masterId
   if (!['secretario', 'publicador', 'assistencia'].includes(String(usuario.secretarioPapel ?? ''))) delete usuario.secretarioPapel
   const finalUid = uid ?? genId('u_')
   const proposedUsuarios: RawUsuarios = { ...usuarios, [finalUid]: usuario }

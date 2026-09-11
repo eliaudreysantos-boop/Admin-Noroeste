@@ -9,9 +9,9 @@ que essa pasta de referencias for apagada.
 ## Estado confirmado do projeto
 
 - Repositorio principal: `admin-spa`.
-- Baseline auditada: commit `e1f68a5`.
+- Baseline auditada: commit `662a4fd`.
 - Build de producao concluido sem erros.
-- Suite completa com 110 testes aprovados.
+- Suite completa com 126 testes aprovados.
 - Admin/Mestre, Tarefas, Limpeza, Oradores, Escala TPL, Vida e Ministerio,
   Secretario, Servico de Campo e Minha Agenda ja possuem seus fluxos principais.
 - Os dados atuais sao exemplos para validar o aplicativo. A revisao e o
@@ -58,9 +58,242 @@ que essa pasta de referencias for apagada.
   do service worker; a Netlify nao e um segundo banco de dados.
 - Rascunhos de relatorio nunca sao enviados pela sincronizacao automatica.
 
-## Contrato final dos relatorios
+## Auditoria modulo a modulo
 
-Esta e a primeira fase obrigatoria restante.
+Auditoria de codigo atualizada em 11/09/2026. A suite possui 126 testes e o
+build de producao esta aprovado. `Concluido no codigo` significa que nao foi
+encontrada lacuna funcional conhecida no dominio; ainda exige a homologacao de
+interface descrita ao final deste documento.
+
+### Admin/Mestre - concluido no codigo
+
+Confirmado:
+
+- cadastro central de pessoas, nome, telefone e `masterId` permanente;
+- telefone compartilhado permitido sem fundir pessoas;
+- criacao e edicao de usuarios e permissoes por modulo;
+- backup completo, validacao antes de restaurar e relatorio sanitizado de
+  falhas de vinculo;
+- configuracao de congregacao, reunioes, lembretes ICS e WhatsApp do Quadro;
+- upload de PDF para o Quadro com previa obrigatoria;
+- select de pessoa obrigatorio no cadastro de usuario e preservacao de
+  `usuario.masterId`;
+- usuarios ativos sem vinculo incluidos no relatorio de falhas;
+- Minha Agenda exibida no indice de modulos;
+- backup e auditoria leem apenas as raizes publicas, sem enumerar tokens ICS;
+- dez testes de dominio, backup e regras aprovados.
+
+Falta:
+
+- vincular manualmente as contas administrativas antigas as pessoas corretas
+  quando os dados reais forem revisados;
+- publicar as regras e as funcoes privadas da assinatura na Fase 6.
+
+### Tarefas - concluido no codigo
+
+Confirmado:
+
+- geracao mensal ou bimestral, por todas as funcoes ou por funcao;
+- regras de reuniao, elegibilidade, duplas, conflitos e excecoes;
+- preservacao de edicoes manuais e geracao apenas de datas pendentes;
+- publicacao como fronteira: rascunho nao aparece em Minha Agenda;
+- reabertura, limpeza controlada, pendencias e vinculo por `masterId`;
+- previa de impressao com ajuste de fonte e paginacao;
+- mensagens comuns de reuniao nao sao enviadas por este modulo;
+- quinze testes aprovados.
+
+Falta apenas na homologacao:
+
+- conferir a previa e a impressao em A4 no navegador usado em producao;
+- testar publicar, reabrir e editar manualmente em tela pequena.
+
+### Limpeza - concluido no codigo
+
+Confirmado:
+
+- escala mensal ou bimestral e rodizio estavel;
+- grupos proprios ou aproveitamento opcional dos grupos do Secretario;
+- configuracao de superintendente, ajudantes e dias de reuniao;
+- PDF A4 com reducao de fonte, previa obrigatoria e publicacao no Quadro;
+- ausencia de textos, aprovacoes e mensagens por reuniao;
+- descricao do menu corrigida para `Grupos, rodizio e PDF`;
+- cinco testes aprovados.
+
+Falta apenas na homologacao:
+
+- homologar a previa com grupos reais e semanas na virada de mes.
+
+### Oradores - concluido com reforco de teste documental
+
+Confirmado:
+
+- lista unica de oradores locais e visitantes;
+- cadastro de orador sem campo proprio de observacao;
+- edicao e exclusao nao sao bloqueadas porque um tema ja foi usado;
+- programacao local, visitante e saida, congregacoes, eventos e conflitos;
+- confirmacao, reconfirmacao, pendencias e acoes operacionais de WhatsApp;
+- card `Aprovados para saida` com nome e numeros do repertorio, sem telefone;
+- card `Emergencia` com texto e botao de copiar, sem PDF;
+- filtros de programacao sem campo de busca;
+- catalogo de temas e programacao com previa PDF;
+- publicacao da programacao para o Quadro;
+- testes reais de assinatura `%PDF`, paginacao, lista vazia, programacao e
+  catalogo;
+- quatorze testes aprovados.
+
+Falta apenas na homologacao:
+
+- homologar copiar texto, WhatsApp, previa e impressao em celular e desktop.
+
+### Escala TPL - concluido no codigo
+
+Confirmado:
+
+- locais, dias, horarios, indisponibilidades e excecoes;
+- varias escalas no mesmo dia e validacao de duplas;
+- rodizio deterministico, edicao manual e preservacao de historico;
+- publicacao por mes, snapshot dos nomes e bloqueio do mes publicado;
+- reabertura sem expor rascunho em Minha Agenda ou no Quadro;
+- previa de impressao com fonte ajustada;
+- compromissos identificados como carrinho de testemunho publico, sem usar o
+  rotulo `Servico de Campo`;
+- separacao explicita do modulo Servico de Campo: pontos e horarios de carrinho
+  nao podem ser importados como saidas de campo;
+- mensagens comuns nao sao enviadas por este modulo;
+- dezesseis testes aprovados.
+
+Falta apenas na homologacao:
+
+- conferir impressao com o maior numero esperado de horarios;
+- conferir publicacao, despublicacao e snapshot de participante removido.
+
+### Vida e Ministerio - concluido no codigo
+
+Confirmado:
+
+- importacao da programacao oficial e reimportacao sem apagar edicoes locais;
+- designacoes, ajudantes, substitutos, elegibilidade e sugestoes;
+- funcionamento somente com sala principal, sem exigir salas B ou C;
+- pendencias, realizacao, confirmacao e lembretes operacionais editaveis;
+- S-89 e S-140 PDF com previa; S-140 DOCX por download;
+- adapter para Minha Agenda e Quadro sem recalcular designacoes;
+- dezenove testes aprovados.
+
+Falta apenas na homologacao:
+
+- testar uma importacao real da URL oficial;
+- conferir S-89 individual, lote semanal e S-140 com dados representativos.
+
+### Secretario - contrato de relatorios concluido no codigo
+
+Confirmado:
+
+- cadastro de grupos e publicadores por `masterId`;
+- categorias, relatorios, atrasos, pendentes e lembretes por pessoa ou grupo;
+- painel S-1, ano de servico, assistencia de meio e fim de semana;
+- fechamento e reabertura simples da competencia;
+- painel anual e documentos S-21, S-88 e S-3;
+- PDF dos grupos em A4 retrato e lote S-21 em planilhas ZIP;
+- previa dos PDFs gerados;
+- chave canonica unica por `masterId + competencia`, gravacao transacional e
+  migracao segura de IDs legados durante a edicao;
+- origem, ultimo editor, revisao e estado do relatorio preservados;
+- correcao pelo Secretario mantida depois do envio da pessoa;
+- duplicidades legadas exibidas na tela e incluidas no relatorio de falhas;
+- fechamento e reabertura atualizam o estado dos relatorios;
+- o mesmo PDF selecionado precisa ser visualizado antes de poder virar template
+  oficial;
+- quinze testes aprovados.
+
+Falta:
+
+- homologar concorrencia real entre Minha Agenda e Secretario em dois clientes;
+- sanear as duplicidades legadas somente na etapa futura de dados reais;
+- manter `xlsx` restrito aos templates internos confiaveis.
+
+### Servico de Campo - concluido no codigo
+
+Confirmado:
+
+- cadastro de modelos com local, dia, horario e rotulo;
+- cadastro manual das saidas recorrentes, sem confundir pontos de carrinho da
+  Escala TPL com horarios de servico de campo;
+- qualquer quantidade de dirigentes no rodizio;
+- mais de uma saida no mesmo dia;
+- edicao manual preservada ao completar o mes;
+- publicacao e reabertura por mes;
+- PDF A4 retrato com previa e publicacao no Quadro;
+- evento pessoal somente para o dirigente, com lembrete;
+- evento coletivo no Quadro sem lembrete;
+- quatro testes aprovados.
+
+Falta apenas depois do fechamento funcional:
+
+- preencher locais, horarios e dirigentes reais;
+- comparar visualmente o PDF com o modelo atual fornecido pelo usuario.
+
+### Minha Agenda - concluida no codigo, exceto publicacao ICS
+
+Confirmado:
+
+- PWA propria em `/agenda/` e snapshot pessoal sanitizado offline;
+- quatro telas: Pessoal, Geral, Relatorio e Quadro;
+- Pessoal usa somente o `masterId` selecionado e nunca procura por nome;
+- Geral mostra calendario coletivo e somente a lista do dia selecionado;
+- Relatorio inclui envio mensal e resumo do ano de servico/S-21;
+- Quadro concentra texto copiavel, WhatsApp, arquivos e assinatura, sem repetir
+  a lista mensal completa;
+- arquivos publicados por periodo;
+- download pontual ICS pessoal e do Quadro;
+- leitura dos adapters sem recalcular os modulos;
+- orador local com vinculo orfao nao aparece no Quadro apenas pelo nome; a
+  excecao sem cadastro central continua restrita a orador visitante;
+- rascunho mensal permanece apenas no aparelho ate o envio explicito;
+- envio possui contagem cancelavel de 10 segundos, consulta atual ao Firebase e
+  transacao que nunca sobrescreve relatorio oficial concorrente;
+- depois do envio da pessoa ou de uma edicao do Secretario, o card fica travado
+  para a pessoa e mostra origem e correcao;
+- identidade local travada, sem botao visivel de troca, com desbloqueio por sete
+  toques, senha Admin online e limite de tentativas;
+- card Minha Agenda incluido para usuarios administrativos;
+- assinatura pessoal e do Quadro isolada por instalacao no cliente e na API;
+- vinte e oito testes aprovados, incluindo feed e assinatura de calendario.
+
+Falta:
+
+- homologar o envio concorrente e a falha de conexao em dois clientes reais;
+- publicar e homologar as funcoes e regras da assinatura na ultima fase.
+
+Dados de exemplo identificados durante a auditoria:
+
+- Gabriel Augusto existe no Admin como `m_1d6d07f9`, mas os registros antigos de
+  Tarefas e Oradores apontam para o `masterId` inexistente `m_46a6065b`;
+- por seguranca, Minha Agenda nao deve tentar reparar isso por nome. O relatorio
+  de falhas do Admin deve orientar a correcao do vinculo quando chegar a etapa de
+  saneamento dos dados;
+- esse vinculo orfao explica o discurso aparecer antes no Quadro pelo nome e nao
+  aparecer na agenda pessoal de Gabriel. O adapter foi corrigido para nao
+  publicar mais essa combinacao incoerente.
+
+## Fase 1 - Contrato final dos relatorios
+
+Concluida no codigo em 11/09/2026. Os cenarios de corrida em dois clientes e de
+falha real de conexao permanecem na homologacao da Fase 5.
+
+### Implementacao entregue
+
+- Rascunho local, contagem cancelavel de 10 segundos e envio somente por acao
+  explicita.
+- Leitura atual do Firebase antes do envio e nova verificacao dentro de uma
+  transacao sobre a raiz do Secretario.
+- Chave canonica compartilhada por Minha Agenda e Secretario.
+- Recusa atomica quando a competencia fecha ou outro relatorio surge durante a
+  contagem, sem sobrescrever o registro oficial.
+- Metadados de origem, ultimo editor, revisao, estado e identificador do envio.
+- Edicao do Secretario preserva o criador e migra o ID legado para a chave
+  canonica sem descartar registros concorrentes.
+- Fechamento e reabertura atualizam os estados dos relatorios.
+- Duplicidades legadas aparecem no Secretario e no relatorio de falhas do Admin.
 
 ### Regra funcional
 
@@ -132,7 +365,7 @@ Estados esperados na Minha Agenda:
 O modulo Secretario deve continuar permitindo editar os registros recebidos e
 mostrar quem criou o relatorio e quem fez a ultima alteracao.
 
-### Testes obrigatorios
+### Homologacao obrigatoria
 
 - Criar e enviar um relatorio novo.
 - Cancelar durante os 10 segundos.
@@ -146,6 +379,9 @@ mostrar quem criou o relatorio e quem fez a ultima alteracao.
 - Detectar e relatar duplicidades legadas.
 
 ## Fase 2 - Identidade e acesso
+
+Concluida no codigo em 11/09/2026. A escolha dos vinculos das contas antigas foi
+deliberadamente deixada para a revisao dos dados reais, sem associacao por nome.
 
 ### Implementacao
 
@@ -182,11 +418,35 @@ mostrar quem criou o relatorio e quem fez a ultima alteracao.
 - Usuario sem modulos abre somente Minha Agenda.
 - Admin consulta outra pessoa sem assumir sua identidade.
 
-## Fase 3 - Dependencias e documentacao
+## Fase 3 - Ajustes finais dos modulos auditados
+
+Concluida no codigo em 11/09/2026.
+
+- Corrigir a descricao do card de Limpeza.
+- Exigir previa antes de salvar template PDF no Secretario.
+- Adicionar testes reais dos PDFs de Oradores.
+- Confirmar nos adapters que `Escala TPL` significa carrinho e `Servico de Campo`
+  significa somente as saidas cadastradas no modulo proprio.
+- Confirmar que nenhuma mensagem comum de reuniao voltou para Tarefas, Limpeza,
+  Escala TPL ou Oradores; acoes de confirmacao e intercambio continuam no modulo
+  dono.
+- Rodar novamente os 126 testes e o build.
+
+## Fase 4 - Dependencias e documentacao
+
+Concluida no codigo em 11/09/2026:
+
+- Firebase atualizado de 10.14.1 para 12.19.0;
+- Vite atualizado de 5.4.21 para 8.3.0;
+- Firebase Admin 14.4.0 adicionado apenas nas funcoes de servidor;
+- vulnerabilidades corrigiveis removidas sem `--force`;
+- permanecem somente os alertas conhecidos do `xlsx`, sem correcao publicada;
+- build e os 126 testes aprovados depois da atualizacao.
 
 - Atualizar os documentos mantidos no repositorio para remover a regra antiga
   que permitia ao publicador editar relatorio ja enviado.
-- Registrar o contrato canonico de relatorio nos padroes reaproveitaveis.
+- Manter neste documento o contrato canonico de relatorio e as decisoes que
+  antes estavam espalhadas pelos MDs removidos.
 - Manter a regra obrigatoria de previa para todo PDF gerado pelo aplicativo.
 - Atualizar Firebase de forma controlada, sem `npm audit fix --force`, e executar
   novamente build e todos os testes.
@@ -199,7 +459,20 @@ mostrar quem criou o relatorio e quem fez a ultima alteracao.
   bloqueio funcional. Aplicar divisao adicional somente se a medicao em celular
   mostrar necessidade.
 
-## Fase 4 - Homologacao final
+## Fase 5 - Homologacao funcional
+
+Passagem de leitura em desktop concluida em 11/09/2026: todos os nove modulos
+abriram com a conta Admin, o card Minha Agenda apareceu, o bloqueio por sete
+toques abriu a confirmacao esperada e o console permaneceu sem erros. Nenhuma
+gravacao nos dados de exemplo foi feita nessa passagem.
+
+A concorrencia do envio de relatorio foi simulada localmente: o primeiro envio
+e aceito, enquanto repeticao, registro legado existente e competencia fechada
+sao recusados pela mesma decisao usada dentro da transacao do Firebase.
+
+O empacotamento local das duas Netlify Functions tambem foi validado. Os testes
+que ainda exigem publicacao, celular, calendario externo ou alteracao dos dados
+foram mantidos abaixo para a homologacao final.
 
 Executar com a conta Admin e dados de exemplo antes dos dados reais:
 
@@ -210,14 +483,77 @@ Executar com a conta Admin e dados de exemplo antes dos dados reais:
 - envio definitivo de relatorio e bloqueio imediato do card;
 - correcao pelo Secretario, badge de origem e ultima edicao;
 - fechamento e reabertura de competencia;
-- Agenda, Relatorio e Quadro em telas pequenas;
-- download ICS e assinatura pessoal;
-- assinatura do Quadro pelos modulos selecionados;
-- feed publicado pela Netlify e revogacao de token;
+- Pessoal, Geral, Relatorio e Quadro em telas pequenas;
+- download pontual ICS pessoal e do Quadro;
 - upload de PDF pelo Admin e exibicao no Quadro;
 - previa obrigatoria dos PDFs dos modulos;
 - console do navegador sem erros durante os fluxos principais;
 - build e suite completa aprovados novamente.
+
+## Fase 6 - Assinatura ICS, sempre por ultimo
+
+O codigo da assinatura foi concluido em 11/09/2026. A publicacao das regras e
+funcoes e o teste em calendarios reais continuam obrigatoriamente por ultimo.
+
+### Implementacao entregue
+
+- Cada instalacao recebe um identificador local aleatorio, diferente de
+  `masterId`.
+- Assinaturas pessoais e do Quadro sao independentes por instalacao.
+- O navegador guarda somente os proprios tokens e nao carrega mais nenhuma
+  colecao de assinaturas do Firebase.
+- Criacao, alteracao e revogacao usam a Netlify Function
+  `calendar-subscriptions`.
+- O feed `calendar` consulta o token pelo Firebase Admin em
+  `agendaAssinaturasPrivadas`.
+- `database.rules.json` nega leitura e escrita publica dos caminhos de tokens e
+  deixa explicitas as raizes publicas usadas pelo aplicativo.
+- Backup, restauracao e auditoria foram adaptados para as raizes publicas e nao
+  incluem segredos de assinatura.
+- A URL do banco e a conta de servico sairam da funcao e usam
+  `FIREBASE_DATABASE_URL` e `FIREBASE_SERVICE_ACCOUNT_JSON`.
+- Tokens continuam opacos com 48 caracteres; revogados retornam `410`.
+- O limite de dois `VALARM` por modulo foi preservado.
+- Servico de Campo continua sem alarme no Quadro.
+- Testes automatizados cobrem instalacoes independentes, propriedade, alteracao,
+  revogacao, validacao, isolamento pessoal e filtros do Quadro.
+
+### Publicacao obrigatoria
+
+1. Configurar na Netlify `FIREBASE_DATABASE_URL` e
+   `FIREBASE_SERVICE_ACCOUNT_JSON` conforme `.env.example`.
+2. Publicar `database.rules.json` no projeto Firebase e confirmar que a leitura
+   da raiz e de ambos os caminhos de assinatura retorna permissao negada.
+3. Publicar o site e as duas Netlify Functions.
+4. Gerar tokens novos; assinaturas antigas de `agenda/assinaturas` nao sao
+   migradas nem reutilizadas.
+5. Confirmar no endereco publicado os retornos `400`, `404`, `410` e `200` do
+   feed sem registrar tokens em logs.
+
+### Testes obrigatorios
+
+- Duas instalacoes criarem assinaturas do Quadro com modulos diferentes.
+- Alterar uma assinatura sem modificar a outra.
+- Duas instalacoes da mesma pessoa possuirem revogacao independente.
+- Cliente comum nao conseguir listar tokens.
+- Token invalido, inexistente e revogado retornarem `400`, `404` e `410`.
+- Feed pessoal retornar somente o `masterId` vinculado.
+- Feed do Quadro retornar somente os modulos escolhidos.
+- Mudanca publicada aparecer no mesmo link sem criar nova assinatura.
+- Testar o link publicado em Google Calendar, Android e Apple Calendar; Outlook
+  entra quando fizer parte do uso real.
+- Avaliar inclusao de `VTIMEZONE` somente se algum calendario real nao
+  interpretar corretamente `America/Fortaleza`.
+- Registrar que o calendario externo escolhe seu proprio intervalo de
+  atualizacao; o app nao promete sincronizacao instantanea.
+
+### Criterio de conclusao da assinatura
+
+- endpoint Netlify publicado e variaveis configuradas;
+- regras Firebase publicadas e tokens nao enumeraveis pelo navegador;
+- assinaturas independentes por instalacao e revogacao validadas;
+- feed atualizado validado em calendario real;
+- testes e build aprovados depois da publicacao.
 
 ## Itens posteriores ao fechamento funcional
 
@@ -235,7 +571,7 @@ Estes itens nao bloqueiam a conclusao do codigo:
 
 O projeto pode ser considerado funcionalmente finalizado quando:
 
-1. As quatro fases deste documento estiverem concluidas.
+1. As seis fases deste documento estiverem concluidas.
 2. Minha Agenda nunca sobrescrever um relatorio oficial existente.
 3. A pessoa nao conseguir trocar acidentalmente sua identidade local.
 4. O Secretario continuar com poder de correcao e o historico de origem for

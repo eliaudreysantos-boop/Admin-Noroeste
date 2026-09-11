@@ -1,6 +1,8 @@
 export type PublisherCategory = 'publicador' | 'pioneiro_auxiliar' | 'pioneiro_regular' | 'pioneiro_especial' | 'missionario'
 export type MeetingKind = 'meio_semana' | 'fim_semana'
 export type ReportOrigin = 'minha_agenda' | 'secretario'
+export type ReportActor = 'pessoa' | 'secretario'
+export type ReportStatus = 'enviado' | 'revisado' | 'fechado'
 export type PublisherReportState = 'recebido' | 'atrasado' | 'sem_relatorio' | 'inativo'
 
 export interface SecretaryGroup { id: string; nome: string; superintendenteMasterId: string; ativo: boolean }
@@ -10,6 +12,8 @@ export interface SecretaryReport {
   participou: boolean; estudos: number; horasCampo: number; horasAtividadeAprovada: number
   creditoHoras: number; pioneiroAuxiliar: boolean; observacoes: string; atrasado: boolean
   recebidoEm: string; atualizadoEm: string; origem: ReportOrigin
+  createdBy?: ReportActor; lastEditedBy?: ReportActor; status?: ReportStatus
+  revision?: number; submissionId?: string
 }
 export interface SecretaryAttendance { id: string; data: string; tipo: MeetingKind; quantidade: number; atualizadoEm: string }
 export interface CongregationReportSummary {
@@ -27,6 +31,34 @@ export const CATEGORY_LABELS: Record<PublisherCategory, string> = {
 export function records<T>(value: unknown): Record<string, T> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, T> : {}
 }
+
+export function canonicalReportId(masterId: string, competence: string): string {
+  const person = masterId.trim()
+  if (!/^[A-Za-z0-9_-]+$/.test(person) || !/^\d{4}-\d{2}$/.test(competence)) throw new Error('Identidade ou competência inválida')
+  return `${person}__${competence}`
+}
+
+export function reportCreatedBy(report: SecretaryReport): ReportActor {
+  return report.createdBy ?? (report.origem === 'minha_agenda' ? 'pessoa' : 'secretario')
+}
+
+export function reportLastEditedBy(report: SecretaryReport): ReportActor {
+  return report.lastEditedBy ?? reportCreatedBy(report)
+}
+
+export function matchingReports(reportList: Record<string, SecretaryReport>, masterId: string, competence: string): Array<[string, SecretaryReport]> {
+  return Object.entries(reportList).filter(([, report]) => report.masterId === masterId && report.competencia === competence)
+}
+
+export function duplicateReportGroups(reportList: Record<string, SecretaryReport>): Array<{ masterId: string; competencia: string; ids: string[] }> {
+  const groups = new Map<string, { masterId: string; competencia: string; ids: string[] }>()
+  Object.entries(reportList).forEach(([id, report]) => {
+    if (!report.masterId || !/^\d{4}-\d{2}$/.test(report.competencia)) return
+    const key = `${report.masterId}|${report.competencia}`, current = groups.get(key) ?? { masterId:report.masterId, competencia:report.competencia, ids:[] }
+    current.ids.push(id); groups.set(key, current)
+  })
+  return [...groups.values()].filter(group => group.ids.length > 1).sort((a, b) => a.competencia.localeCompare(b.competencia) || a.masterId.localeCompare(b.masterId))
+}
 export interface MonthlyActivitySummary { month: string; reports: number; participants: number; studies: number; auxiliaryHours: number; regularHours: number }
 
 export function isClosedMonth(competence: string, closings: unknown): boolean {
@@ -34,9 +66,21 @@ export function isClosedMonth(competence: string, closings: unknown): boolean {
   return Boolean(closing?.['fechadoEm'])
 }
 
+export type PersonalReportCommitResult =
+  | { ok: true; value: Record<string, unknown> }
+  | { ok: false; reason: 'fechado' | 'existente' }
+
+export function preparePersonalReportCommit(rootValue: unknown, report: SecretaryReport): PersonalReportCommitResult {
+  const root = records(rootValue)
+  if (isClosedMonth(report.competencia, root['fechamentos'])) return { ok:false, reason:'fechado' }
+  const reports = records<SecretaryReport>(root['relatorios'])
+  if (matchingReports(reports, report.masterId, report.competencia).length) return { ok:false, reason:'existente' }
+  return { ok:true, value:{ ...root, relatorios:{ ...reports, [report.id]:report } } }
+}
+
 export function normalizePersonalReport(input: {
   id: string; masterId: string; competencia: string; categoria: PublisherCategory; participou: boolean
-  estudos: unknown; horasCampo?: unknown; observacoes?: unknown; recebidoEm: string; atualizadoEm: string
+  estudos: unknown; horasCampo?: unknown; observacoes?: unknown; recebidoEm: string; atualizadoEm: string; submissionId?: string
 }): SecretaryReport {
   const number = (value: unknown): number => Math.max(0, Number(value) || 0)
   const allowsHours = ['pioneiro_auxiliar', 'pioneiro_regular'].includes(input.categoria)
@@ -46,6 +90,8 @@ export function normalizePersonalReport(input: {
     horasAtividadeAprovada: 0, creditoHoras: 0, pioneiroAuxiliar: input.categoria === 'pioneiro_auxiliar',
     observacoes: String(input.observacoes ?? '').trim().slice(0, 250), atrasado: isReportLate(input.competencia, input.recebidoEm),
     recebidoEm: input.recebidoEm, atualizadoEm: input.atualizadoEm, origem: 'minha_agenda',
+    createdBy:'pessoa', lastEditedBy:'pessoa', status:'enviado', revision:1,
+    ...(input.submissionId ? { submissionId:input.submissionId } : {}),
   }
 }
 

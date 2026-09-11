@@ -342,6 +342,19 @@ body {
   letter-spacing: .04em;
 }
 
+.agenda-identity-name {
+  overflow: hidden;
+  max-width: 150px;
+  padding: 8px 0;
+  border: 0;
+  background: transparent;
+  color: rgba(255,255,255,.78);
+  font: 600 .78rem var(--font);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: default;
+}
+
 .form-field {
   display: flex;
   flex-direction: column;
@@ -993,6 +1006,7 @@ textarea.form-input {
 .escala-print-page td span { display: block; }
 
 .agenda-toolbar { display: grid; grid-template-columns: 42px minmax(180px, 260px) 42px; justify-content: center; gap: 8px; margin-bottom: 10px; }
+.agenda-screen-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .agenda-toolbar .btn { min-width: 42px; padding: 8px; font-size: 1.2rem; }
 .agenda-actions { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
 .agenda-calendar { overflow: hidden; margin-bottom: 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
@@ -1002,7 +1016,10 @@ textarea.form-input {
 .agenda-day:nth-child(7n) { border-right: 0; }
 .agenda-day.empty { background: var(--surface-2); }
 .agenda-day.has-events { background: #EFF8F3; }
+.agenda-day-button { appearance: none; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.agenda-day-button.selected { outline: 2px solid var(--primary); outline-offset: -2px; background: #E8F2FA; }
 .agenda-day i { display: inline-block; width: 6px; height: 6px; margin: 12px 2px 0 0; border-radius: 50%; background: #1A6B3C; }
+.agenda-selected-day { display: flex; justify-content: space-between; gap: 12px; margin: 0 2px 8px; color: var(--ink-2); font-size: .78rem; }
 .agenda-list { overflow: hidden; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
 .agenda-event { display: grid; grid-template-columns: 105px minmax(0, 1fr) auto; align-items: start; gap: 12px; padding: 12px; border-bottom: 1px solid var(--border); }
 .agenda-event:last-child { border-bottom: 0; }
@@ -1092,6 +1109,7 @@ textarea.form-input {
   .agenda-event { grid-template-columns: 1fr auto; gap: 6px 10px; }
   .agenda-event time { grid-column: 1 / -1; }
   .agenda-day { min-height: 44px; padding: 4px; }
+  .agenda-screen-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .admin-reminder-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .admin-reminder-row > strong { grid-column: 1 / -1; }
   .admin-reminder-heading { display: none; }

@@ -78,7 +78,7 @@ export function collectAgendaEvents(rootValue: unknown, masterId: string, allowe
         const ids = [text(cell['p1']), text(cell['p2'])]
         if (ids.some(id => participantIds.has(id))) {
           const partner = ids.find(id => id && !participantIds.has(id))
-          add({ id:`escala:${localId}:${month}:${date}:${time}`, source:'escala', date, time, title:'Serviço de campo', detail:partner ? `Dupla com ${participantName(partner) || 'parceiro definido'}` : 'Dupla de serviço de campo', location, status:'futuro' })
+          add({ id:`escala:${localId}:${month}:${date}:${time}`, source:'escala', date, time, title:'Escala TPL', detail:partner ? `Carrinho com ${participantName(partner) || 'parceiro definido'}` : 'Carrinho de testemunho público', location, status:'futuro' })
         }
       }))
       })
@@ -163,8 +163,11 @@ export function collectAnnouncementEvents(rootValue: unknown, allowed: Partial<R
     Object.entries(rows(discursos['programacao'])).forEach(([id, talkValue]) => {
       const talk = rows(talkValue), speaker = rows(speakers[text(talk['oradorId'])]), taskPerson = rows(taskPeople[text(speaker['pessoaId'])])
       const masterId = text(speaker['masterId']) || text(taskPerson['masterId'])
+      const type = text(talk['tipo']), isVisitor = text(speaker['tipo']) === 'visitante' || type === 'discurso_visitante'
+      if (masterId && people[masterId]) return
+      if (!isVisitor) return
       const name = text(rows(people[masterId])['name']) || text(speaker['nome']) || text(speaker['name']) || text(talk['oradorNome']) || 'Orador a definir'
-      const type = text(talk['tipo']), congregationId = type === 'saida_orador' ? text(talk['congregacaoDestinoId']) || text(talk['congregacaoId']) : text(talk['congregacaoOrigemId']) || text(talk['congregacaoId'])
+      const congregationId = type === 'saida_orador' ? text(talk['congregacaoDestinoId']) || text(talk['congregacaoId']) : text(talk['congregacaoOrigemId']) || text(talk['congregacaoId'])
       const congregation = rows(congregations[congregationId]), destination = text(talk['congregacaoDestinoNome']), origin = text(talk['congregacaoOrigemNome']), confirmation = rows(talk['confirmacao'])['status'] === true
       add({ id:`oradores:${id}`, source:'oradores', date:text(talk['data']), time:text(talk['horarioLocal']) || undefined, title:type === 'saida_orador' ? 'Discurso em outra congregação' : 'Discurso público', detail:text(talk['temaTitulo']) || (talk['temaNumero'] ? `Tema ${String(talk['temaNumero'])}` : 'Tema a confirmar'), location:destination || origin || text(congregation['nome']) || text(talk['localCongregacaoNome']) || undefined, status:text(talk['status']) === 'realizado' || text(talk['realizadoPorId']) ? 'realizado' : confirmation ? 'futuro' : 'confirmacao-pendente' }, name)
     })

@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { accountingMonth, activityByServiceYear, archiveCanBeDeleted, attendanceByMonth, isClosedMonth, isReportLate, monthsInServiceYear, normalizePersonalReport, pendingPublishers, publisherReportState, serviceYearStart, summarizeCongregation } from '../src/modules/secretario-domain.ts'
+import { accountingMonth, activityByServiceYear, archiveCanBeDeleted, attendanceByMonth, canonicalReportId, duplicateReportGroups, isClosedMonth, isReportLate, matchingReports, monthsInServiceYear, normalizePersonalReport, pendingPublishers, preparePersonalReportCommit, publisherReportState, reportCreatedBy, reportLastEditedBy, serviceYearStart, summarizeCongregation } from '../src/modules/secretario-domain.ts'
 
 const report = (id, overrides = {}) => ({ id, masterId: id, competencia: '2026-08', categoria: 'publicador', participou: true, estudos: 1, horasCampo: 0, horasAtividadeAprovada: 0, creditoHoras: 0, pioneiroAuxiliar: false, observacoes: '', atrasado: false, recebidoEm: '2026-09-03', atualizadoEm: '', ...overrides })
 
@@ -41,9 +41,38 @@ test('relatório pessoal respeita a categoria, normaliza dados e identifica mês
   const pioneer = normalizePersonalReport({ id:'a', masterId:'m2', competencia:'2026-09', categoria:'pioneiro_auxiliar', participou:true, estudos:'2', horasCampo:'14.5', observacoes:'ok', recebidoEm:'2026-09-11', atualizadoEm:'' })
   assert.equal(ordinary.estudos, 0); assert.equal(ordinary.horasCampo, 0); assert.equal(ordinary.observacoes.length, 250)
   assert.equal(ordinary.origem, 'minha_agenda'); assert.equal(pioneer.horasCampo, 14.5); assert.equal(pioneer.atrasado, false)
+  assert.equal(ordinary.createdBy, 'pessoa'); assert.equal(ordinary.lastEditedBy, 'pessoa'); assert.equal(ordinary.revision, 1)
   assert.equal(isClosedMonth('2026-09', { '2026-09': { enviadoEm:'2026-10-11' } }), false)
   assert.equal(isClosedMonth('2026-09', { '2026-09': { fechadoEm:'2026-10-11' } }), true)
   assert.equal(isClosedMonth('2026-10', { '2026-09': { fechadoEm:'2026-10-11' } }), false)
+})
+
+test('relatório usa chave canônica e encontra duplicidades legadas sem ocultá-las', () => {
+  assert.equal(canonicalReportId('m_123', '2026-09'), 'm_123__2026-09')
+  assert.throws(() => canonicalReportId('m/123', '2026-09'))
+  const reports = { antigo:report('antigo', { masterId:'m1' }), outro:report('outro', { masterId:'m1' }), unico:report('unico', { masterId:'m2' }) }
+  assert.equal(matchingReports(reports, 'm1', '2026-08').length, 2)
+  assert.deepEqual(duplicateReportGroups(reports), [{ masterId:'m1', competencia:'2026-08', ids:['antigo', 'outro'] }])
+})
+
+test('metadados legados inferem criador e último editor pela origem', () => {
+  assert.equal(reportCreatedBy(report('p', { origem:'minha_agenda' })), 'pessoa')
+  assert.equal(reportLastEditedBy(report('s', { origem:'secretario' })), 'secretario')
+})
+
+test('transação pessoal aceita apenas o primeiro envio da competência', () => {
+  const item = report('m1__2026-08', { masterId:'m1', origem:'minha_agenda' })
+  const first = preparePersonalReportCommit({}, item)
+  assert.equal(first.ok, true)
+  if (!first.ok) return
+  assert.equal(first.value.relatorios[item.id], item)
+  assert.deepEqual(preparePersonalReportCommit(first.value, item), { ok:false, reason:'existente' })
+})
+
+test('transação pessoal respeita relatório legado e mês fechado', () => {
+  const item = report('m1__2026-08', { masterId:'m1', origem:'minha_agenda' })
+  assert.deepEqual(preparePersonalReportCommit({ relatorios:{ legado:report('legado', { masterId:'m1' }) } }, item), { ok:false, reason:'existente' })
+  assert.deepEqual(preparePersonalReportCommit({ fechamentos:{ '2026-08':{ fechadoEm:'2026-09-11' } } }, item), { ok:false, reason:'fechado' })
 })
 
 test('painel mensal diferencia recebido, atrasado, sem relatório e inativo', () => {

@@ -27,7 +27,7 @@ export function personalUserConflict(
 ): boolean {
   if (!masterId) return false
   return Object.entries(users).some(([uid, user]) => (
-    uid !== currentUid && user.apps.individual === true && user.masterId === masterId
+    uid !== currentUid && user.ativo && user.masterId === masterId
   ))
 }
 
@@ -70,6 +70,10 @@ export function linkIssueSource(
     if (id in publicadores) return { path: `secretario/publicadores/${id}`, record: publicadores[id] }
     const pessoas = objectValue(secretario['pessoas'])
     return { path: `secretario/pessoas/${id}`, record: pessoas[id] }
+  }
+  if (module === 'Relatórios') {
+    const relatorios = objectValue(secretario['relatorios'])
+    return { path: `secretario/relatorios/${id}`, record: relatorios[id] }
   }
   if (module === 'Programação') {
     const pessoas = objectValue(programacao['pessoas'])

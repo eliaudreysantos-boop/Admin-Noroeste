@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { calendarResponse } from '../netlify/functions/calendar.ts'
 
 const token = 'a'.repeat(48)
+process.env.FIREBASE_DATABASE_URL = 'https://database.test'
 const root = {
   agenda:{ config:{ icsReminders:{ tarefas:['P1D'], servicoCampo:['P1D'], quadro:['P1D'] } } },
   master:{ pessoas:{ m1:{ name:'Ana', active:true }, m2:{ name:'Bruno', active:true } } },
@@ -13,17 +14,18 @@ const root = {
   servicoCampo:{ periods:{ '2026-09':{ month:'2026-09', published:true, assignments:{ s1:{ id:'s1', templateId:'t', date:'2026-09-18', time:'16:00', location:'Salão', label:'Saída', leaderId:'m1' } } } } },
 }
 
-function fetcher(subscription) {
+function fetcher() {
   return async url => {
-    if (url.includes('/agenda/assinaturas/')) return new Response(JSON.stringify(subscription), { status:200 })
     const path = new URL(url).pathname.replace(/^\//, '').replace(/\.json$/, '')
     const value = path.split('/').reduce((current, key) => current?.[key], root)
     return new Response(JSON.stringify(value ?? null), { status:200 })
   }
 }
 
+const store = subscription => ({ get:async () => subscription, set:async () => undefined })
+
 test('feed pessoal valida token e devolve apenas a agenda vinculada', async () => {
-  const response = await calendarResponse(new Request(`https://app.test/.netlify/functions/calendar?token=${token}`), fetcher({ token, tipo:'pessoal', masterId:'m1', ativo:true, criadoEm:'2026-09-01' }))
+  const response = await calendarResponse(new Request(`https://app.test/.netlify/functions/calendar?token=${token}`), fetcher(), store({ token, tipo:'pessoal', masterId:'m1', ativo:true, criadoEm:'2026-09-01' }))
   const body = await response.text()
   assert.equal(response.status, 200)
   assert.match(response.headers.get('content-type'), /text\/calendar/)
@@ -33,7 +35,7 @@ test('feed pessoal valida token e devolve apenas a agenda vinculada', async () =
 })
 
 test('feed do quadro respeita os módulos escolhidos', async () => {
-  const response = await calendarResponse(new Request(`https://app.test/.netlify/functions/calendar?token=${token}`), fetcher({ token, tipo:'quadro', modulos:['tarefas'], ativo:true, criadoEm:'2026-09-01' }))
+  const response = await calendarResponse(new Request(`https://app.test/.netlify/functions/calendar?token=${token}`), fetcher(), store({ token, tipo:'quadro', modulos:['tarefas'], ativo:true, criadoEm:'2026-09-01' }))
   const body = await response.text()
   assert.equal(response.status, 200)
   assert.match(body, /SUMMARY:Leitor/)
@@ -41,16 +43,16 @@ test('feed do quadro respeita os módulos escolhidos', async () => {
 })
 
 test('feed rejeita token inválido e assinatura revogada', async () => {
-  const invalid = await calendarResponse(new Request('https://app.test/.netlify/functions/calendar?token=curto'), fetcher(null))
-  const revoked = await calendarResponse(new Request(`https://app.test/.netlify/functions/calendar?token=${token}`), fetcher({ token, tipo:'pessoal', masterId:'m1', ativo:false, criadoEm:'2026-09-01' }))
+  const invalid = await calendarResponse(new Request('https://app.test/.netlify/functions/calendar?token=curto'), fetcher(), store(null))
+  const revoked = await calendarResponse(new Request(`https://app.test/.netlify/functions/calendar?token=${token}`), fetcher(), store({ token, tipo:'pessoal', masterId:'m1', ativo:false, criadoEm:'2026-09-01' }))
   assert.equal(invalid.status, 400)
   assert.equal(revoked.status, 410)
 })
 
 test('Serviço de Campo lembra o dirigente, mas não cria alarme no Quadro', async () => {
-  const personal = await calendarResponse(new Request(`https://app.test/.netlify/functions/calendar?token=${token}`), fetcher({ token, tipo:'pessoal', masterId:'m1', ativo:true, criadoEm:'2026-09-01' }))
+  const personal = await calendarResponse(new Request(`https://app.test/.netlify/functions/calendar?token=${token}`), fetcher(), store({ token, tipo:'pessoal', masterId:'m1', ativo:true, criadoEm:'2026-09-01' }))
   assert.match(await personal.text(), /TRIGGER:-P1D/)
-  const board = await calendarResponse(new Request(`https://app.test/.netlify/functions/calendar?token=${token}`), fetcher({ token, tipo:'quadro', modulos:['servicoCampo'], ativo:true, criadoEm:'2026-09-01' }))
+  const board = await calendarResponse(new Request(`https://app.test/.netlify/functions/calendar?token=${token}`), fetcher(), store({ token, tipo:'quadro', modulos:['servicoCampo'], ativo:true, criadoEm:'2026-09-01' }))
   const body = await board.text()
   assert.match(body, /SUMMARY:Dirigente - Saída/)
   assert.doesNotMatch(body, /BEGIN:VALARM/)

@@ -1,8 +1,9 @@
 import './style.css'
-import { get, pessoasRef } from './firebase'
-import type { MasterPessoa, Usuario } from './types'
+import { get, pessoasRef, usuariosRef } from './firebase'
+import type { MasterPessoa, RawUsuarios, Usuario } from './types'
 import mountAgenda from './modules/individual'
 import { sanitizeAgendaPeople } from './modules/individual-domain'
+import { advanceUnlockTap, validAdminPassword, type UnlockTapState } from './modules/agenda-identity-domain'
 import { refreshServiceWorkerWeekly } from './pwa-sync'
 
 const PERSON_KEY = 'noroeste_agenda_person'
@@ -17,6 +18,9 @@ const error = document.getElementById('agendaError')!
 const bottomUser = document.getElementById('bottomUser')!
 let people: Record<string, MasterPessoa> = {}
 let syncingPeople = false
+let unlockTaps: UnlockTapState = { count:0, lastTapAt:0 }
+let failedUnlocks = 0
+let unlockBlockedUntil = 0
 
 function activePeople(): Array<[string, MasterPessoa]> {
   return Object.entries(people).filter(([, person]) => person.active !== false).sort(([, a], [, b]) => a.name.localeCompare(b.name, 'pt-BR'))
@@ -77,11 +81,55 @@ async function init(): Promise<void> {
 }
 
 continueButton.addEventListener('click', () => openAgenda(select.value))
-document.getElementById('agendaChange')?.addEventListener('click', () => {
-  localStorage.removeItem(PERSON_KEY)
-  shell.classList.add('hidden')
-  identity.classList.remove('hidden')
+bottomUser.addEventListener('click', () => {
+  const result = advanceUnlockTap(unlockTaps, Date.now())
+  unlockTaps = result.state
+  if (result.unlocked) openIdentityUnlock()
 })
+
+function openIdentityUnlock(): void {
+  if (Date.now() < unlockBlockedUntil) {
+    alert('Aguarde um pouco antes de tentar novamente.')
+    return
+  }
+  const overlay = document.createElement('div')
+  overlay.className = 'modal-overlay'
+  overlay.innerHTML = `<form class="modal" id="agendaUnlockForm"><h2>Desbloquear pessoa</h2><p class="form-help">Informe a senha de um Admin para voltar à seleção de pessoa.</p><label class="form-field"><span>Senha Admin</span><input id="agendaAdminPassword" class="form-input" type="password" autocomplete="current-password" required></label><p id="agendaUnlockError" class="login-error" role="alert"></p><div class="secretary-actions"><button id="agendaUnlockCancel" class="btn btn-ghost" type="button">Cancelar</button><button id="agendaUnlockConfirm" class="btn btn-primary" type="submit">Desbloquear</button></div></form>`
+  document.body.appendChild(overlay)
+  const form = document.getElementById('agendaUnlockForm') as HTMLFormElement
+  const password = document.getElementById('agendaAdminPassword') as HTMLInputElement
+  const message = document.getElementById('agendaUnlockError')!
+  const button = document.getElementById('agendaUnlockConfirm') as HTMLButtonElement
+  const close = (): void => overlay.remove()
+  document.getElementById('agendaUnlockCancel')?.addEventListener('click', close)
+  overlay.addEventListener('click', event => { if (event.target === overlay) close() })
+  form.addEventListener('submit', async event => {
+    event.preventDefault()
+    button.disabled = true
+    button.textContent = 'Verificando...'
+    try {
+      const snapshot = await get(usuariosRef)
+      const users = snapshot.exists() ? snapshot.val() as RawUsuarios : {}
+      if (!validAdminPassword(users, password.value)) {
+        failedUnlocks += 1
+        if (failedUnlocks >= 5) { unlockBlockedUntil = Date.now() + 30_000; failedUnlocks = 0; close(); alert('Muitas tentativas. Aguarde 30 segundos.'); return }
+        message.textContent = 'Senha Admin inválida.'
+        password.value = ''
+        password.focus()
+        return
+      }
+      failedUnlocks = 0
+      localStorage.removeItem(PERSON_KEY)
+      location.reload()
+    } catch {
+      message.textContent = 'É preciso estar conectado para desbloquear a pessoa.'
+    } finally {
+      button.disabled = false
+      button.textContent = 'Desbloquear'
+    }
+  })
+  password.focus()
+}
 
 void init()
 

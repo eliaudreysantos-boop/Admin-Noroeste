@@ -27,6 +27,11 @@ export interface ThemeCatalogRow {
   proximos: string
 }
 
+export interface GeneratedPdf {
+  bytes: Uint8Array
+  pages: number
+}
+
 type ScheduleTalk = Pick<Talk, 'data' | 'tipo' | 'oradorId' | 'oradorNome' | 'temaNumero' | 'temaTitulo' | 'congregacaoId' | 'congregacaoDestinoId' | 'congregacaoDestinoNome' | 'congregacaoOrigemId' | 'congregacaoOrigemNome'>
 
 export function scheduleRows(entries: Array<[string, ScheduleTalk]>, speakers: Record<string, Speaker>, congregations: Record<string, Congregation>): SchedulePdfRow[] {
@@ -123,10 +128,10 @@ export function availableSpeakerThemes(params: {
     .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
 }
 
-export async function downloadAvailableThemesPdf(params: {
+export async function createAvailableThemesPdf(params: {
   congregation: string
   entries: AvailableSpeakerThemes[]
-}): Promise<void> {
+}): Promise<GeneratedPdf> {
   const pdf = await PDFDocument.create()
   const regular = await pdf.embedFont(StandardFonts.Helvetica)
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold)
@@ -160,7 +165,15 @@ export async function downloadAvailableThemesPdf(params: {
     page.drawText('Nenhum orador com tema disponivel.', { x: MARGIN, y, size: 11, font: regular })
   }
 
-  previewPdf(Uint8Array.from(await pdf.save()), 'temas-disponiveis.pdf', 'Previa dos temas disponiveis')
+  return { bytes:Uint8Array.from(await pdf.save()), pages:pdf.getPageCount() }
+}
+
+export async function downloadAvailableThemesPdf(params: {
+  congregation: string
+  entries: AvailableSpeakerThemes[]
+}): Promise<void> {
+  const result = await createAvailableThemesPdf(params)
+  previewPdf(result.bytes, 'temas-disponiveis.pdf', 'Previa dos temas disponiveis')
 }
 
 function formatDate(value: string): string {
@@ -191,11 +204,11 @@ function drawScheduleRows(page: PDFPage, regular: PDFFont, bold: PDFFont, title:
   return y
 }
 
-export async function downloadSchedulePdf(params: {
+export async function createSchedulePdf(params: {
   congregation: string
   periodLabel: string
   rows: SchedulePdfRow[]
-}): Promise<void> {
+}): Promise<GeneratedPdf> {
   const pdf = await PDFDocument.create()
   const regular = await pdf.embedFont(StandardFonts.Helvetica)
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold)
@@ -218,16 +231,24 @@ export async function downloadSchedulePdf(params: {
     }
   }
 
-  const bytes = Uint8Array.from(await pdf.save())
-  const filename = `programacao-oradores-${params.periodLabel}.pdf`
-  previewPdf(bytes, filename, 'Previa da programacao de oradores')
-  void import('./agenda-documents.ts').then(({ archiveAgendaPdf }) => archiveAgendaPdf(bytes, { modulo:'oradores', periodo:params.periodLabel, nome:filename })).catch(() => undefined)
+  return { bytes:Uint8Array.from(await pdf.save()), pages:pdf.getPageCount() }
 }
 
-export async function downloadThemeCatalogPdf(params: {
+export async function downloadSchedulePdf(params: {
+  congregation: string
+  periodLabel: string
+  rows: SchedulePdfRow[]
+}): Promise<void> {
+  const result = await createSchedulePdf(params)
+  const filename = `programacao-oradores-${params.periodLabel}.pdf`
+  previewPdf(result.bytes, filename, 'Previa da programacao de oradores')
+  void import('./agenda-documents.ts').then(({ archiveAgendaPdf }) => archiveAgendaPdf(result.bytes, { modulo:'oradores', periodo:params.periodLabel, nome:filename })).catch(() => undefined)
+}
+
+export async function createThemeCatalogPdf(params: {
   congregation: string
   rows: ThemeCatalogRow[]
-}): Promise<void> {
+}): Promise<GeneratedPdf> {
   const pdf = await PDFDocument.create()
   const regular = await pdf.embedFont(StandardFonts.Helvetica)
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold)
@@ -251,5 +272,13 @@ export async function downloadThemeCatalogPdf(params: {
     })
     if (!rows.length) page.drawText('Nenhum tema cadastrado.', { x: MARGIN, y, size: 10, font: regular })
   })
-  previewPdf(Uint8Array.from(await pdf.save()), 'catalogo-de-temas.pdf', 'Previa do catalogo de temas')
+  return { bytes:Uint8Array.from(await pdf.save()), pages:pdf.getPageCount() }
+}
+
+export async function downloadThemeCatalogPdf(params: {
+  congregation: string
+  rows: ThemeCatalogRow[]
+}): Promise<void> {
+  const result = await createThemeCatalogPdf(params)
+  previewPdf(result.bytes, 'catalogo-de-temas.pdf', 'Previa do catalogo de temas')
 }

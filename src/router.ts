@@ -9,7 +9,7 @@ const MODULE_META: Record<
 > = {
   mestre:      { label: 'Admin',        desc: 'Pessoas, config e usuários',   icon: '⚙️',  color: '#003F72' },
   tarefas:     { label: 'Tarefas',      desc: 'Funções da reunião',           icon: '📋', color: '#7E3AF2' },
-  limpeza:     { label: 'Limpeza',      desc: 'Grupos, textos e PDF',         icon: '🧹', color: '#006EB6' },
+  limpeza:     { label: 'Limpeza',      desc: 'Grupos, rodízio e PDF',        icon: '🧹', color: '#006EB6' },
   oradores:    { label: 'Oradores',     desc: 'Discursos públicos',           icon: '🎙️', color: '#5C6062' },
   escala:      { label: 'Escala TPL',   desc: 'Escala de campo TPL',          icon: '🌿', color: '#1A6B3C' },
   programacao: { label: 'Vida e Ministério', desc: 'Reunião do meio de semana', icon: '📅', color: '#003F72' },
@@ -19,7 +19,7 @@ const MODULE_META: Record<
 }
 
 const MODULES_ORDER: ModuleName[] = [
-  'mestre', 'secretario', 'servicoCampo', 'oradores', 'programacao', 'tarefas', 'limpeza', 'escala',
+  'mestre', 'secretario', 'servicoCampo', 'oradores', 'programacao', 'tarefas', 'limpeza', 'escala', 'individual',
 ]
 
 // ─── Lazy loaders ───────────────────────────────────────────────────────────
@@ -91,7 +91,7 @@ export function initRouter(uid: string, usuario: import('./types').Usuario): voi
   // apps.mestre = Admin → acesso total a todos os módulos
   const accessList = usuario.apps.mestre
     ? MODULES_ORDER
-    : MODULES_ORDER.filter((m) => hasAccess(usuario.apps, m))
+    : MODULES_ORDER.filter((m) => hasAccess(usuario.apps, m) || (m === 'individual' && Boolean(usuario.masterId)))
   _accessList = accessList
 
   if (accessList.length === 0) {
