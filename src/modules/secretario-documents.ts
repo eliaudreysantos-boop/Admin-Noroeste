@@ -1,7 +1,7 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf-lib/cjs/index.js'
 import type { MasterPessoa } from '../types'
 import { previewPdf } from '../ui/pdf-preview.ts'
-import type { SecretaryAttendance, SecretaryPublisher, SecretaryReport } from './secretario-domain'
+import type { SecretaryAttendance, SecretaryGroup, SecretaryPublisher, SecretaryReport } from './secretario-domain'
 
 export interface SensitivePublisherFields { nascimento?: string; batismo?: string; ungido?: boolean }
 
@@ -106,4 +106,55 @@ export async function createS88(template: ArrayBuffer, attendance: Record<string
 
 export function previewSecretaryPdf(bytes: Uint8Array, filename: string): void {
   previewPdf(bytes, filename)
+}
+
+function fitGroupName(font: PDFFont, value: string, size: number, width: number): string {
+  if (font.widthOfTextAtSize(value, size) <= width) return value
+  let result = value
+  while (result.length > 1 && font.widthOfTextAtSize(`${result}...`, size) > width) result = result.slice(0, -1)
+  return `${result.trim()}...`
+}
+
+function privilegeCode(person: MasterPessoa | undefined): string {
+  const role = person?.role === 'anciao' ? 'A' : person?.role === 'servo-ministerial' ? 'SM' : ''
+  return person?.role === 'pioneiro' ? 'P' : role
+}
+
+export async function createGroupsPdf(
+  groupRecords: Record<string, SecretaryGroup>,
+  publisherRecords: Record<string, SecretaryPublisher>,
+  people: Record<string, MasterPessoa>,
+  congregation: string,
+): Promise<Uint8Array> {
+  const pdf = await PDFDocument.create(), regular = await pdf.embedFont(StandardFonts.Helvetica), bold = await pdf.embedFont(StandardFonts.HelveticaBold)
+  const groups = Object.values(groupRecords).filter(group => group.ativo).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+  const chunks = groups.length ? Array.from({ length:Math.ceil(groups.length / 4) }, (_, index) => groups.slice(index * 4, (index + 1) * 4)) : [[]]
+  for (const [pageIndex, chunk] of chunks.entries()) {
+    const page = pdf.addPage([595.28, 841.89])
+    page.drawRectangle({ x:38, y:775, width:519, height:28, color:rgb(.62, .74, .92) })
+    const title = `Grupos de serviço${congregation ? ` - ${congregation}` : ''}`
+    page.drawText(fitGroupName(bold, title, 14, 490), { x:52, y:784, size:14, font:bold, color:rgb(.04, .1, .16) })
+    if (chunks.length > 1) page.drawText(`${pageIndex + 1}/${chunks.length}`, { x:520, y:786, size:7, font:regular, color:rgb(.25, .3, .35) })
+    const gap = 10, width = (519 - gap * 3) / 4
+    chunk.forEach((group, column) => {
+      const x = 38 + column * (width + gap)
+      page.drawRectangle({ x, y:720, width, height:22, color:rgb(.78, .85, .95) })
+      page.drawText(fitGroupName(bold, group.nome, 9, width - 10), { x:x + 5, y:727, size:9, font:bold, color:rgb(.03, .09, .14) })
+      const members = Object.values(publisherRecords).filter(item => item.ativo && item.grupoId === group.id).sort((a, b) => {
+        if (a.masterId === group.superintendenteMasterId) return -1
+        if (b.masterId === group.superintendenteMasterId) return 1
+        return (people[a.masterId]?.name ?? '').localeCompare(people[b.masterId]?.name ?? '', 'pt-BR')
+      })
+      const size = Math.max(7, Math.min(9, 635 / Math.max(1, members.length) - 1))
+      const line = size + 2
+      members.forEach((publisher, index) => {
+        const person = people[publisher.masterId], y = 704 - index * line
+        if (y < 45) return
+        const code = privilegeCode(person)
+        page.drawText(code, { x, y, size:size - 1, font:regular, color:rgb(.48, .5, .53) })
+        page.drawText(fitGroupName(publisher.masterId === group.superintendenteMasterId ? bold : regular, person?.name ?? 'Cadastro não encontrado', size, width - 24), { x:x + 19, y, size, font:publisher.masterId === group.superintendenteMasterId ? bold : regular, color:rgb(.08, .1, .12) })
+      })
+    })
+  }
+  return pdf.save()
 }

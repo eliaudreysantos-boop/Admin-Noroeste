@@ -20,7 +20,7 @@ novo e:
 
 | Padrao | Onde ja aparece | Proxima aplicacao provavel |
 |---|---|---|
-| Identidade central por `masterId` | Tarefas, Limpeza, Oradores, Vida e Ministerio, Minha Agenda | Secretario e qualquer modulo que precise receber dados do publicador |
+| Identidade central por `masterId` | Tarefas, Limpeza, Oradores, Vida e Ministerio, Servico de Campo, Minha Agenda | Secretario e qualquer modulo que precise receber dados do publicador |
 | Nome/telefone vindos somente do Admin | Tarefas, Oradores, Vida e Ministerio, Secretaria parcial | Secretario precisa preservar isso ao receber relatorios da Minha Agenda |
 | Seletor de pessoa vinculada ao cadastro central | Tarefas, Limpeza, Oradores, Vida e Ministerio | Publicadores, grupos e conferencia no Secretario |
 | Preferencias locais de tela | Oradores, Limpeza, Minha Agenda, Vida e Ministerio | Secretario: filtros de grupo, mes, ano de servico e status |
@@ -30,8 +30,8 @@ novo e:
 | PDFs por dados operacionais reais | Tarefas, Limpeza, Oradores, Vida e Ministerio, Secretario | Padronizar controles de periodo, fonte e preview quando possivel |
 | Quadro derivado sem tabela nova | Minha Agenda | Apps publicos e visoes de consulta que nao devem recalcular escalas |
 | Texto editavel antes do WhatsApp | Minha Agenda | Compartilhamento de Quadro e rascunhos pessoais; nao voltar aos modulos operacionais |
-| Publicacao como fronteira do adapter | Tarefas, Escala TPL | Rascunhos administrativos nao aparecem em Minha Agenda, Quadro ou ICS |
-| Registro de PDFs publicos | Limpeza, Oradores, Vida e Ministerio | Qualquer PDF destinado ao Quadro grava metadados e URL por periodo depois de abrir a previa |
+| Publicacao como fronteira do adapter | Tarefas, Escala TPL, Servico de Campo | Rascunhos administrativos nao aparecem em Minha Agenda, Quadro ou ICS |
+| Registro de PDFs publicos | Limpeza, Oradores, Vida e Ministerio, Servico de Campo, Admin | Qualquer PDF destinado ao Quadro grava metadados e URL por periodo depois de abrir a previa |
 | Assinatura ICS por token revogavel | Minha Agenda, Quadro | Calendarios externos recebem atualizacoes sem expor `masterId` na URL |
 | Configuracao central de lembretes | Admin, Minha Agenda | Cada origem aplica zero, um ou dois `VALARM` sem alterar o evento original |
 | Inativacao preservando historico | Escala TPL, Oradores | Cadastros referenciados deixam de participar de novas geracoes sem quebrar periodos antigos |
@@ -216,7 +216,9 @@ de fechar Minha Agenda, o Secretario precisa validar este contrato:
 | `revocable calendar feed` | Minha Agenda | Separa download pontual de assinatura atualizavel e permite invalidar links antigos |
 | `offline-first sanitized snapshot` | Minha Agenda | Apps publicos podem abrir o ultimo estado sem guardar senhas, telefones ou dados de terceiros |
 | `weekly shell refresh` | Admin, Minha Agenda | PWAs verificam uma nova versao hospedada sem transformar Netlify em banco de dados |
-| `publication gate` | Tarefas/Escala TPL | Impede que rascunhos vazem para adapters publicos sem duplicar dados |
+| `publication gate` | Tarefas/Escala TPL/Servico de Campo | Impede que rascunhos vazem para adapters publicos sem duplicar dados |
+| `variable-pool rotation` | Servico de Campo | Distribui designacoes para qualquer quantidade de pessoas e evita repeticao no mesmo dia quando possivel |
+| `source-assisted configuration` | Servico de Campo/Escala TPL | Reaproveita horario e local como sugestao sem criar dependencia ou gravacao automatica |
 
 ## Contratos consolidados no fechamento
 
@@ -224,8 +226,10 @@ de fechar Minha Agenda, o Secretario precisa validar este contrato:
 
 O modulo gera bytes, abre a previa obrigatoria e, quando o documento e proprio
 para o Quadro, grava em `agenda/documentos` apenas `id`, modulo, periodo, nome,
-URL e data de criacao. Documentos administrativos do Secretario nao entram
-nesse registro.
+URL, caminho no Storage e data de criacao. Documentos administrativos do
+Secretario nao entram nesse registro. O Admin pode publicar PDFs avulsos de
+consulta quando escolher explicitamente um arquivo, conferir a previa e definir
+nome e periodo.
 
 ### Feed de calendario
 
@@ -240,6 +244,33 @@ Quando um modulo possui rascunho, seu adapter publico precisa de uma marca
 explicita de publicacao. Tarefas usa o periodo bloqueado/publicado; Escala TPL
 usa `publishedMonths` e snapshots. Reabrir ou despublicar remove o periodo das
 visoes publicas sem apagar o trabalho administrativo.
+
+## Servico de Campo
+
+### O que pode reaproveitar
+
+- Rodizio com conjunto variavel de pessoas e equilibrio pelo historico.
+- Varias ocorrencias independentes na mesma data, sem chave unica por dia.
+- Preservacao de escolhas manuais ao completar uma geracao.
+- Sugestoes de configuracao vindas de outro modulo sem gravacao automatica.
+- Publicacao mensal como fronteira para Agenda, Quadro e ICS.
+- Inativacao de modelos recorrentes que ja possuem historico.
+
+### Onde usar depois
+
+- Limpeza e Escala TPL podem reutilizar o rodizio de conjunto variavel quando a
+  unidade distribuida for pessoa, e nao grupo ou dupla.
+- Outros modulos podem usar sugestoes vindas de uma fonte vizinha desde que o
+  responsavel ainda confirme e salve o dado no modulo dono.
+- Minha Agenda consome a designacao do dirigente com lembrete; o Quadro consome
+  a mesma saida publicada sem alarme.
+
+### Nao levar para fora automaticamente
+
+- Tratar toda agenda recorrente como rodizio de dirigentes.
+- Copiar horarios da Escala TPL de forma automatica e permanente.
+- Aplicar o bloqueio de uma saida por dia; o contrato admite varias.
+- Colocar lembrete no feed publico do Quadro.
 
 ## Tarefas
 
@@ -376,7 +407,8 @@ Este passa a ser um padrao obrigatorio para todos os documentos do sistema:
 - a previa nao deve gravar dados nem alterar escalas, programacoes ou relatorios.
 
 Aplicacao obrigatoria: Tarefas, Limpeza, Oradores, Vida e Ministerio, Secretario,
-Escala TPL e futuros documentos da Minha Agenda quando existirem.
+Escala TPL, Servico de Campo, uploads administrativos e futuros documentos da
+Minha Agenda quando existirem.
 
 ### PWA e sincronizacao
 

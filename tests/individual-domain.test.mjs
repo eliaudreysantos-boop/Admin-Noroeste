@@ -12,6 +12,7 @@ const root = {
   limpeza: { periodos:{ p:{ semanas:[{ dataMeioSemana:'2026-09-10', grupo:2, grupoNome:'Grupo 2', membrosMid:['m1'] }] } } },
   escala: { participants:{ e1:{ masterId:'m1' } }, publishedMonths:{ '2026-09':true }, settings:{ locals:{ l1:{ name:'Praça' } } }, tables:{ l1:{ '2026-09':{ rows:{ '2026-09-12':{ slots:{ '08:00':{ p1:'e1', p2:'e2' } } } } } } } },
   programacao: { pessoas:{ m1:{ masterId:'m1' } }, settings:{ meetingTime:'19:30', rooms:[{ id:'main', name:'Salão principal' }] }, programs:{ w:{ meetingDate:'2026-09-16', parts:[{ id:'x', title:'Leitura da Bíblia', assignedPersonId:'m1', confirmedAt:'2026-09-01' }] } } },
+  servicoCampo:{ periods:{ '2026-09':{ month:'2026-09', published:true, assignments:{ s1:{ id:'s1', templateId:'t1', date:'2026-09-17', time:'16:00', location:'Salão do Reino', label:'Saída de campo', leaderId:'m1' } } } } },
 }
 
 test('cache de identidades remove telefone e grupo de limpeza', () => {
@@ -21,7 +22,7 @@ test('cache de identidades remove telefone e grupo de limpeza', () => {
 
 test('agrega apenas atribuicoes do masterId solicitado', () => {
   const events = collectAgendaEvents(root, 'm1')
-  assert.deepEqual(events.map(event => event.source), ['tarefas', 'limpeza', 'escala', 'oradores', 'programacao'])
+  assert.deepEqual(events.map(event => event.source), ['tarefas', 'limpeza', 'escala', 'oradores', 'programacao', 'servicoCampo'])
   assert.equal(events.some(event => event.title === 'Microfone 1'), false)
   assert.equal(events.find(event => event.source === 'tarefas')?.status, 'futuro')
 })
@@ -31,6 +32,15 @@ test('respeita permissao por fonte e limita observacao aprovada', () => {
   const events = collectAgendaEvents(copy, 'm1', { escala:false })
   assert.equal(events.some(event => event.source === 'escala'), false)
   assert.equal(events.find(event => event.source === 'oradores').note.length, 250)
+})
+
+test('Serviço de Campo só publica dirigente de mês fechado para o Quadro', () => {
+  const draft = structuredClone(root)
+  draft.servicoCampo.periods['2026-09'].published = false
+  assert.equal(collectAgendaEvents(draft, 'm1').some(event => event.source === 'servicoCampo'), false)
+  const events = collectAnnouncementEvents(root, { tarefas:false, limpeza:false, escala:false, oradores:false, programacao:false })
+  assert.equal(events.length, 1)
+  assert.equal(events[0].people[0], 'Ana')
 })
 
 test('ICS preserva data civil, horario, local e escape', () => {

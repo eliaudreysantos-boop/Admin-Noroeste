@@ -36,12 +36,15 @@ Para cada modulo, seguir esta ordem:
 | Tarefas | Seis fases aplicadas contra o app antigo | `COMPARATIVO-TAREFAS-ANTIGO-VS-NOVO.md` | Concluido |
 | Escala TPL | Seis fases aplicadas e testes independentes do legado | `COMPARATIVO-ESCALA-TPL-ANTIGO-VS-NOVO.md` | Concluido |
 | Admin/Mestre | Base central, integridade, backup e configuracao global | `AUDITORIA-ADMIN-MESTRE.md` | Concluido |
+| Servico de Campo | Rodizio, publicacao, PDF e adapters implementados | `INTEGRACAO-SERVICO-DE-CAMPO.md` | Concluido |
 | Coordenador | Removido da navegacao, Admin, tipos e testes | Registrado em `INTEGRACAO-VIDA-E-MINISTERIO.md` | Concluido |
 
 ## Resultado do fechamento
 
 - Todos os PDFs ativos passam pela previa compartilhada antes de baixar ou imprimir.
 - Tarefas e Escala TPL so aparecem publicamente depois da publicacao do periodo.
+- Servico de Campo publica varias saidas por dia, com lembrete apenas na agenda
+  pessoal do dirigente.
 - Os avisos comuns sairam dos modulos donos e foram consolidados no Quadro.
 - O Quadro usa o link de WhatsApp configurado no Admin e publica arquivos por periodo.
 - Assinaturas pessoais e do Quadro usam token revogavel, sem `masterId` na URL.
@@ -65,6 +68,28 @@ Para cada modulo, seguir esta ordem:
 - Pendencias devem ter severidade, contagem e acao direta.
 - ICS deve usar UID estavel, timezone `America/Fortaleza` e lembretes
   configuraveis por modulo.
+
+## Servico de Campo
+
+### Padroes que pode exportar
+
+- Rodizio equilibrado com qualquer quantidade de pessoas.
+- Varias ocorrencias no mesmo dia sem colisao de identificador.
+- Geracao que preserva edicao e inclusao manual.
+- Sugestao de configuracao a partir de outro modulo sem acoplamento de dados.
+
+### Padroes que deve importar
+
+- Pessoa e `masterId` exclusivamente do Admin.
+- Periodo publicado/bloqueado com reabertura simples.
+- Previa obrigatoria de PDF.
+- Adapter publico e lembrete ICS configuravel da Minha Agenda.
+
+### Estado da auditoria
+
+Implementacao fechada em `INTEGRACAO-SERVICO-DE-CAMPO.md`. Restam somente a
+configuracao das saidas e dirigentes reais e a conferencia da primeira
+impressao fisica.
 
 ## Secretario
 

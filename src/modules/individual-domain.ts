@@ -1,6 +1,6 @@
 import type { MasterPessoa } from '../types'
 
-export type AgendaSource = 'tarefas' | 'limpeza' | 'escala' | 'oradores' | 'programacao'
+export type AgendaSource = 'tarefas' | 'limpeza' | 'escala' | 'oradores' | 'programacao' | 'servicoCampo'
 export type AgendaStatus = 'futuro' | 'confirmacao-pendente' | 'alterado' | 'realizado'
 
 export interface AgendaEvent {
@@ -116,6 +116,19 @@ export function collectAgendaEvents(rootValue: unknown, masterId: string, allowe
         const status: AgendaStatus = text(part['status']) === 'realizado' || isRealized ? 'realizado' : substitute && isResponsible ? 'alterado' : part['confirmedAt'] ? 'futuro' : 'confirmacao-pendente'
         const role = isAssistant ? 'Ajudante' : substitute && isResponsible ? 'Substituto' : isRealized ? 'Realizou' : ''
         add({ id:`programacao:${programId}:${text(part['id']) || index}:${role || 'principal'}`, source:'programacao', date, time:meetingTime, title:role ? `${role} - ${text(part['title'])}` : text(part['title']) || 'Parte da reunião', detail:'Vida e Ministério', location:rooms.get(roomId) || (roomId === 'main' ? 'Salão principal' : undefined), note:text(part['reference']), status })
+      })
+    })
+  }
+
+  if (allowed.servicoCampo !== false) {
+    const service = rows(root['servicoCampo'])
+    Object.entries(rows(service['periods'])).forEach(([periodId, periodValue]) => {
+      const period = rows(periodValue)
+      if (period['published'] !== true) return
+      Object.entries(rows(period['assignments'])).forEach(([assignmentId, assignmentValue]) => {
+        const assignment = rows(assignmentValue)
+        if (text(assignment['leaderId']) !== masterId) return
+        add({ id:`servicoCampo:${periodId}:${assignmentId}`, source:'servicoCampo', date:text(assignment['date']), time:text(assignment['time']) || undefined, title:`Dirigente - ${text(assignment['label']) || 'Saída de campo'}`, detail:'Dirigente da saída de campo', location:text(assignment['location']) || undefined, status:'futuro' })
       })
     })
   }

@@ -22,6 +22,7 @@ export type ModuleName =
   | 'escala'
   | 'programacao'
   | 'secretario'
+  | 'servicoCampo'
   | 'individual'
 
 export type TipoDesignacao =
@@ -134,6 +135,7 @@ export type AgendaReminderModule =
   | 'escala'
   | 'oradores'
   | 'programacao'
+  | 'servicoCampo'
   | 'quadro'
 
 export interface AgendaConfig {
@@ -143,10 +145,11 @@ export interface AgendaConfig {
 
 export interface AgendaPublicDocument {
   id: string
-  modulo: 'limpeza' | 'oradores' | 'programacao'
+  modulo: 'limpeza' | 'oradores' | 'programacao' | 'servicoCampo' | 'admin'
   periodo: string
   nome: string
   url: string
+  storagePath?: string
   criadoEm: string
 }
 
@@ -170,6 +173,7 @@ export interface AppPermissions {
   escala:      boolean
   programacao: boolean
   secretario:  boolean
+  servicoCampo?: boolean
   individual?: boolean
 }
 
@@ -202,6 +206,7 @@ export interface RawRoot {
   escala?:      Record<string, unknown>
   programacao?: Record<string, unknown>
   secretario?:  Record<string, unknown>
+  servicoCampo?: Record<string, unknown>
   agenda?:      Record<string, unknown>
 }
 

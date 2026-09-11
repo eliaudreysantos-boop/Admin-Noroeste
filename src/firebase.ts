@@ -139,6 +139,9 @@ export const programacaoRef: DatabaseReference =
 export const secretarioRef: DatabaseReference =
   ref(db, 'secretario')
 
+export const servicoCampoRef: DatabaseReference =
+  ref(db, 'servicoCampo')
+
 export const agendaConfigRef: DatabaseReference =
   ref(db, 'agenda/config')
 

@@ -2,7 +2,7 @@ import { agendaToIcs, collectAgendaEvents, collectAnnouncementEvents, eventsInFe
 import type { AgendaConfig, AgendaSubscription } from '../../src/types.ts'
 
 const DATABASE_URL = 'https://oradoress2-default-rtdb.firebaseio.com'
-const SOURCES: AgendaSource[] = ['tarefas', 'limpeza', 'escala', 'oradores', 'programacao']
+const SOURCES: AgendaSource[] = ['tarefas', 'limpeza', 'escala', 'oradores', 'programacao', 'servicoCampo']
 
 const json = (status: number, message: string): Response => new Response(JSON.stringify({ error:message }), {
   status,
@@ -21,7 +21,7 @@ function allowedSources(subscription: AgendaSubscription): Partial<Record<Agenda
 
 function boardReminders(config: AgendaConfig): Partial<Record<AgendaSource, string[]>> {
   const values = config.icsReminders?.quadro ?? []
-  return Object.fromEntries(SOURCES.map(source => [source, values]))
+  return Object.fromEntries(SOURCES.map(source => [source, source === 'servicoCampo' ? [] : values]))
 }
 
 async function loadAgendaRoot(fetcher: typeof fetch): Promise<Record<string, unknown>> {
@@ -31,7 +31,7 @@ async function loadAgendaRoot(fetcher: typeof fetch): Promise<Record<string, unk
     'tarefas/discursos/oradores', 'tarefas/discursos/programacao', 'tarefas/discursos/congregacoes',
     'limpeza/periodos',
     'escala/participants', 'escala/scales', 'escala/tables', 'escala/publishedMonth', 'escala/publishedMonths', 'escala/publishedSnapshots',
-    'programacao', 'agenda/config',
+    'programacao', 'agenda/config', 'servicoCampo',
   ] as const
   const values = await Promise.all(paths.map(async path => {
     const response = await fetcher(`${DATABASE_URL}/${path}.json`)
@@ -52,7 +52,7 @@ async function loadAgendaRoot(fetcher: typeof fetch): Promise<Record<string, unk
       publishedMonths:value(11), publishedSnapshots:value(12),
     },
     programacao:value(13),
-    agenda:{ config:value(14) },
+    agenda:{ config:value(14) }, servicoCampo:value(15),
   }
 }
 

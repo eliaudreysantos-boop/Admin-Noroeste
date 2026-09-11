@@ -438,6 +438,8 @@ pioneiro auxiliar e o modulo lista/contabiliza corretamente.
 - [x] Padronizar origem dos templates: o Secretário salva uma vez cada PDF
       oficial no Firebase Storage e os documentos seguintes usam esse padrão;
       um arquivo local ainda pode substituí-lo em uma geração isolada.
+- [x] Adicionar PDF A4 retrato dos grupos, seguindo o modelo em colunas e sem
+      tratar os nomes antigos do arquivo como dados atuais.
 
 ## Perguntas realmente necessarias
 

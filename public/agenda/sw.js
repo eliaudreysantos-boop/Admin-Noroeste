@@ -1,4 +1,4 @@
-const CACHE = 'noroeste-agenda-v2'
+const CACHE = 'noroeste-agenda-v3'
 const SHELL = ['/agenda/', '/agenda/manifest.json', '/icon-192.png', '/icon-512.png']
 
 async function refreshShell() {
@@ -33,5 +33,13 @@ self.addEventListener('fetch', event => {
     }).catch(() => caches.match('/agenda/')))
     return
   }
-  event.respondWith(caches.match(event.request).then(response => response || fetch(event.request)))
+  event.respondWith(caches.match(event.request).then(async response => {
+    if (response) return response
+    const network = await fetch(event.request)
+    if (event.request.method === 'GET' && new URL(event.request.url).origin === self.location.origin && network.ok) {
+      const copy = network.clone()
+      event.waitUntil(caches.open(CACHE).then(cache => cache.put(event.request, copy)))
+    }
+    return network
+  }))
 })

@@ -14,7 +14,8 @@
     "test:limpeza": "node --test tests/limpeza-domain.test.mjs tests/limpeza-documents.test.mjs",
     "test:secretario": "node --test tests/secretario-domain.test.mjs tests/secretario-documents.test.mjs tests/secretario-spreadsheets.test.mjs",
     "test:individual": "node --test tests/individual-domain.test.mjs tests/calendar-function.test.mjs",
-    "test:all": "npm run test:mestre && npm run test:tarefas && npm run test:limpeza && npm run test:escala && npm run test:oradores && npm run test:programacao && npm run test:secretario && npm run test:individual",
+    "test:servico-campo": "node --test tests/servico-campo-domain.test.mjs tests/servico-campo-documents.test.mjs",
+    "test:all": "npm run test:mestre && npm run test:tarefas && npm run test:limpeza && npm run test:escala && npm run test:oradores && npm run test:programacao && npm run test:secretario && npm run test:servico-campo && npm run test:individual",
     "test:mestre": "node --test tests/mestre-backup-domain.test.mjs tests/mestre-domain.test.mjs"
   },
   "dependencies": {

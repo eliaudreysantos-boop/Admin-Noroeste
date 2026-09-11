@@ -342,6 +342,39 @@ body {
   letter-spacing: .04em;
 }
 
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+  color: var(--ink-2);
+  font-size: .8rem;
+  font-weight: 600;
+}
+
+.form-field > span { display: block; }
+
+.form-field > input:not([type='checkbox']):not([type='range']):not([type='file']),
+.form-field > select,
+.form-field > textarea {
+  width: 100%;
+  min-width: 0;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  outline: none;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-weight: 400;
+}
+
+.form-field > textarea { resize: vertical; }
+.form-field > input[type='file'] { max-width: 100%; font-weight: 400; }
+.form-field > input:focus,
+.form-field > select:focus,
+.form-field > textarea:focus { border-color: var(--blue-mid); box-shadow: 0 0 0 3px rgba(0,110,182,.15); }
+
 .form-input,
 .form-select {
   width: 100%;
@@ -996,6 +1029,27 @@ textarea.form-input {
 .agenda-document b { white-space: nowrap; color: var(--primary); font-size: .76rem; }
 .agenda-module-options { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-bottom: 12px; }
 .agenda-module-check { color: var(--ink-2); font-size: .84rem; }
+.module-section-title { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+.module-section-title h2 { margin: 0; color: var(--ink-2); font-size: 1.05rem; }
+.service-period { margin-top: 4px; }
+.service-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 14px; }
+.service-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; }
+.service-summary > div { min-width: 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.service-summary strong, .service-summary span { display: block; }
+.service-summary strong { color: var(--blue-deep); font-size: 1.15rem; }
+.service-summary span { margin-top: 3px; color: var(--ink-3); font-size: .7rem; font-weight: 700; text-transform: uppercase; }
+.service-assignment-list { overflow: hidden; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.service-assignment { display: grid; grid-template-columns: minmax(145px, .8fr) minmax(180px, 1.2fr) minmax(180px, 1fr) 40px; align-items: center; gap: 10px; padding: 11px 12px; border-bottom: 1px solid var(--border); }
+.service-assignment:last-child { border-bottom: 0; }
+.service-assignment strong, .service-assignment small, .service-assignment-date span { display: block; overflow-wrap: anywhere; }
+.service-assignment small, .service-assignment-date span { margin-top: 3px; color: var(--ink-3); font-size: .74rem; }
+.service-suggestion { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+.service-leader-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 16px; margin: 12px 0; }
+.service-leader-option { display: flex; align-items: center; gap: 9px; min-width: 0; padding: 7px 4px; border-bottom: 1px solid var(--border); cursor: pointer; }
+.service-leader-option span, .service-leader-option strong, .service-leader-option small { display: block; min-width: 0; }
+.service-leader-option strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .82rem; }
+.service-leader-option small { margin-top: 2px; color: var(--ink-3); font-size: .7rem; }
+.admin-agenda-documents { margin-top: 18px; }
 .oradores-section-head { display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:10px; }
 .oradores-section-head h3 { margin:0; font-size:.95rem; color:#5C6062; }
 .oradores-program-card { overflow:hidden; border:1px solid var(--border); border-left:4px solid var(--talk-color, #5C6062); border-radius:8px; background:var(--surface); }
@@ -1042,6 +1096,11 @@ textarea.form-input {
   .admin-reminder-row > strong { grid-column: 1 / -1; }
   .admin-reminder-heading { display: none; }
   .admin-report-actions { flex-wrap: wrap; }
+  .service-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .service-assignment { grid-template-columns: minmax(0, 1fr) 40px; }
+  .service-assignment-date, .service-assignment > div:nth-child(2), .service-assignment select { grid-column: 1; }
+  .service-assignment .btn-danger { grid-column: 2; grid-row: 1 / span 3; align-self: center; }
+  .service-leader-grid, .service-suggestion { grid-template-columns: 1fr; }
 }
 
 @media print {

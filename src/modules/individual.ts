@@ -1,5 +1,5 @@
 import type { AppContext, RawRoot } from '../types'
-import { agendaRef, agendaSubscriptionsRef, escalaParticipantsRef, escalaPublishedMonthRef, escalaPublishedMonthsRef, escalaPubSnapshotsRef, escalaScalesRef, escalaTablesRef, get, limpezaPeriodosRef, pessoasRef, programacaoRef, secretarioRef, tarefasCongregacoesRef, tarefasOradoresRef, tarefasPeopleRef, tarefasProgramacaoOradoresRef, tarefasScaleRef, update } from '../firebase'
+import { agendaRef, agendaSubscriptionsRef, escalaParticipantsRef, escalaPublishedMonthRef, escalaPublishedMonthsRef, escalaPubSnapshotsRef, escalaScalesRef, escalaTablesRef, get, limpezaPeriodosRef, pessoasRef, programacaoRef, secretarioRef, servicoCampoRef, tarefasCongregacoesRef, tarefasOradoresRef, tarefasPeopleRef, tarefasProgramacaoOradoresRef, tarefasScaleRef, update } from '../firebase'
 import { moduleTitle } from '../ui/module-header'
 import { agendaMessage, agendaToIcs, announcementMessage, collectAgendaEvents, collectAnnouncementEvents, upcomingAgendaEvents, type AgendaEvent, type AgendaSource, type AgendaStatus, type AnnouncementEvent } from './individual-domain'
 import { CATEGORY_LABELS, isClosedMonth, normalizePersonalReport, serviceYearStart, type PublisherCategory, type SecretaryPublisher, type SecretaryReport } from './secretario-domain'
@@ -14,7 +14,7 @@ let boardStatus: AgendaStatus | 'todos' = 'todos'
 let agendaSource: AgendaSource | 'todas' = 'todas'
 let agendaStatus: AgendaStatus | 'todos' = 'todos'
 let boardDocumentPeriod = month
-const boardSubscriptionModules = new Set<AgendaSource>(['tarefas', 'escala', 'oradores', 'programacao'])
+const boardSubscriptionModules = new Set<AgendaSource>(['tarefas', 'escala', 'oradores', 'programacao', 'servicoCampo'])
 let subscriptionPersonId = ''
 let loadingAssignments = true
 let offlinePersonalEvents: AgendaEvent[] | null = null
@@ -35,7 +35,8 @@ interface OfflineAgendaCache {
 
 const esc = (value: unknown): string => String(value ?? '').replace(/[&<>"']/g, char => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#039;' }[char] ?? char))
 const labelDate = (date: string): string => date.split('-').reverse().join('/')
-const sourceLabels: Record<AgendaSource, string> = { tarefas:'Tarefas', limpeza:'Limpeza', escala:'Escala TPL', oradores:'Oradores', programacao:'Vida e Ministério' }
+const sourceLabels: Record<AgendaSource, string> = { tarefas:'Tarefas', limpeza:'Limpeza', escala:'Escala TPL', oradores:'Oradores', programacao:'Vida e Ministério', servicoCampo:'Serviço de Campo' }
+const documentSourceLabels: Record<AgendaPublicDocument['modulo'], string> = { limpeza:'Limpeza', oradores:'Oradores', programacao:'Vida e Ministério', servicoCampo:'Serviço de Campo', admin:'Admin' }
 const fortalezaDate = (): string => new Intl.DateTimeFormat('en-CA', { timeZone:'America/Fortaleza', year:'numeric', month:'2-digit', day:'2-digit' }).format(new Date()).replace(/\//g, '-')
 
 export default function mount(context: AppContext): void {
@@ -106,7 +107,7 @@ async function load(): Promise<void> {
       tarefasOradoresRef, tarefasProgramacaoOradoresRef, tarefasCongregacoesRef,
       limpezaPeriodosRef, escalaParticipantsRef, escalaScalesRef, escalaTablesRef,
       escalaPublishedMonthRef, escalaPublishedMonthsRef, escalaPubSnapshotsRef,
-      programacaoRef, secretarioRef, agendaRef,
+      programacaoRef, secretarioRef, agendaRef, servicoCampoRef,
     ]
     const values = await Promise.all(references.map(readValue))
     const value = (index: number): unknown => values[index]
@@ -115,7 +116,7 @@ async function load(): Promise<void> {
       tarefas:{ people:value(0), scale:{ periods:value(1) }, discursos:{ oradores:value(2), programacao:value(3), congregacoes:value(4) } },
       limpeza:{ periodos:value(5) },
       escala:{ participants:value(6), scales:value(7), tables:value(8), publishedMonth:value(9), publishedMonths:value(10), publishedSnapshots:value(11) },
-      programacao:value(12), secretario:value(13), agenda:value(14),
+      programacao:value(12), secretario:value(13), agenda:value(14), servicoCampo:value(15),
     } as RawRoot
     synchronized = true
   }
@@ -250,7 +251,7 @@ function renderBoard(root: HTMLElement): void {
     <div class="agenda-board-sections">
       <details class="form-panel agenda-board-card" open><summary><strong>Calendário de designações</strong><span>${events.length} item(ns)</span></summary><div class="agenda-board-body"><div class="agenda-actions"><button class="btn btn-ghost" id="boardIcsMonth" type="button">Baixar calendário</button></div><div class="agenda-calendar"><div class="agenda-weekdays">${['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'].map(day => `<strong>${day}</strong>`).join('')}</div><div class="agenda-days">${calendar.map(day => day ? `<div class="agenda-day ${byDay.has(Number(day)) ? 'has-events' : ''}"><span>${day}</span>${(byDay.get(Number(day)) ?? []).slice(0, 4).map(event => `<i title="${esc(event.title)}"></i>`).join('')}</div>` : '<div class="agenda-day empty"></div>').join('')}</div></div><div class="agenda-list">${events.map(event => `<article class="agenda-event"><time>${esc(labelDate(event.date))}${event.time ? ` · ${esc(event.time)}` : ''}</time><div><strong>${esc(event.title)}</strong><small><span class="agenda-source ${event.source}">${esc(sourceLabels[event.source])}</span> · ${esc(event.detail)}${event.location ? ` · ${esc(event.location)}` : ''}</small><p>${esc(event.people.join(', '))}</p></div><span class="agenda-status ${event.status}">${esc(event.status.replace(/-/g, ' '))}</span></article>`).join('') || '<p class="empty-state">Nenhuma designação neste período.</p>'}</div></div></details>
       <details class="form-panel agenda-board-card"><summary><strong>Dados das reuniões</strong><span>Texto pronto</span></summary><div class="agenda-board-body"><textarea id="boardInlineDraft" class="form-input" rows="12" maxlength="4000">${esc(announcementMessage(events))}</textarea><div class="agenda-actions"><button class="btn btn-ghost" id="boardInlineCopy" type="button">Copiar texto</button><button class="btn btn-primary" id="boardWhatsapp" type="button">Abrir WhatsApp</button></div><p class="form-help">${agendaConfig().quadroWhatsAppLink ? 'O texto será copiado e o grupo configurado no Admin será aberto.' : 'Nenhum grupo foi configurado no Admin; o seletor comum do WhatsApp será aberto.'}</p></div></details>
-      <details class="form-panel agenda-board-card"><summary><strong>Arquivos publicados</strong><span>${allDocuments.length} arquivo(s)</span></summary><div class="agenda-board-body"><label class="form-field"><span>Período</span><select id="boardDocumentPeriod">${periods.map(period => `<option value="${esc(period)}" ${period === boardDocumentPeriod ? 'selected' : ''}>${esc(period)}</option>`).join('') || `<option value="${esc(month)}">${esc(month)}</option>`}</select></label><div class="agenda-document-list">${visibleDocuments.map(item => `<a class="agenda-document" href="${esc(item.url)}" target="_blank" rel="noopener noreferrer"><span><strong>${esc(item.nome)}</strong><small>${esc(sourceLabels[item.modulo])} · publicado em ${esc(labelDate(item.criadoEm.slice(0, 10)))}</small></span><b>Baixar PDF</b></a>`).join('') || '<p class="empty-state">Nenhum PDF publicado neste período.</p>'}</div></div></details>
+      <details class="form-panel agenda-board-card"><summary><strong>Arquivos publicados</strong><span>${allDocuments.length} arquivo(s)</span></summary><div class="agenda-board-body"><label class="form-field"><span>Período</span><select id="boardDocumentPeriod">${periods.map(period => `<option value="${esc(period)}" ${period === boardDocumentPeriod ? 'selected' : ''}>${esc(period)}</option>`).join('') || `<option value="${esc(month)}">${esc(month)}</option>`}</select></label><div class="agenda-document-list">${visibleDocuments.map(item => `<a class="agenda-document" href="${esc(item.url)}" target="_blank" rel="noopener noreferrer"><span><strong>${esc(item.nome)}</strong><small>${esc(documentSourceLabels[item.modulo] ?? item.modulo)} · publicado em ${esc(labelDate(item.criadoEm.slice(0, 10)))}</small></span><b>Baixar PDF</b></a>`).join('') || '<p class="empty-state">Nenhum PDF publicado neste período.</p>'}</div></div></details>
       ${boardSubscriptionPanel()}
     </div>`
   bindScreenTabs()
@@ -268,7 +269,7 @@ function renderBoard(root: HTMLElement): void {
 
 function boardReminderOptions(): Partial<Record<AgendaSource, string[]>> {
   const values = agendaConfig().icsReminders?.quadro ?? []
-  return Object.fromEntries(Object.keys(sourceLabels).map(source => [source, values])) as Partial<Record<AgendaSource, string[]>>
+  return Object.fromEntries(Object.keys(sourceLabels).map(source => [source, source === 'servicoCampo' ? [] : values])) as Partial<Record<AgendaSource, string[]>>
 }
 
 function downloadBoardIcs(events: AgendaEvent[]): void {

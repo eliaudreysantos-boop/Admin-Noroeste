@@ -4,12 +4,13 @@ import { calendarResponse } from '../netlify/functions/calendar.ts'
 
 const token = 'a'.repeat(48)
 const root = {
-  agenda:{ config:{ icsReminders:{ tarefas:['P1D'], quadro:[] } } },
+  agenda:{ config:{ icsReminders:{ tarefas:['P1D'], servicoCampo:['P1D'], quadro:['P1D'] } } },
   master:{ pessoas:{ m1:{ name:'Ana', active:true }, m2:{ name:'Bruno', active:true } } },
   tarefas:{
     people:{ p1:{ masterId:'m1' }, p2:{ masterId:'m2' } },
     scale:{ periods:{ '2026-09':{ locked:true, meetings:{ r:{ date:'2026-09-11', type:'midweek', assignments:{ leitor:'p1', mic1:'p2' } } } } } },
   },
+  servicoCampo:{ periods:{ '2026-09':{ month:'2026-09', published:true, assignments:{ s1:{ id:'s1', templateId:'t', date:'2026-09-18', time:'16:00', location:'Salão', label:'Saída', leaderId:'m1' } } } } },
 }
 
 function fetcher(subscription) {
@@ -44,4 +45,13 @@ test('feed rejeita token inválido e assinatura revogada', async () => {
   const revoked = await calendarResponse(new Request(`https://app.test/.netlify/functions/calendar?token=${token}`), fetcher({ token, tipo:'pessoal', masterId:'m1', ativo:false, criadoEm:'2026-09-01' }))
   assert.equal(invalid.status, 400)
   assert.equal(revoked.status, 410)
+})
+
+test('Serviço de Campo lembra o dirigente, mas não cria alarme no Quadro', async () => {
+  const personal = await calendarResponse(new Request(`https://app.test/.netlify/functions/calendar?token=${token}`), fetcher({ token, tipo:'pessoal', masterId:'m1', ativo:true, criadoEm:'2026-09-01' }))
+  assert.match(await personal.text(), /TRIGGER:-P1D/)
+  const board = await calendarResponse(new Request(`https://app.test/.netlify/functions/calendar?token=${token}`), fetcher({ token, tipo:'quadro', modulos:['servicoCampo'], ativo:true, criadoEm:'2026-09-01' }))
+  const body = await board.text()
+  assert.match(body, /SUMMARY:Dirigente - Saída/)
+  assert.doesNotMatch(body, /BEGIN:VALARM/)
 })

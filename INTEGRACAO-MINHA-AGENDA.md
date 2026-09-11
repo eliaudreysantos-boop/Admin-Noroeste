@@ -153,6 +153,7 @@ Havera dois tipos de assinatura:
   - Tarefas;
   - Oradores;
   - Vida e Ministerio.
+  - Servico de Campo.
 - O usuario pode assinar:
   - todos os modulos;
   - apenas alguns modulos marcados em checkboxes.
@@ -194,6 +195,7 @@ Modelo aplicado no Admin:
   - `agenda/config/icsReminders/escala`;
   - `agenda/config/icsReminders/oradores`;
   - `agenda/config/icsReminders/programacao`.
+  - `agenda/config/icsReminders/servicoCampo`;
   - `agenda/config/icsReminders/quadro`.
 - Campos por modulo:
   - lista com zero, um ou dois offsets;
@@ -216,6 +218,7 @@ Defaults recomendados:
 - Tarefas: `P7D` e `P1D`.
 - Limpeza: `P1D`.
 - Escala TPL: `P1D`.
+- Servico de Campo: `P1D` na agenda pessoal do dirigente.
 - Quadro de Anuncios: sem alarme por padrao, ou `P1D` apenas se o usuario
   ativar.
 
@@ -261,6 +264,7 @@ editar os modulos donos.
   - Tarefas;
   - Oradores;
   - Vida e Ministerio.
+  - Servico de Campo.
 - Ao expandir um dia, listar eventos daquele dia com origem, horario, local,
   pessoas envolvidas e status publico.
 - Nao mostrar telefone nem observacoes administrativas.
@@ -289,6 +293,8 @@ editar os modulos donos.
   - Limpeza: PDF do periodo;
   - Oradores: PDF da programacao;
   - Vida e Ministerio: S-89/S-140 quando aplicavel.
+  - Servico de Campo: programacao mensal A4 retrato;
+  - Admin: PDFs avulsos publicados deliberadamente para consulta.
 - Todo PDF deve seguir o padrao obrigatorio de previa antes de baixar/imprimir.
 - Se um PDF ainda depender de permissao administrativa, mostrar estado
   indisponivel em vez de expor acao ao publicador.
@@ -388,6 +394,7 @@ consistente.
   - Escala TPL;
   - Oradores;
   - Vida e Ministerio.
+  - Servico de Campo.
 - Garantir que eventos tenham `masterId`, data, horario, local e status quando
   aplicavel.
 - Remover qualquer dado administrativo do detalhe publico.

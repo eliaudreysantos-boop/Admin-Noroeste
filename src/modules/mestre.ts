@@ -1,6 +1,7 @@
 import type {
   AppContext,
   AgendaConfig,
+  AgendaPublicDocument,
   AgendaReminderModule,
   MasterConfig,
   MasterPessoa,
@@ -21,6 +22,7 @@ import {
   configReunioesRef,
   configDesignacoesRef,
   agendaConfigRef,
+  agendaDocumentsRef,
   rootRef,
 } from '../firebase'
 import { renderMenuCards, type ItemMenu } from '../ui/menu-cards'
@@ -34,6 +36,7 @@ import {
   sharedWhatsappPeople,
 } from './mestre-domain'
 import { navigateTo } from '../router'
+import { previewPdf } from '../ui/pdf-preview'
 
 // ─── Estado do módulo ────────────────────────────────────────────────────────
 
@@ -41,11 +44,13 @@ let pessoas:   RawPessoas  = {}
 let usuarios:  RawUsuarios = {}
 let config:    MasterConfig = {}
 let agendaConfig: AgendaConfig = {}
+let agendaDocuments: Record<string, AgendaPublicDocument> = {}
 let rootData:  Record<string, unknown> | null = null
 let rootLoading = false
 let rootLoadError = ''
 let restoreCandidate: Record<string, unknown> | null = null
 let restoreFileName = ''
+let previewedAgendaPdfKey = ''
 
 type AdminTab = 'indice' | 'pessoas' | 'usuarios' | 'config' | 'vinculos' | 'dados'
 let activeTab: AdminTab = 'indice'
@@ -133,7 +138,7 @@ function sexLabel(sex: Sex | null): string {
 function appsList(apps: Usuario['apps']): string {
   const labels: Record<string, string> = {
     mestre:'Admin', tarefas:'Tarefas', limpeza:'Limpeza', oradores:'Oradores', escala:'Escala TPL',
-    programacao:'Programação', secretario:'Secretário',
+    programacao:'Programação', secretario:'Secretário', servicoCampo:'Serviço de Campo',
   }
   return (Object.keys(apps) as Array<keyof typeof apps>)
     .filter(k => k !== 'individual' && apps[k]).map(k => labels[k]).join(', ') || '—'
@@ -235,13 +240,14 @@ async function loadAll(): Promise<void> {
   document.getElementById('mestreContent')!.innerHTML =
     '<p style="padding:24px;color:var(--ink-3);text-align:center">Carregando…</p>'
   try {
-    const [pSnap, uSnap, cSnap, aSnap] = await Promise.all([
-      get(pessoasRef), get(usuariosRef), get(configRef), get(agendaConfigRef),
+    const [pSnap, uSnap, cSnap, aSnap, dSnap] = await Promise.all([
+      get(pessoasRef), get(usuariosRef), get(configRef), get(agendaConfigRef), get(agendaDocumentsRef),
     ])
     pessoas  = pSnap.exists()  ? (pSnap.val()  as RawPessoas)  : {}
     usuarios = uSnap.exists()  ? (uSnap.val()  as RawUsuarios) : {}
     config   = cSnap.exists()  ? (cSnap.val()  as MasterConfig): {}
     agendaConfig = aSnap.exists() ? (aSnap.val() as AgendaConfig) : {}
+    agendaDocuments = dSnap.exists() ? (dSnap.val() as Record<string, AgendaPublicDocument>) : {}
   } catch {
     toast('Erro ao carregar dados do Firebase')
   }
@@ -293,6 +299,7 @@ function linkCollections(data: Record<string, unknown>) {
   const escala = objectValue(data['escala'])
   const secretario = objectValue(data['secretario'])
   const programacao = objectValue(data['programacao'])
+  const servicoCampo = objectValue(data['servicoCampo'])
   const discursos = objectValue(tarefas['discursos'])
 
   return {
@@ -304,6 +311,9 @@ function linkCollections(data: Record<string, unknown>) {
       ...records(programacao['people']),
       ...records(programacao['pessoas']),
     },
+    servicoCampo: Object.fromEntries(
+      Object.entries(objectValue(servicoCampo['leaders'])).map(([masterId, active]) => [masterId, { masterId, active }]),
+    ),
   }
 }
 
@@ -350,7 +360,23 @@ function collectLinkIssues(data: Record<string, unknown>): LinkIssue[] {
     ...collectDirectLinkIssues('Escala', collections.escala, item => item['active'] !== false),
     ...collectDirectLinkIssues('Secretário', collections.secretario),
     ...collectDirectLinkIssues('Programação', collections.programacao),
+    ...collectDirectLinkIssues('Serviço de Campo', collections.servicoCampo, item => item['active'] === true),
   ]
+
+  const servicoCampo = objectValue(data['servicoCampo'])
+  Object.entries(records(servicoCampo['periods'])).forEach(([periodId, period]) => {
+    Object.entries(records(period['assignments'])).forEach(([assignmentId, assignment]) => {
+      const leaderId = typeof assignment['leaderId'] === 'string' ? assignment['leaderId'].trim() : ''
+      if (leaderId && !pessoas[leaderId]) {
+        issues.push({
+          module: 'Serviço de Campo',
+          id: `${periodId}/${assignmentId}`,
+          kind: 'orfao',
+          detail: `Dirigente inexistente no cadastro mestre: ${leaderId}`,
+        })
+      }
+    })
+  })
 
   Object.entries(collections.oradores).forEach(([id, orador]) => {
     if (orador['ativo'] === false || orador['tipo'] === 'visitante') return
@@ -864,7 +890,7 @@ function findMasterReferences(data: Record<string, unknown>, mid: string): strin
   const found = new Set<string>()
   const labels: Record<string, string> = {
     tarefas: 'Tarefas', escala: 'Escala TPL', oradores: 'Oradores',
-    secretario: 'Secretário', programacao: 'Programação',
+    secretario: 'Secretário', programacao: 'Programação', servicoCampo: 'Serviço de Campo',
   }
   Object.entries(collections).forEach(([module, collection]) => {
     Object.values(collection).forEach(item => {
@@ -877,6 +903,12 @@ function findMasterReferences(data: Record<string, unknown>, mid: string): strin
   })
   Object.values(records(data['usuarios'])).forEach(user => {
     if (user['masterId'] === mid) found.add('Usuários')
+  })
+  const servicoCampo = objectValue(data['servicoCampo'])
+  Object.values(records(servicoCampo['periods'])).forEach(period => {
+    Object.values(records(period['assignments'])).forEach(assignment => {
+      if (assignment['leaderId'] === mid) found.add('Serviço de Campo')
+    })
   })
   const limpeza = objectValue(objectValue(objectValue(data['master'])['config'])['limpeza'])
   Object.values(records(limpeza['gruposConfig'])).forEach(group => {
@@ -944,6 +976,7 @@ function openUsuarioModal(uid: string | null): void {
   const apps = u?.apps ?? {
     mestre:false, tarefas:false, limpeza:false, escala:false,
     oradores:false, programacao:false, secretario:false,
+    servicoCampo:false,
   }
   const overlay = document.createElement('div')
   overlay.className = 'modal-overlay'
@@ -974,6 +1007,7 @@ function openUsuarioModal(uid: string | null): void {
         ${appCheck('escala',      'Escala TPL',   apps.escala)}
         ${appCheck('programacao', 'Programação',  apps.programacao)}
         ${appCheck('secretario',  'Secretário',   apps.secretario)}
+        ${appCheck('servicoCampo','Serviço de Campo', apps.servicoCampo ?? false)}
       </div>
       <div style="display:flex;gap:8px;margin-top:8px">
         <button id="btnCancelUsuario" class="btn btn-ghost" style="flex:1">Cancelar</button>
@@ -1002,7 +1036,7 @@ async function saveUsuario(uid: string | null, overlay: HTMLElement): Promise<vo
   const selectedApps = {
     mestre: checkApp('mestre'), tarefas: checkApp('tarefas'), limpeza: checkApp('limpeza'),
     oradores: checkApp('oradores'), escala: checkApp('escala'), programacao: checkApp('programacao'),
-    secretario: checkApp('secretario'),
+    secretario: checkApp('secretario'), servicoCampo:checkApp('servicoCampo'),
   }
   const apps = selectedApps
   const usuario: Usuario = {
@@ -1117,6 +1151,7 @@ function moduleForLinkIssue(module: LinkIssue['module']): ModuleName | null {
     Secretário: 'secretario',
     Programação: 'programacao',
     Oradores: 'oradores',
+    'Serviço de Campo': 'servicoCampo',
   }
   return modules[module] ?? null
 }
@@ -1143,6 +1178,7 @@ const AGENDA_REMINDER_MODULES: Array<{ id: AgendaReminderModule; label: string; 
   { id: 'programacao', label: 'Vida e Ministério', defaults: ['P7D', 'P1D'] },
   { id: 'limpeza', label: 'Limpeza', defaults: ['P1D'] },
   { id: 'escala', label: 'Escala TPL', defaults: ['P1D'] },
+  { id: 'servicoCampo', label: 'Serviço de Campo', defaults: ['P1D'] },
   { id: 'quadro', label: 'Quadro de anúncios', defaults: [] },
 ]
 
@@ -1164,6 +1200,7 @@ function reminderSelect(id: string, selected: string): string {
 function renderConfigAgenda(): void {
   const el = document.getElementById('configContent')!
   const reminders = agendaConfig.icsReminders ?? {}
+  const manualDocuments = Object.values(agendaDocuments).filter(item => item.modulo === 'admin').sort((a, b) => b.criadoEm.localeCompare(a.criadoEm))
   const rows = AGENDA_REMINDER_MODULES.map(module => {
     const values = reminders[module.id] ?? module.defaults
     return `<div class="admin-reminder-grid admin-reminder-row">
@@ -1187,9 +1224,61 @@ function renderConfigAgenda(): void {
       </div>
       ${rows}
     </div>
-    <button id="btnSalvarAgendaConfig" class="btn btn-primary btn-full" style="margin-top:16px">Salvar configurações da Agenda</button>`
+    <button id="btnSalvarAgendaConfig" class="btn btn-primary btn-full" style="margin-top:16px">Salvar configurações da Agenda</button>
+    <div class="form-panel admin-agenda-documents">
+      <h3 style="margin-top:0">PDFs do Quadro</h3>
+      <p class="form-help">A prévia é obrigatória antes da publicação. O arquivo ficará em Minha Agenda, junto dos PDFs gerados pelos módulos.</p>
+      <div class="module-form-grid">
+        <label class="form-field"><span>Arquivo PDF</span><input id="agendaPdfFile" type="file" accept="application/pdf,.pdf"></label>
+        <label class="form-field"><span>Nome exibido</span><input id="agendaPdfName" maxlength="100" placeholder="Usar nome do arquivo"></label>
+        <label class="form-field"><span>Período</span><input id="agendaPdfPeriod" type="month" value="${new Date().toISOString().slice(0, 7)}"></label>
+      </div>
+      <div class="service-actions"><button id="previewAgendaPdf" class="btn btn-ghost" type="button">Prévia PDF</button><button id="uploadAgendaPdf" class="btn btn-primary" type="button">Publicar no Quadro</button></div>
+      <div class="module-option-list" style="margin-top:12px">${manualDocuments.map(item => `<div class="secretary-row"><div><strong>${escapeHtml(item.nome)}</strong><small>${escapeHtml(item.periodo)} · ${escapeHtml(item.criadoEm.slice(0, 10).split('-').reverse().join('/'))}</small></div><a class="btn btn-ghost" href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer">Abrir</a><button class="btn btn-danger" type="button" data-delete-agenda-pdf="${escapeHtml(item.id)}" title="Remover PDF">✕</button></div>`).join('') || '<p class="empty-state">Nenhum PDF enviado manualmente.</p>'}</div>
+    </div>`
 
   document.getElementById('btnSalvarAgendaConfig')?.addEventListener('click', () => void saveConfigAgenda())
+  document.getElementById('previewAgendaPdf')?.addEventListener('click', () => void previewSelectedAgendaPdf())
+  document.getElementById('uploadAgendaPdf')?.addEventListener('click', () => void publishSelectedAgendaPdf())
+  document.getElementById('agendaPdfFile')?.addEventListener('change', () => { previewedAgendaPdfKey = '' })
+  document.querySelectorAll<HTMLButtonElement>('[data-delete-agenda-pdf]').forEach(button => button.addEventListener('click', () => void deleteAgendaPdf(button.dataset.deleteAgendaPdf!)))
+}
+
+function selectedAgendaPdf(): File | null {
+  const file = (document.getElementById('agendaPdfFile') as HTMLInputElement | null)?.files?.[0] ?? null
+  if (!file || (!file.name.toLowerCase().endsWith('.pdf') && file.type !== 'application/pdf')) { toast('Selecione um arquivo PDF válido'); return null }
+  if (file.size > 20 * 1024 * 1024) { toast('O PDF deve ter no máximo 20 MB'); return null }
+  return file
+}
+
+async function previewSelectedAgendaPdf(): Promise<void> {
+  const file = selectedAgendaPdf(); if (!file) return
+  previewedAgendaPdfKey = `${file.name}|${file.size}|${file.lastModified}`
+  previewPdf(new Uint8Array(await file.arrayBuffer()), file.name, 'Prévia do PDF para o Quadro')
+}
+
+async function publishSelectedAgendaPdf(): Promise<void> {
+  const file = selectedAgendaPdf(); if (!file) return
+  if (previewedAgendaPdfKey !== `${file.name}|${file.size}|${file.lastModified}`) { toast('Abra a prévia deste PDF antes de publicar'); return }
+  const period = (document.getElementById('agendaPdfPeriod') as HTMLInputElement).value
+  const name = (document.getElementById('agendaPdfName') as HTMLInputElement).value.trim() || file.name
+  if (!/^\d{4}-\d{2}$/.test(period) || !name) { toast('Informe o período e o nome do PDF'); return }
+  setLoading('uploadAgendaPdf', true, 'Publicar no Quadro')
+  try {
+    const { uploadAgendaPdf } = await import('./agenda-documents')
+    const item = await uploadAgendaPdf(file, { modulo:'admin', periodo:period, nome:name.toLowerCase().endsWith('.pdf') ? name : `${name}.pdf` })
+    agendaDocuments[item.id] = item
+    toast('PDF publicado no Quadro')
+    renderConfigAgenda()
+  } catch { toast('Não foi possível publicar o PDF') }
+  finally { setLoading('uploadAgendaPdf', false, 'Publicar no Quadro') }
+}
+
+async function deleteAgendaPdf(documentId: string): Promise<void> {
+  const item = agendaDocuments[documentId]
+  if (!item || item.modulo !== 'admin' || !confirm(`Remover "${item.nome}" do Quadro?`)) return
+  try { const { removeAgendaDocument } = await import('./agenda-documents'); await removeAgendaDocument(item); delete agendaDocuments[documentId]; toast('PDF removido do Quadro'); renderConfigAgenda() }
+  catch { toast('Não foi possível remover o PDF') }
 }
 
 function normalizedReminderValues(values: string[]): string[] {

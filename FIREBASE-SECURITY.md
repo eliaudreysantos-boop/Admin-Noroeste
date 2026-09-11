@@ -15,11 +15,13 @@ ativos são obrigatórios antes de liberar o app a alguém.
 | Área | Leitura | Escrita |
 | --- | --- | --- |
 | `master/*` e `usuarios/*` | Admin | Admin |
-| `tarefas/*`, `limpeza/*`, `oradores/*`, `escala/*`, `programacao/*` | Administradores do módulo | Administradores do módulo |
+| `tarefas/*`, `limpeza/*`, `oradores/*`, `escala/*`, `programacao/*`, `servicoCampo/*` | Administradores do módulo | Administradores do módulo |
 | `secretario/*` | Secretário/Admin; publicador apenas nos próprios dados liberados | Secretário/Admin; publicador apenas no próprio relatório aberto |
 | `agenda/config/*` | Usuários autorizados | Admin |
 | Dados públicos do Quadro | Usuários autorizados | Módulo de origem/Admin |
 | `secretario/templates/*` no Storage | Secretário/Admin | Secretário/Admin |
+| `agenda/documentos/*` | Usuários autorizados | Admin e módulos geradores |
+| `agenda/documentos/*` no Storage | Usuários autorizados | Admin e módulos geradores |
 
 ## Controles operacionais obrigatórios
 

@@ -45,9 +45,15 @@ test('relatório aponta o caminho real de coleções atuais e legadas', () => {
   const data = {
     secretario: { pessoas: { antigo: { masterId: 'm1' } }, publicadores: { atual: { masterId: 'm2' } } },
     programacao: { people: { legacy: { masterId: 'm3' } }, pessoas: { current: { masterId: 'm4' } } },
+    servicoCampo: {
+      leaders: { m5: true },
+      periods: { '2026-09': { assignments: { saida1: { leaderId: 'm5' } } } },
+    },
   }
   assert.equal(linkIssueSource(data, 'Secretário', 'antigo').path, 'secretario/pessoas/antigo')
   assert.equal(linkIssueSource(data, 'Secretário', 'atual').path, 'secretario/publicadores/atual')
   assert.equal(linkIssueSource(data, 'Programação', 'legacy').path, 'programacao/people/legacy')
   assert.equal(linkIssueSource(data, 'Programação', 'current').path, 'programacao/pessoas/current')
+  assert.equal(linkIssueSource(data, 'Serviço de Campo', 'm5').path, 'servicoCampo/leaders/m5')
+  assert.equal(linkIssueSource(data, 'Serviço de Campo', '2026-09/saida1').path, 'servicoCampo/periods/2026-09/assignments/saida1')
 })

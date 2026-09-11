@@ -61,6 +61,7 @@ export function linkIssueSource(
   const secretario = objectValue(data['secretario'])
   const programacao = objectValue(data['programacao'])
   const escala = objectValue(data['escala'])
+  const servicoCampo = objectValue(data['servicoCampo'])
   const usuarios = objectValue(data['usuarios'])
   const discursos = objectValue(tarefas['discursos'])
 
@@ -75,6 +76,18 @@ export function linkIssueSource(
     if (id in pessoas) return { path: `programacao/pessoas/${id}`, record: pessoas[id] }
     const people = objectValue(programacao['people'])
     return { path: `programacao/people/${id}`, record: people[id] }
+  }
+  if (module === 'Serviço de Campo') {
+    const [periodId, assignmentId] = id.split('/')
+    if (assignmentId) {
+      const periods = objectValue(servicoCampo['periods'])
+      const period = objectValue(periods[periodId ?? ''])
+      return {
+        path: `servicoCampo/periods/${periodId}/assignments/${assignmentId}`,
+        record: objectValue(period['assignments'])[assignmentId],
+      }
+    }
+    return { path: `servicoCampo/leaders/${id}`, record: objectValue(servicoCampo['leaders'])[id] }
   }
   const sources: Record<string, { path: string; record: unknown }> = {
     Tarefas: { path: `tarefas/people/${id}`, record: objectValue(tarefas['people'])[id] },

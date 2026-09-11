@@ -108,6 +108,7 @@ Estado:
   - Vida e Ministerio: `P7D`, `P1D`;
   - Limpeza: `P1D`;
   - Escala TPL: `P1D`;
+  - Servico de Campo: `P1D`;
   - Quadro: desligado por padrao;
 - [x] O Admin nao altera os eventos originais.
 - [x] Salvar a configuracao no Firebase quando o Admin confirma a tela.
@@ -174,6 +175,9 @@ cuidados correspondentes estao documentados em `FIREBASE-SECURITY.md`.
   se futuramente necessario.
 - `pending list item` padronizado para a aba de vinculos.
 - Previa obrigatoria de PDF para qualquer documento administrativo futuro.
+- Upload administrativo de PDF para o Quadro somente depois da previa, com
+  nome, periodo e remocao do arquivo e dos metadados pelo Admin.
+- Integridade de dirigentes e designacoes do Servico de Campo.
 
 ## Fases de fechamento
 
