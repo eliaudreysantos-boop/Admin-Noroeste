@@ -5,8 +5,8 @@ import { moduleBackButton } from '../ui/module-header'
 import {
   ASSIGNMENT_PERMISSIONS, assignmentConflicts, assistantNeedsSameSex, bimesters, candidates,
   eligible, filterPrograms, isOfficialJwUrl, mergeImportedProgram, parseOfficialProgram,
-  permissionForPart, programPendings, reminderMessage, suggestAssignments,
-  type AssignmentPermission, type AssignmentStatus, type MeetingProgram, type ProgramPart, type ProgramPerson, type ProgramSection, type WeekType,
+  permissionForPart, programPendings, programReminderEntries, reminderMessage, suggestAssignments,
+  type AssignmentPermission, type AssignmentStatus, type MeetingProgram, type ProgramPart, type ProgramPerson, type ProgramReminderEntry, type ProgramSection, type WeekType,
 } from './programacao-domain'
 type Tab = 'indice' | 'programa' | 'apostilas' | 'pessoas' | 'arquivos' | 'lembretes' | 'pendencias' | 'config'
 type PeriodMode = 'week' | 'month' | 'bimester'
@@ -365,7 +365,7 @@ async function importBimester(year: number, startMonth: number): Promise<void> {
     const parsed: MeetingProgram[] = []
     pages.forEach(page => { try { parsed.push(parseOfficialProgram(page.sourceUrl, page.html)) } catch (error) { failures.push(error instanceof Error ? error.message : String(error)) } })
     const saved = await saveImported(parsed)
-    const result = document.getElementById('importResult'); if (result) result.textContent = `${saved.imported} nova(s), ${saved.updated} atualizada(s) e ${failures.length} falha(s). Designações e observações existentes foram preservadas.`
+    const result = document.getElementById('importResult'); if (result) result.textContent = `${saved.imported} nova(s), ${saved.updated} atualizada(s), ${saved.unchanged} sem alteração e ${failures.length} falha(s). Designações, partes manuais e observações existentes foram preservadas.`
     toast('Importação bimestral concluída')
   } catch (error) { toast(error instanceof Error ? error.message : 'Falha na importação') } finally { button.disabled = false }
 }
@@ -376,8 +376,8 @@ async function importSingle(url: string): Promise<void> {
     const payload = await requestJson({ url })
     const html = String(payload['html'] ?? '')
     if (!html) throw new Error('A página não retornou conteúdo.')
-    await saveImported([parseOfficialProgram(url, html)])
-    toast('Semana importada'); tab = 'programa'; render()
+    const saved = await saveImported([parseOfficialProgram(url, html)])
+    toast(saved.imported ? 'Semana importada' : saved.updated ? 'Semana atualizada' : 'A semana já estava atualizada'); tab = 'programa'; render()
   } catch (error) { toast(error instanceof Error ? error.message : 'Falha na importação') }
 }
 
@@ -389,19 +389,21 @@ async function importJson(): Promise<void> {
   } catch { toast('JSON inválido. Informe data e partes.') }
 }
 
-async function saveImported(incoming: MeetingProgram[]): Promise<{ imported: number; updated: number }> {
+async function saveImported(incoming: MeetingProgram[]): Promise<{ imported: number; updated: number; unchanged: number }> {
   const stamp = now(), patch: Record<string, unknown> = {}
-  let imported = 0, updated = 0
+  let imported = 0, updated = 0, unchanged = 0
   const unique = new Map(incoming.map(program => [program.id, program]))
   unique.forEach(program => {
-    if (programs[program.id]) updated += 1
+    const existing = programs[program.id]
+    const merged = mergeImportedProgram(existing, program, stamp)
+    if (merged === existing) { unchanged += 1; return }
+    if (existing) updated += 1
     else imported += 1
-    const merged = mergeImportedProgram(programs[program.id], program, stamp)
     patch[`programs/${program.id}`] = merged
     programs[program.id] = merged
   })
   if (Object.keys(patch).length) await update(programacaoRef, patch)
-  return { imported, updated }
+  return { imported, updated, unchanged }
 }
 
 function renderPeople(): void {
@@ -433,7 +435,7 @@ function profileModal(id: string): void {
 
 function renderFiles(): void {
   const list = filtered()
-  root().innerHTML = `${title('Arquivos')}${periodControls()}<div class="form-panel"><label class="form-label">Semana para S-89</label><select id="fileWeek" class="form-select">${list.map(program => `<option value="${esc(program.id)}">${esc(formatDate(program.meetingDate))}</option>`).join('')}</select><label class="form-label" style="margin-top:8px">Cartão individual</label><select id="filePart" class="form-select"></select><div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"><button id="fileS89One" class="btn btn-primary" ${list.length ? '' : 'disabled'}>S-89 selecionado</button><button id="fileS89" class="btn btn-ghost" ${list.length ? '' : 'disabled'}>S-89 da semana</button><button id="filePdf" class="btn btn-ghost" ${list.length ? '' : 'disabled'}>S-140 PDF</button><button id="fileDocx" class="btn btn-ghost" ${list.length ? '' : 'disabled'}>S-140 DOCX</button><a class="btn btn-ghost" href="https://www.jw.org/pt/biblioteca/orientacoes/" target="_blank" rel="noopener noreferrer">Abrir S-38 oficial</a></div><div class="form-help" style="margin-top:8px">Os documentos usam o período selecionado. Gerar arquivos não altera a programação.</div></div>`
+  root().innerHTML = `${title('Arquivos')}${periodControls()}<div class="form-panel"><label class="form-label">Semana para S-89</label><select id="fileWeek" class="form-select">${list.map(program => `<option value="${esc(program.id)}">${esc(formatDate(program.meetingDate))}</option>`).join('')}</select><label class="form-label" style="margin-top:8px">Cartão individual</label><select id="filePart" class="form-select"></select><div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"><button id="fileS89One" class="btn btn-primary" ${list.length ? '' : 'disabled'}>Prévia S-89 selecionado</button><button id="fileS89" class="btn btn-ghost" ${list.length ? '' : 'disabled'}>Prévia S-89 da semana</button><button id="filePdf" class="btn btn-ghost" ${list.length ? '' : 'disabled'}>Prévia S-140 PDF</button><button id="fileDocx" class="btn btn-ghost" ${list.length ? '' : 'disabled'}>Baixar S-140 DOCX</button><a class="btn btn-ghost" href="https://www.jw.org/pt/biblioteca/orientacoes/" target="_blank" rel="noopener noreferrer">Abrir S-38 oficial</a></div><div class="form-help" style="margin-top:8px">Os documentos usam o período selecionado. Gerar arquivos não altera a programação.</div></div>`
   bindPeriod(renderFiles)
   const refreshParts = () => { const program = programs[(document.getElementById('fileWeek') as HTMLSelectElement).value]; const parts = program?.parts.filter(part => part.section === 'ministerio' && part.assignedPersonId) ?? []; (document.getElementById('filePart') as HTMLSelectElement).innerHTML = parts.map(part => `<option value="${esc(part.id)}">${esc(part.title)}</option>`).join('') }
   document.getElementById('fileWeek')?.addEventListener('change', refreshParts)
@@ -444,27 +446,13 @@ function renderFiles(): void {
   refreshParts()
 }
 
-type ReminderRole = 'principal' | 'ajudante'
-interface ReminderEntry { program: MeetingProgram; part: ProgramPart; person: ProgramPerson; role: ReminderRole; kind: 's89' | 'geral' }
+function reminderEntries(): ProgramReminderEntry[] { return programReminderEntries(filtered(), joinedPeople()) }
 
-function reminderEntries(): ReminderEntry[] {
-  const people = new Map(joinedPeople().map(person => [person.id, person]))
-  return filtered().flatMap(program => program.parts.flatMap(part => {
-    const kind = part.section === 'ministerio' ? 's89' as const : 'geral' as const
-    const principal = people.get(part.substitutePersonId ?? part.assignedPersonId ?? '')
-    const assistant = people.get(part.assistantPersonId ?? '')
-    const entries: ReminderEntry[] = []
-    if (principal) entries.push({ program, part, person: principal, role: 'principal', kind })
-    if (assistant && assistant.id !== principal?.id) entries.push({ program, part, person: assistant, role: 'ajudante', kind })
-    return entries
-  }))
-}
-
-function reminderStamp(entry: ReminderEntry): string | undefined {
+function reminderStamp(entry: ProgramReminderEntry): string | undefined {
   return entry.role === 'ajudante' ? entry.part.assistantRemindedAt : entry.part.remindedAt
 }
 
-function reminderText(entry: ReminderEntry): string {
+function reminderText(entry: ProgramReminderEntry): string {
   const base = reminderMessage(entry.person, entry.program, entry.part, meetingTime(), settings.reminderTemplate)
   return entry.kind === 's89' ? `${base}\n\nO cartão S-89 desta designação está disponível para você.` : base
 }
@@ -491,7 +479,7 @@ function renderReminders(): void {
   refresh()
 }
 
-function reminderOption(entry: ReminderEntry, index: number): string {
+function reminderOption(entry: ProgramReminderEntry, index: number): string {
   const role = entry.role === 'ajudante' ? 'Ajudante' : entry.part.substitutePersonId ? 'Substituto' : 'Principal'
   return `<option value="${index}">${esc(formatDate(entry.program.meetingDate))} · ${esc(entry.person.name)} · ${esc(role)} · ${esc(entry.part.title)}${reminderStamp(entry) ? ' · aberto' : ''}</option>`
 }

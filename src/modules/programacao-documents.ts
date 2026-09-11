@@ -2,6 +2,7 @@ import { AlignmentType, Document, Footer, Packer, PageBreak, Paragraph, TextRun 
 // O entrypoint ESM do pdf-lib 1.17.1 referencia "./text" sem extensao e falha no Vite 5.
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib/cjs/index.js'
 import type { PDFFont } from 'pdf-lib'
+import { previewPdf } from '../ui/pdf-preview.ts'
 import type { MeetingProgram, ProgramPart, ProgramPerson, ProgramSection } from './programacao-domain'
 
 const sectionLabels: Record<ProgramSection, string> = {
@@ -49,12 +50,13 @@ export async function createS89(program: MeetingProgram, peopleList: ProgramPers
   const people = new Map(peopleList.map(person => [person.id, person]))
   const cards = program.parts.filter(part => part.section === 'ministerio' && personIdForDocument(part))
   if (!cards.length) return { bytes: new Uint8Array(), count: 0 }
-  const template = await PDFDocument.load(templateBytes ?? await s89TemplateBytes())
+  const source = templateBytes ?? await s89TemplateBytes()
   const pdf = await PDFDocument.create()
   const regular = await pdf.embedFont(StandardFonts.Helvetica)
+  const [background] = await pdf.embedPdf(source, [0])
   for (const part of cards) {
-    const [page] = await pdf.copyPages(template, [0])
-    pdf.addPage(page)
+    const page = pdf.addPage([background.width, background.height])
+    page.drawPage(background, { x: 0, y: 0, width: background.width, height: background.height })
     const draw = (text: string, x: number, y: number, maxWidth = 235) => page.drawText(clippedToWidth(text, maxWidth, regular, 9), { x, y, size: 9, font: regular })
     draw(personName(personIdForDocument(part), people), 52, 267)
     draw(personName(part.assistantPersonId, people).replace('Sem designação', ''), 61, 244)
@@ -68,7 +70,7 @@ export async function createS89(program: MeetingProgram, peopleList: ProgramPers
 
 export async function downloadS89(program: MeetingProgram, peopleList: ProgramPerson[]): Promise<number> {
   const result = await createS89(program, peopleList)
-  if (result.count) download(new Uint8Array(result.bytes).buffer as ArrayBuffer, 'application/pdf', `S-89-${program.meetingDate}.pdf`)
+  if (result.count) previewPdf(result.bytes, `S-89-${program.meetingDate}.pdf`, 'Prévia do S-89')
   return result.count
 }
 
@@ -113,7 +115,7 @@ export async function createS140Pdf(programs: MeetingProgram[], congregation: st
 
 export async function downloadS140Pdf(programs: MeetingProgram[], congregation: string, peopleList: ProgramPerson[]): Promise<void> {
   const bytes = await createS140Pdf(programs, congregation, peopleList)
-  download(new Uint8Array(bytes).buffer as ArrayBuffer, 'application/pdf', `S-140-${programs[0]?.meetingDate ?? 'programacao'}.pdf`)
+  previewPdf(bytes, `S-140-${programs[0]?.meetingDate ?? 'programacao'}.pdf`, 'Prévia do S-140')
 }
 
 function docxMeeting(program: MeetingProgram, congregation: string, people: Map<string, ProgramPerson>): Paragraph[] {

@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
+import { PDFDocument } from 'pdf-lib/cjs/index.js'
 import { createS140Docx, createS140Pdf, createS89, personIdForDocument } from '../src/modules/programacao-documents.ts'
 
 const people = [{ id: 'p1', masterId: 'm1', name: 'Maria Silva', whatsapp: '', sex: 'feminino', role: 'publicador', active: true, permissions: ['iniciando-conversas'] }]
@@ -10,11 +11,21 @@ const program = { id: '2026-09-09', meetingDate: '2026-09-09', bibleReading: 'IS
 ] }
 
 test('gera S-89 e S-140 como PDFs reais', async () => {
+  const original = structuredClone(program)
   const s89 = await createS89(program, people, new Uint8Array(await readFile(new URL('../public/templates/S-89_T.pdf', import.meta.url))))
   const s140 = await createS140Pdf([program], 'Noroeste', people)
   assert.equal(s89.count, 1)
   assert.equal(new TextDecoder().decode(s89.bytes.slice(0, 4)), '%PDF')
   assert.equal(new TextDecoder().decode(s140.slice(0, 4)), '%PDF')
+  assert.deepEqual(program, original)
+})
+
+test('repete o template completo em todos os cartões S-89 do lote', async () => {
+  const template = new Uint8Array(await readFile(new URL('../public/templates/S-89_T.pdf', import.meta.url)))
+  const batch = { ...program, parts: [program.parts[1], { ...program.parts[1], id: '2026-09-09-5', title: 'Cultivando o interesse' }] }
+  const result = await createS89(batch, people, template)
+  assert.equal(result.count, 2)
+  assert.equal((await PDFDocument.load(result.bytes)).getPageCount(), 2)
 })
 
 test('documentos priorizam realizado, depois substituto e designado', async () => {

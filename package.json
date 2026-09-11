@@ -10,16 +10,18 @@
     "test:tarefas": "node --test tests/tarefas-domain.test.mjs",
     "test:escala": "node --test tests/escala-domain.test.mjs tests/escala-migration.test.mjs",
     "test:oradores": "node --test tests/oradores-domain.test.mjs",
-    "test:coordenador": "node --test tests/coordenador-domain.test.mjs",
     "test:programacao": "node --test tests/programacao-domain.test.mjs tests/programacao-documents.test.mjs",
     "test:limpeza": "node --test tests/limpeza-domain.test.mjs tests/limpeza-documents.test.mjs",
-    "test:secretario": "node --test tests/secretario-domain.test.mjs tests/secretario-documents.test.mjs",
-    "test:individual": "node --test tests/individual-domain.test.mjs"
+    "test:secretario": "node --test tests/secretario-domain.test.mjs tests/secretario-documents.test.mjs tests/secretario-spreadsheets.test.mjs",
+    "test:individual": "node --test tests/individual-domain.test.mjs",
+    "test:mestre": "node --test tests/mestre-backup-domain.test.mjs tests/mestre-domain.test.mjs"
   },
   "dependencies": {
     "docx": "^9.7.1",
     "firebase": "^10.14.1",
-    "pdf-lib": "^1.17.1"
+    "jszip": "^3.10.2",
+    "pdf-lib": "^1.17.1",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "typescript": "^5.5.3",

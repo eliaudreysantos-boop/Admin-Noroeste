@@ -1,13 +1,15 @@
 export type PublisherCategory = 'publicador' | 'pioneiro_auxiliar' | 'pioneiro_regular' | 'pioneiro_especial' | 'missionario'
 export type MeetingKind = 'meio_semana' | 'fim_semana'
+export type ReportOrigin = 'minha_agenda' | 'secretario'
+export type PublisherReportState = 'recebido' | 'atrasado' | 'sem_relatorio' | 'inativo'
 
 export interface SecretaryGroup { id: string; nome: string; superintendenteMasterId: string; ativo: boolean }
-export interface SecretaryPublisher { id: string; masterId: string; categoria: PublisherCategory; grupoId: string; ativo: boolean }
+export interface SecretaryPublisher { id: string; masterId: string; categoria: PublisherCategory; grupoId: string; ativo: boolean; reativado?: boolean; surdo?: boolean; cego?: boolean; preso?: boolean }
 export interface SecretaryReport {
   id: string; masterId: string; competencia: string; categoria: PublisherCategory
   participou: boolean; estudos: number; horasCampo: number; horasAtividadeAprovada: number
   creditoHoras: number; pioneiroAuxiliar: boolean; observacoes: string; atrasado: boolean
-  recebidoEm: string; atualizadoEm: string
+  recebidoEm: string; atualizadoEm: string; origem: ReportOrigin
 }
 export interface SecretaryAttendance { id: string; data: string; tipo: MeetingKind; quantidade: number; atualizadoEm: string }
 export interface CongregationReportSummary {
@@ -24,6 +26,38 @@ export const CATEGORY_LABELS: Record<PublisherCategory, string> = {
 
 export function records<T>(value: unknown): Record<string, T> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, T> : {}
+}
+export interface MonthlyActivitySummary { month: string; reports: number; participants: number; studies: number; auxiliaryHours: number; regularHours: number }
+
+export function isClosedMonth(competence: string, closings: unknown): boolean {
+  const closing = records<Record<string, unknown>>(closings)[competence]
+  return Boolean(closing?.['fechadoEm'])
+}
+
+export function normalizePersonalReport(input: {
+  id: string; masterId: string; competencia: string; categoria: PublisherCategory; participou: boolean
+  estudos: unknown; horasCampo?: unknown; observacoes?: unknown; recebidoEm: string; atualizadoEm: string
+}): SecretaryReport {
+  const number = (value: unknown): number => Math.max(0, Number(value) || 0)
+  const allowsHours = ['pioneiro_auxiliar', 'pioneiro_regular'].includes(input.categoria)
+  return {
+    id: input.id, masterId: input.masterId, competencia: input.competencia, categoria: input.categoria,
+    participou: input.participou, estudos: number(input.estudos), horasCampo: allowsHours ? number(input.horasCampo) : 0,
+    horasAtividadeAprovada: 0, creditoHoras: 0, pioneiroAuxiliar: input.categoria === 'pioneiro_auxiliar',
+    observacoes: String(input.observacoes ?? '').trim().slice(0, 250), atrasado: isReportLate(input.competencia, input.recebidoEm),
+    recebidoEm: input.recebidoEm, atualizadoEm: input.atualizadoEm, origem: 'minha_agenda',
+  }
+}
+
+export function publisherReportState(publisher: SecretaryPublisher, competence: string, reportList: Record<string, SecretaryReport>): PublisherReportState {
+  if (!publisher.ativo) return 'inativo'
+  const report = Object.values(reportList).find(item => item.masterId === publisher.masterId && item.competencia === competence)
+  if (!report) return 'sem_relatorio'
+  return report.atrasado ? 'atrasado' : 'recebido'
+}
+
+export function pendingPublishers(publisherList: Record<string, SecretaryPublisher>, competence: string, reportList: Record<string, SecretaryReport>): SecretaryPublisher[] {
+  return Object.values(publisherList).filter(publisher => publisherReportState(publisher, competence, reportList) === 'sem_relatorio')
 }
 
 export function nextMonth(month: string): string {
@@ -89,6 +123,19 @@ export function attendanceByMonth(attendance: Record<string, SecretaryAttendance
     const values = Object.values(attendance).filter(item => item.tipo === kind && item.data.startsWith(month))
     const total = values.reduce((sum, item) => sum + Math.max(0, item.quantidade || 0), 0)
     return { month, meetings: values.length, total, average: values.length ? Math.round(total / values.length) : 0 }
+  })
+}
+
+export function activityByServiceYear(reports: Record<string, SecretaryReport>, startYear: number): MonthlyActivitySummary[] {
+  return monthsInServiceYear(startYear).map(month => {
+    const items = Object.values(reports).filter(report => accountingMonth(report) === month && !['pioneiro_especial', 'missionario'].includes(report.categoria))
+    const participants = items.filter(report => report.participou)
+    return {
+      month, reports: items.length, participants: participants.length,
+      studies: items.reduce((sum, report) => sum + Math.max(0, report.estudos || 0), 0),
+      auxiliaryHours: participants.filter(report => report.categoria === 'pioneiro_auxiliar' || report.pioneiroAuxiliar).reduce((sum, report) => sum + Math.max(0, report.horasCampo || 0), 0),
+      regularHours: participants.filter(report => report.categoria === 'pioneiro_regular').reduce((sum, report) => sum + Math.max(0, report.horasCampo || 0), 0),
+    }
   })
 }
 

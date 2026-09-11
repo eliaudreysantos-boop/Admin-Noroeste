@@ -191,21 +191,29 @@ O quadro de anúncios deve mostrar a reunião inteira, não apenas o que pertenc
 
 - [x] Comparar `parseOfficialProgram` atual com `jwProgramParser` antigo.
 - [x] Trazer a tabela ampliada de entidades HTML e suporte a duração na mesma linha.
-- [ ] Manter validação de URL oficial `https://www.jw.org/pt/`.
-- [ ] Manter importação semanal.
+- [x] Manter validação de URL oficial `https://www.jw.org/pt/`.
+- [x] Manter importação semanal.
 - [x] Melhorar importação bimestral com resumo de novas, atualizadas e falhas.
-- [ ] Preservar designações, status, observações e confirmações ao reimportar.
-- [ ] Evitar sobrescrever semanas já existentes sem necessidade.
+- [x] Preservar designações, status, observações, confirmações, conselheiro e partes manuais ao reimportar.
+- [x] Evitar sobrescrever semanas já existentes sem necessidade e informar as semanas inalteradas no resumo.
+
+Auditoria da fase: validação de URL, parser semanal, importação bimestral e
+mesclagem possuem testes de domínio. Uma reimportação idêntica mantém o registro
+original e não produz escrita no lote enviado ao Firebase.
 
 ### Fase 5 - Lembretes
 
 - [x] Separar lembretes S-89 e lembretes gerais.
-- [ ] Incluir principal e ajudante nos lembretes quando houver WhatsApp.
-- [ ] Gerar texto editável antes de abrir WhatsApp.
+- [x] Incluir principal, substituto e ajudante nos lembretes quando houver WhatsApp.
+- [x] Gerar texto editável antes de abrir WhatsApp.
 - [x] Marcar `remindedAt` para principal ou substituto.
 - [x] Marcar `assistantRemindedAt` para ajudante.
 - [x] Marcar `confirmedAt` quando a designação for confirmada.
-- [ ] Usar a política já adotada nos outros módulos: abrir WhatsApp apenas após ação explícita do usuário.
+- [x] Usar a política já adotada nos outros módulos: abrir WhatsApp apenas após ação explícita do usuário.
+
+Auditoria da fase: a lista exclui contatos sem WhatsApp, prioriza o substituto
+quando houver e evita duplicar a mesma pessoa como principal e ajudante. O texto
+fica em campo editavel e nenhuma janela externa abre antes do clique do usuario.
 
 ### Fase 6 - Arquivos
 
@@ -215,10 +223,15 @@ O quadro de anúncios deve mostrar a reunião inteira, não apenas o que pertenc
 - [x] Gerar S-140 PDF.
 - [x] Gerar S-140 DOCX.
 - [x] Garantir que os documentos usem `realizedPersonId`, depois `substitutePersonId`, depois `assignedPersonId`.
+- [x] Aplicar previa obrigatoria aos PDFs S-89 e S-140, com baixar e imprimir somente dentro da previa.
 
 O S-89 desta congregação marca somente `Salão principal`. As caixas Sala B e Sala C fazem parte do template oficial, mas não são usadas.
-- [ ] Testar visualmente PDFs gerados.
-- [ ] Manter documentos sem alterar dados da programação.
+- [x] Testar visualmente PDFs gerados em uma e varias paginas.
+- [x] Manter documentos sem alterar dados da programação.
+
+Auditoria da fase: S-89 de duas paginas e S-140 foram renderizados em PNG e
+conferidos sem cortes ou sobreposicoes. A geracao usa dados imutaveis e os PDFs
+abrem primeiro no modal compartilhado de previa.
 
 ### Fase 7 - Pendências
 
@@ -232,7 +245,11 @@ O S-89 desta congregação marca somente `Salão principal`. As caixas Sala B e 
 - [x] Confirmação pendente.
 - [x] Parte marcada como realizada sem `realizedPersonId`.
 - [x] Link direto da pendência para a semana/modal correto.
-- [ ] Opção de ignorar/reactivar pendência, se seguirmos o padrão final de Oradores.
+- [x] Não permitir ignorar pendências obrigatórias; corrigir o dado na semana mantém o painel confiável.
+
+Auditoria da fase: partes realizadas deixam de cobrar lembrete e confirmacao,
+mas continuam apontando a falta de `realizedPersonId`. Cada item conserva link
+direto para a semana e a parte que precisam de correcao.
 
 ### Fase 8 - Minha Agenda E Quadro De Anúncios
 
@@ -247,10 +264,15 @@ O S-89 desta congregação marca somente `Salão principal`. As caixas Sala B e 
 
 ### Fase 9 - Limpeza Do Coordenador
 
-- [ ] Remover módulo/perfil `coordenador` da navegação quando o plano for confirmado.
-- [ ] Remover testes do coordenador ou migrar apenas o que ainda for útil.
-- [ ] Transferir documentos úteis do coordenador para os módulos donos.
-- [ ] Garantir que nenhuma ação importante dependa mais de `coordenador`.
+- [x] Remover módulo/perfil `coordenador` da navegação.
+- [x] Remover testes exclusivos do coordenador.
+- [x] Manter documentos úteis nos módulos donos.
+- [x] Garantir que nenhuma ação importante dependa mais de `coordenador`.
+
+Auditoria da fase: o roteador nao possui mais entrada especial, o Admin nao cria
+nem edita esse perfil e os tipos nao o reconhecem. Contas antigas continuam com
+as permissoes comuns gravadas em `apps`; ao serem editadas, o marcador legado e
+removido sem alterar os dados operacionais dos modulos.
 
 ## Reaproveitáveis Para Outros Módulos
 
@@ -275,25 +297,30 @@ Registrar depois em `PADROES-REAPROVEITAVEIS.md`:
 - PDFs S-89 com template oficial exigem conferir coordenadas visualmente.
 - Dados antigos podem ter `parts` como array ou objeto; normalização precisa continuar tolerante.
 - Pessoas inativas ou removidas no Admin podem existir no histórico; a tela precisa exibir sem quebrar e impedir novas sugestões indevidas.
-- A remoção do coordenador deve ser feita depois que `Minha agenda` e documentos estiverem assumindo o papel dele.
+- O antigo perfil Coordenador foi removido depois que Minha Agenda e os módulos donos assumiram seus documentos e consultas.
 
 ## Critérios De Pronto
 
-- [ ] `npm run test:programacao` passa.
-- [ ] `npm run test:individual` passa.
-- [ ] `npm run build` passa.
+- [x] `npm run test:programacao` passa.
+- [x] `npm run test:individual` passa.
+- [x] `npm run build` passa.
 - [ ] Importação semanal funciona com página oficial.
-- [ ] Importação bimestral preserva semanas já existentes.
+- [x] Importação bimestral preserva semanas já existentes.
 - [ ] Editor por seção funciona em desktop e mobile.
-- [ ] Sugestões não salvam sem confirmação humana.
-- [ ] Lembretes abrem WhatsApp com texto correto.
-- [ ] S-89 individual gera PDF.
-- [ ] S-89 da semana gera PDF.
-- [ ] S-140 PDF gera arquivo legível.
+- [x] Sugestões não salvam sem confirmação humana.
+- [x] Lembretes abrem WhatsApp com texto correto.
+- [x] S-89 individual gera PDF.
+- [x] S-89 da semana gera PDF multipágina legível.
+- [x] S-140 PDF gera arquivo legível.
 - [ ] S-140 DOCX gera arquivo legível.
-- [ ] Pendências apontam para a semana correta.
-- [ ] Minha agenda mostra designações pessoais de Vida e Ministério.
-- [ ] Quadro de anúncios mostra todas as designações das reuniões.
+- [x] Pendências apontam para a semana correta.
+- [x] Minha agenda mostra designações pessoais de Vida e Ministério.
+- [x] Quadro de anúncios mostra todas as designações das reuniões.
+
+Validação final desta rodada: interface conferida em desktop e em viewport de
+375 px sem overflow horizontal, e console sem erros. Permanecem operacionais a
+importação contra uma página oficial ao vivo, a abertura de um editor com dados
+reais e a conferência visual do DOCX S-140.
 
 ## Ordem Recomendada
 

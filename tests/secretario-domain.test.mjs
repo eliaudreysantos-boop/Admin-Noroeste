@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { accountingMonth, archiveCanBeDeleted, attendanceByMonth, isReportLate, monthsInServiceYear, serviceYearStart, summarizeCongregation } from '../src/modules/secretario-domain.ts'
+import { accountingMonth, activityByServiceYear, archiveCanBeDeleted, attendanceByMonth, isClosedMonth, isReportLate, monthsInServiceYear, normalizePersonalReport, pendingPublishers, publisherReportState, serviceYearStart, summarizeCongregation } from '../src/modules/secretario-domain.ts'
 
 const report = (id, overrides = {}) => ({ id, masterId: id, competencia: '2026-08', categoria: 'publicador', participou: true, estudos: 1, horasCampo: 0, horasAtividadeAprovada: 0, creditoHoras: 0, pioneiroAuxiliar: false, observacoes: '', atrasado: false, recebidoEm: '2026-09-03', atualizadoEm: '', ...overrides })
 
@@ -34,4 +34,33 @@ test('assistência calcula totais e médias e protege o único S-21', () => {
   assert.deepEqual(values[0], { month: '2026-09', meetings: 2, total: 163, average: 82 })
   assert.equal(archiveCanBeDeleted('one', { one: { tipo: 'S-21' } }), false)
   assert.equal(archiveCanBeDeleted('one', { one: { tipo: 'S-21' }, two: { tipo: 'S-21' } }), true)
+})
+
+test('relatório pessoal respeita a categoria, normaliza dados e identifica mês fechado', () => {
+  const ordinary = normalizePersonalReport({ id:'p', masterId:'m1', competencia:'2026-09', categoria:'publicador', participou:true, estudos:-2, horasCampo:12, observacoes:' x '.repeat(100), recebidoEm:'2026-09-09', atualizadoEm:'' })
+  const pioneer = normalizePersonalReport({ id:'a', masterId:'m2', competencia:'2026-09', categoria:'pioneiro_auxiliar', participou:true, estudos:'2', horasCampo:'14.5', observacoes:'ok', recebidoEm:'2026-09-11', atualizadoEm:'' })
+  assert.equal(ordinary.estudos, 0); assert.equal(ordinary.horasCampo, 0); assert.equal(ordinary.observacoes.length, 250)
+  assert.equal(ordinary.origem, 'minha_agenda'); assert.equal(pioneer.horasCampo, 14.5); assert.equal(pioneer.atrasado, false)
+  assert.equal(isClosedMonth('2026-09', { '2026-09': { enviadoEm:'2026-10-11' } }), false)
+  assert.equal(isClosedMonth('2026-09', { '2026-09': { fechadoEm:'2026-10-11' } }), true)
+  assert.equal(isClosedMonth('2026-10', { '2026-09': { fechadoEm:'2026-10-11' } }), false)
+})
+
+test('painel mensal diferencia recebido, atrasado, sem relatório e inativo', () => {
+  const publisher = { id:'p1', masterId:'m1', categoria:'publicador', grupoId:'g1', ativo:true }
+  assert.equal(publisherReportState(publisher, '2026-09', { r: report('r', { masterId:'m1', competencia:'2026-09' }) }), 'recebido')
+  assert.equal(publisherReportState(publisher, '2026-09', { r: report('r', { masterId:'m1', competencia:'2026-09', atrasado:true }) }), 'atrasado')
+  assert.equal(publisherReportState(publisher, '2026-09', {}), 'sem_relatorio')
+  assert.equal(publisherReportState({ ...publisher, ativo:false }, '2026-09', {}), 'inativo')
+})
+
+test('fila de pendentes considera apenas publicadores ativos sem relatório da competência', () => {
+  const publishers = { a:{ id:'a', masterId:'a', categoria:'publicador', grupoId:'g', ativo:true }, b:{ id:'b', masterId:'b', categoria:'publicador', grupoId:'g', ativo:true }, c:{ id:'c', masterId:'c', categoria:'publicador', grupoId:'g', ativo:false } }
+  const result = pendingPublishers(publishers, '2026-09', { r:report('r', { masterId:'a', competencia:'2026-09' }) })
+  assert.deepEqual(result.map(item => item.masterId), ['b'])
+})
+
+test('análise anual soma relatórios, estudos e horas por competência contábil', () => {
+  const values = activityByServiceYear({ a:report('a', { competencia:'2026-09', estudos:2 }), b:report('b', { competencia:'2026-09', categoria:'pioneiro_auxiliar', pioneiroAuxiliar:true, horasCampo:15 }), c:report('c', { competencia:'2026-09', categoria:'pioneiro_regular', horasCampo:50 }) }, 2026)
+  assert.deepEqual(values[0], { month:'2026-09', reports:3, participants:3, studies:4, auxiliaryHours:15, regularHours:50 })
 })

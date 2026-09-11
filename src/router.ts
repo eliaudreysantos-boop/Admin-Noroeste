@@ -55,7 +55,7 @@ function animateRoute(content: HTMLElement): void {
 
 function emitRouteState(): void {
   window.dispatchEvent(new CustomEvent('app-route-change', {
-    detail: { canBack: _currentModule !== null },
+    detail: { canBack: _currentModule !== null && _accessList.length > 1 },
   }))
 }
 
@@ -71,11 +71,10 @@ export async function navigateTo(modulo: ModuleName): Promise<void> {
 }
 
 export function navigateBack(): void {
-  if (_currentModule) {
-    void navigateTo(_currentModule)
+  if (_currentModule && _accessList.length > 1) {
+    renderMenu(_accessList)
     return
   }
-  if (_accessList.length > 1) renderMenu(_accessList)
 }
 
 export function navigateModuleIndex(): void {
@@ -86,16 +85,6 @@ export function navigateModuleIndex(): void {
 
 export function initRouter(uid: string, usuario: import('./types').Usuario): void {
   _ctx = { uid, usuario }
-
-  if (usuario.secretarioPapel === 'coordenador' && !usuario.apps.mestre) {
-    _currentModule = null
-    _accessList = []
-    emitRouteState()
-    const content = document.getElementById('appContent')!
-    content.innerHTML = '<p style="padding:24px;color:var(--ink-3)">Carregando...</p>'
-    void import('./modules/coordenador').then(module => { module.default(_ctx!); animateRoute(content) })
-    return
-  }
 
   // apps.mestre = Admin → acesso total a todos os módulos
   const accessList = usuario.apps.mestre

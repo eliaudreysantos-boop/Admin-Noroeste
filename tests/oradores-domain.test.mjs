@@ -67,7 +67,7 @@ test('PDF de temas disponíveis exclui temas usados ou já agendados', () => {
   assert.deepEqual(entries, [{ nome: 'João', temas: [{ numero: 3, titulo: 'Livre', ultimoUso: 'Nunca' }] }])
 })
 
-test('calendário do coordenador inclui local, visitante e saída', () => {
+test('calendário de oradores inclui local, visitante e saída', () => {
   const rows = scheduleRows([
     ['local', { data: '2026-09-06', tipo: 'discurso_local', oradorId: 'a', temaNumero: 1, temaTitulo: 'Esperança' }],
     ['visitante', { data: '2026-09-13', tipo: 'discurso_visitante', oradorNome: 'Visitante', temaTitulo: 'Fé', congregacaoOrigemNome: 'Centro' }],

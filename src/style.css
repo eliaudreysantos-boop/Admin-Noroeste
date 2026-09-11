@@ -417,6 +417,51 @@ textarea.form-input {
   color: var(--blue-deep);
 }
 
+.pending-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+
+.pending-summary span,
+.pending-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  border-radius: 999px;
+  padding: 3px 9px;
+  color: #fff;
+  font-size: .72rem;
+  font-weight: 800;
+}
+
+.tarefas-preview-modal {
+  width: min(1120px, calc(100vw - 28px));
+  max-width: none;
+}
+
+.tarefas-print-preview {
+  max-height: min(68vh, 780px);
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid var(--border);
+  background: #F7F9FC;
+}
+
+.tarefas-print-preview .tarefas-print-page {
+  width: 194mm;
+  min-height: 281mm;
+  margin: 0 auto 12px;
+  padding: 8mm;
+  background: #fff;
+  box-shadow: 0 8px 24px rgba(0,0,0,.12);
+}
+
+.tarefas-print-preview .tarefas-print-page:last-child {
+  margin-bottom: 0;
+}
+
 /* ─── Toast ───────────────────────────────────────────────────────────── */
 
 #toast {
@@ -875,6 +920,9 @@ textarea.form-input {
 .secretary-row small { margin-top: 3px; color: var(--ink-3); font-size: .75rem; }
 .secretary-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .secretary-row .secretary-actions { flex-wrap: nowrap; flex: 0 0 auto; margin-top: 0; }
+.pdf-preview-modal { width: min(1080px, calc(100vw - 28px)); max-width: none; }
+.pdf-preview-modal iframe { display: block; width: 100%; height: min(72vh, 820px); border: 1px solid var(--border); background: #fff; }
+.pdf-preview-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; margin-top: 10px; }
 .secretary-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-bottom: 14px; }
 .secretary-metric { padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
 .secretary-metric strong, .secretary-metric span { display: block; }
@@ -923,6 +971,13 @@ textarea.form-input {
 .agenda-status.confirmacao-pendente { color: var(--danger); }
 .agenda-status.realizado { color: var(--success); }
 
+.admin-reminder-grid { display: grid; grid-template-columns: minmax(90px, 1fr) minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+.admin-reminder-grid .form-select { width: 100%; min-width: 0; }
+.admin-reminder-row { align-items: center; padding: 9px 0; border-bottom: 1px solid var(--border); }
+.admin-reminder-heading { padding-bottom: 6px; color: var(--ink-3); font-size: .73rem; font-weight: 600; }
+.admin-report-actions { display: flex; gap: 8px; margin-top: 12px; }
+.admin-report-actions .btn { flex: 1 1 auto; }
+
 @media (min-width: 900px) {
   .scale-days { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .secretary-metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); }
@@ -933,9 +988,14 @@ textarea.form-input {
   .cleaning-period-dates { grid-column: 1 / -1; }
   .secretary-row { align-items: flex-start; }
   .secretary-row .secretary-actions { flex-direction: column; }
+  .pdf-preview-modal iframe { height: 62vh; }
   .agenda-event { grid-template-columns: 1fr auto; gap: 6px 10px; }
   .agenda-event time { grid-column: 1 / -1; }
   .agenda-day { min-height: 44px; padding: 4px; }
+  .admin-reminder-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .admin-reminder-row > strong { grid-column: 1 / -1; }
+  .admin-reminder-heading { display: none; }
+  .admin-report-actions { flex-wrap: wrap; }
 }
 
 @media print {

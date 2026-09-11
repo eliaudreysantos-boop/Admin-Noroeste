@@ -8,6 +8,7 @@ import {
   remove,
   type DatabaseReference,
 } from 'firebase/database'
+import { getStorage } from 'firebase/storage'
 
 export { get, set, update, remove }
 
@@ -25,6 +26,7 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig)
 const db  = getDatabase(app)
+export const storage = getStorage(app)
 
 // ─── Referências — master ──────────────────────────────────────────────────
 
@@ -115,3 +117,6 @@ export const programacaoRef: DatabaseReference =
 
 export const secretarioRef: DatabaseReference =
   ref(db, 'secretario')
+
+export const agendaConfigRef: DatabaseReference =
+  ref(db, 'agenda/config')

@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   assistantNeedsSameSex, candidates, filterPrograms, isOfficialJwUrl,
-  htmlToText, mergeImportedProgram, parseOfficialProgram, permissionForPart, programPendings, reminderMessage, suggestAssignments,
+  htmlToText, mergeImportedProgram, parseOfficialProgram, permissionForPart, programPendings, programReminderEntries, reminderMessage, suggestAssignments,
 } from '../src/modules/programacao-domain.ts'
 
 const page = `
@@ -56,18 +56,32 @@ test('parser aceita duração na mesma linha e entidades HTML em português', ()
   assert.equal(htmlToText('&Aacute;gua &ccedil; &atilde;').trim(), 'Água ç ã')
 })
 
-test('nova importação preserva designações, estado e observações', () => {
+test('nova importação preserva designações, estado, observações e dados locais', () => {
   const incoming = parseOfficialProgram('https://www.jw.org/pt/x/', page)
   const old = structuredClone(incoming)
   old.parts[0].assignedPersonId = 'p1'
   old.parts[0].status = 'realizado'
+  old.parts[0].confirmedAt = '2026-08-01T10:00:00.000Z'
   old.notes = 'Revisado'
+  old.counselorPersonId = 'p2'
+  old.parts.push({ id: `${old.id}-manual-1`, section: 'vida-crista', title: 'Anúncios locais', durationMinutes: 5 })
   incoming.parts[0].title = 'Título oficial atualizado'
   const merged = mergeImportedProgram(old, incoming, '2026-09-06T10:00:00.000Z')
   assert.equal(merged.parts[0].assignedPersonId, 'p1')
   assert.equal(merged.parts[0].status, 'realizado')
+  assert.equal(merged.parts[0].confirmedAt, '2026-08-01T10:00:00.000Z')
   assert.equal(merged.parts[0].title, 'Título oficial atualizado')
   assert.equal(merged.notes, 'Revisado')
+  assert.equal(merged.counselorPersonId, 'p2')
+  assert.equal(merged.parts.at(-1).title, 'Anúncios locais')
+})
+
+test('reimportação idêntica mantém o registro sem nova gravação lógica', () => {
+  const incoming = parseOfficialProgram('https://www.jw.org/pt/x/', page)
+  const old = { ...structuredClone(incoming), importedAt: '2026-08-01T10:00:00.000Z', updatedAt: '2026-08-01T10:00:00.000Z' }
+  const merged = mergeImportedProgram(old, incoming, '2026-09-06T10:00:00.000Z')
+  assert.equal(merged, old)
+  assert.equal(merged.updatedAt, '2026-08-01T10:00:00.000Z')
 })
 
 test('elegibilidade respeita privilégio, sexo e permissão', () => {
@@ -118,9 +132,37 @@ test('pendências indicam a parte para correção e cobrem ausência sem substit
   assert.equal(pending.find(item => /ausente sem substituto/.test(item.message))?.partId, 'part-1')
 })
 
+test('parte realizada não mantém cobranças antigas de lembrete e confirmação', () => {
+  const complete = { id: 'w', meetingDate: '2026-09-09', bibleReading: '', parts: [
+    { id: 'p1', section: 'ministerio', title: 'Iniciando conversas', durationMinutes: 3, assignedPersonId: 'p1', status: 'realizado', realizedPersonId: 'p1' },
+    { id: 'p2', section: 'vida-crista', title: 'Consideração', durationMinutes: 10, assignedPersonId: 'p1', status: 'realizado' },
+  ] }
+  const pending = programPendings([complete], [person()])
+  assert.equal(pending.some(item => /lembrete|confirmação/.test(item.message)), false)
+  assert.equal(pending.filter(item => /informe quem realizou/.test(item.message)).length, 1)
+})
+
 test('mensagem é editável a partir de modelo com marcadores', () => {
   const message = reminderMessage(person(), { id: 'w', meetingDate: '2026-09-09', bibleReading: '', parts: [] }, { id: 'p', section: 'ministerio', title: 'Iniciando conversas', durationMinutes: 3 }, '19:30', '{nome} | {data} | {horario} | {parte}')
   assert.equal(message, 'Ana | 09/09/2026 | 19:30 | Iniciando conversas')
+})
+
+test('lembretes incluem substituto e ajudante com WhatsApp sem duplicar destinatário', () => {
+  const program = { id: 'w', meetingDate: '2026-09-09', bibleReading: '', parts: [
+    { id: 'p', section: 'ministerio', title: 'Iniciando conversas', durationMinutes: 3, assignedPersonId: 'p1', substitutePersonId: 'p2', assistantPersonId: 'p3' },
+    { id: 'q', section: 'vida-crista', title: 'Consideração', durationMinutes: 10, assignedPersonId: 'p4', assistantPersonId: 'p4' },
+  ] }
+  const people = [
+    person(),
+    person({ id: 'p2', name: 'Bruno' }),
+    person({ id: 'p3', name: 'Carla' }),
+    person({ id: 'p4', name: 'Daniel', whatsapp: '' }),
+  ]
+  const entries = programReminderEntries([program], people)
+  assert.deepEqual(entries.map(entry => [entry.person.id, entry.role, entry.kind]), [
+    ['p2', 'principal', 's89'],
+    ['p3', 'ajudante', 's89'],
+  ])
 })
 
 test('sugestões equilibram histórico, evitam repetição e aguardam salvamento humano', () => {

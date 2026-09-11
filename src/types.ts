@@ -11,7 +11,6 @@ export type SecretarioPapel =
   | 'secretario'
   | 'publicador'
   | 'assistencia'
-  | 'coordenador'
 
 export type Sex = 'M' | 'F'
 
@@ -129,6 +128,19 @@ export interface MasterConfig {
   designacoes?:  Partial<Record<TipoDesignacao, ConfigDesignacao>>
 }
 
+export type AgendaReminderModule =
+  | 'tarefas'
+  | 'limpeza'
+  | 'escala'
+  | 'oradores'
+  | 'programacao'
+  | 'quadro'
+
+export interface AgendaConfig {
+  quadroWhatsAppLink?: string
+  icsReminders?: Partial<Record<AgendaReminderModule, string[]>>
+}
+
 // ─── Usuários ──────────────────────────────────────────────────────────────
 
 export interface AppPermissions {
@@ -148,7 +160,7 @@ export interface Usuario {
   ativo:            boolean
   apps:             AppPermissions
   secretarioPapel?: SecretarioPapel
-  masterId?:        string       // obrigatório quando secretarioPapel === 'publicador'
+  masterId?:        string       // obrigatório quando houver acesso à Minha Agenda
 }
 
 // ─── Firebase raw snapshots ────────────────────────────────────────────────
@@ -171,6 +183,7 @@ export interface RawRoot {
   escala?:      Record<string, unknown>
   programacao?: Record<string, unknown>
   secretario?:  Record<string, unknown>
+  agenda?:      Record<string, unknown>
 }
 
 // ─── App context ───────────────────────────────────────────────────────────

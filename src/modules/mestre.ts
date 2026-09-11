@@ -1,5 +1,7 @@
 import type {
   AppContext,
+  AgendaConfig,
+  AgendaReminderModule,
   MasterConfig,
   MasterPessoa,
   RawPessoas,
@@ -8,6 +10,7 @@ import type {
   Sex,
   TipoDesignacao,
   Usuario,
+  ModuleName,
 } from '../types'
 import {
   get, set, update, remove,
@@ -17,16 +20,28 @@ import {
   configCongregacaoRef,
   configReunioesRef,
   configDesignacoesRef,
+  agendaConfigRef,
   rootRef,
 } from '../firebase'
 import { renderMenuCards, type ItemMenu } from '../ui/menu-cards'
-import { coordinatorPermissions } from './coordenador-domain'
+import { moduleBackButton } from '../ui/module-header'
+import { validateBackup } from './mestre-backup-domain'
+import {
+  createMasterId,
+  linkIssueSource,
+  normalizeWhatsapp,
+  personalUserConflict,
+  sanitizeFailureReportValue,
+  sharedWhatsappPeople,
+} from './mestre-domain'
+import { navigateTo } from '../router'
 
 // ─── Estado do módulo ────────────────────────────────────────────────────────
 
 let pessoas:   RawPessoas  = {}
 let usuarios:  RawUsuarios = {}
 let config:    MasterConfig = {}
+let agendaConfig: AgendaConfig = {}
 let rootData:  Record<string, unknown> | null = null
 let rootLoading = false
 let rootLoadError = ''
@@ -35,7 +50,7 @@ let restoreFileName = ''
 
 type AdminTab = 'indice' | 'pessoas' | 'usuarios' | 'config' | 'vinculos' | 'dados'
 let activeTab: AdminTab = 'indice'
-let activeConfigSection: 'congregacao' | 'designacoes' = 'congregacao'
+let activeConfigSection: 'congregacao' | 'designacoes' | 'agenda' = 'congregacao'
 
 let pessoaFilter = { nome: '', role: '', ativo: 'true', sex: '' }
 
@@ -99,24 +114,9 @@ function objectValue(value: unknown): Record<string, unknown> {
 }
 
 function genId(prefix: string): string {
-  // Usado apenas para UIDs de usuários (aleatório é correto para users)
   const arr = new Uint8Array(4)
   crypto.getRandomValues(arr)
   return prefix + Array.from(arr).map(b => b.toString(16).padStart(2, '0')).join('')
-}
-
-async function midFromWhatsapp(whatsapp: string): Promise<string> {
-  // C6: mid = 'm_' + primeiros 8 hex do SHA-256 do whatsapp normalizado (13 dígitos)
-  const wpp = normalizeWhatsapp(whatsapp)
-  const enc = new TextEncoder().encode(wpp)
-  const buf = await crypto.subtle.digest('SHA-256', enc)
-  const hex = Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('')
-  return `m_${hex.slice(0, 8)}`
-}
-
-function normalizeWhatsapp(raw: string): string {
-  const digits = raw.replace(/\D/g, '')
-  return digits.startsWith('55') ? digits : `55${digits}`
 }
 
 function roleLabel(role: Role | null): string {
@@ -197,6 +197,7 @@ export default function mount(_ctx: AppContext): void {
   const root = document.getElementById('appContent')!
   root.innerHTML = `
     <div id="mestreRoot">
+      <div id="mestreBack"></div>
       <div id="mestreContent"></div>
     </div>`
 
@@ -235,12 +236,13 @@ async function loadAll(): Promise<void> {
   document.getElementById('mestreContent')!.innerHTML =
     '<p style="padding:24px;color:var(--ink-3);text-align:center">Carregando…</p>'
   try {
-    const [pSnap, uSnap, cSnap] = await Promise.all([
-      get(pessoasRef), get(usuariosRef), get(configRef),
+    const [pSnap, uSnap, cSnap, aSnap] = await Promise.all([
+      get(pessoasRef), get(usuariosRef), get(configRef), get(agendaConfigRef),
     ])
     pessoas  = pSnap.exists()  ? (pSnap.val()  as RawPessoas)  : {}
     usuarios = uSnap.exists()  ? (uSnap.val()  as RawUsuarios) : {}
     config   = cSnap.exists()  ? (cSnap.val()  as MasterConfig): {}
+    agendaConfig = aSnap.exists() ? (aSnap.val() as AgendaConfig) : {}
   } catch {
     toast('Erro ao carregar dados do Firebase')
   }
@@ -248,12 +250,16 @@ async function loadAll(): Promise<void> {
 }
 
 function renderContent(): void {
+  const back = document.getElementById('mestreBack')
+  if (back) back.innerHTML = activeTab === 'indice' ? '' : moduleBackButton()
+
   if      (activeTab === 'indice')   renderIndex()
   else if (activeTab === 'pessoas')  renderPessoas()
   else if (activeTab === 'usuarios') renderUsuarios()
   else if (activeTab === 'config')   renderConfig()
   else if (activeTab === 'vinculos') renderVinculos()
   else                               renderDados()
+
 }
 
 function renderIndex(): void {
@@ -277,6 +283,12 @@ interface LinkIssue {
   detail: string
 }
 
+interface LinkReportItem {
+  issue: LinkIssue
+  path: string
+  record: unknown
+}
+
 function linkCollections(data: Record<string, unknown>) {
   const tarefas = objectValue(data['tarefas'])
   const escala = objectValue(data['escala'])
@@ -288,7 +300,7 @@ function linkCollections(data: Record<string, unknown>) {
     tarefas: records(tarefas['people']),
     escala: records(escala['participants']),
     oradores: records(discursos['oradores']),
-    secretario: records(secretario['pessoas']),
+    secretario: { ...records(secretario['pessoas']), ...records(secretario['publicadores']) },
     programacao: {
       ...records(programacao['people']),
       ...records(programacao['pessoas']),
@@ -342,9 +354,9 @@ function collectLinkIssues(data: Record<string, unknown>): LinkIssue[] {
   ]
 
   Object.entries(usuarios).forEach(([uid, user]) => {
-    if (user.secretarioPapel !== 'publicador') return
+    if (!user.apps.individual) return
     if (!user.masterId) {
-      issues.push({ module: 'Usuários', id: uid, kind: 'sem_vinculo', detail: 'Publicador sem masterId' })
+      issues.push({ module: 'Usuários', id: uid, kind: 'sem_vinculo', detail: 'Minha Agenda sem pessoa vinculada' })
     } else if (!pessoas[user.masterId]) {
       issues.push({ module: 'Usuários', id: uid, kind: 'orfao', detail: `masterId inexistente: ${user.masterId}` })
     }
@@ -376,6 +388,33 @@ function collectLinkIssues(data: Record<string, unknown>): LinkIssue[] {
   return issues.sort((a, b) => a.module.localeCompare(b.module, 'pt-BR') || a.id.localeCompare(b.id))
 }
 
+function linkIssueRecord(data: Record<string, unknown>, issue: LinkIssue): LinkReportItem {
+  return { issue, ...linkIssueSource(data, issue.module, issue.id) }
+}
+
+function linkFailureReport(data: Record<string, unknown>, issues: LinkIssue[], configIssues: GlobalConfigIssue[]): string {
+  const generatedAt = new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'medium', timeZone: 'America/Fortaleza' }).format(new Date())
+  const entries = issues.map(issue => linkIssueRecord(data, issue))
+  const rows = entries.length ? entries.flatMap((entry, index) => [`### ${index + 1}. ${entry.issue.module} - ${entry.issue.kind.replace(/_/g, ' ')}`, `- Caminho: \`${entry.path}\``, `- ID do registro: \`${entry.issue.id}\``, `- Detalhe: ${entry.issue.detail}`, '- Registro atual:', '```json', JSON.stringify(sanitizeFailureReportValue(entry.record), null, 2), '```', '']) : ['Nenhuma falha de vínculo encontrada.', '']
+  const configRows = configIssues.length ? configIssues.flatMap((item, index) => [`### ${index + 1}. ${item.title}`, `- Detalhe: ${item.detail}`, '- Área para revisão: `agenda/config`', '']) : ['Nenhuma falha de configuração encontrada.', '']
+  return ['# Relatório de falhas de vínculos', '', `Gerado em: ${generatedAt} (America/Fortaleza)`, `Total de falhas de vínculo: ${entries.length}`, `Falhas de configuração: ${configIssues.length}`, '', 'Este relatório omite senha, telefone e WhatsApp. Revise toda sugestão antes de alterar dados no Firebase.', '', '## Falhas de vínculo', '', ...rows, '## Falhas de configuração', '', ...configRows].join('\n')
+}
+
+function openLinkFailureReport(data: Record<string, unknown>, issues: LinkIssue[], configIssues: GlobalConfigIssue[]): void {
+  const report = linkFailureReport(data, issues, configIssues), overlay = document.createElement('div')
+  overlay.className = 'modal-overlay'
+  overlay.innerHTML = `<div class="modal" style="max-width:720px"><h2>Relatório de falhas</h2><textarea id="linkFailureReport" class="form-input" rows="18" readonly style="font-family:monospace;font-size:.76rem">${escapeHtml(report)}</textarea><div class="admin-report-actions"><button id="copyLinkFailureReport" class="btn btn-ghost" type="button">Copiar</button><button id="downloadLinkFailureReport" class="btn btn-primary" type="button">Baixar .md</button><button id="closeLinkFailureReport" class="btn btn-ghost" type="button">Fechar</button></div></div>`
+  document.body.appendChild(overlay)
+  const close = () => overlay.remove()
+  overlay.addEventListener('click', event => { if (event.target === overlay) close() })
+  document.getElementById('closeLinkFailureReport')?.addEventListener('click', close)
+  document.getElementById('copyLinkFailureReport')?.addEventListener('click', () => void navigator.clipboard.writeText(report).then(() => toast('Relatório copiado')).catch(() => toast('Não foi possível copiar o relatório')))
+  document.getElementById('downloadLinkFailureReport')?.addEventListener('click', () => {
+    const blob = new Blob([report], { type: 'text/markdown;charset=utf-8' }), url = URL.createObjectURL(blob), link = document.createElement('a')
+    link.href = url; link.download = `falhas-vinculos-${new Date().toISOString().slice(0, 10)}.md`; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000)
+  })
+}
+
 function renderVinculos(): void {
   const mc = document.getElementById('mestreContent')!
   if (rootLoadError) {
@@ -389,6 +428,7 @@ function renderVinculos(): void {
   }
 
   const issues = collectLinkIssues(rootData)
+  const configIssues = collectAgendaConfigIssues()
   const orphanCount = issues.filter(item => item.kind === 'orfao').length
   const missingCount = issues.filter(item => item.kind === 'sem_vinculo').length
   const duplicateCount = issues.filter(item => item.kind === 'duplicado').length
@@ -401,7 +441,7 @@ function renderVinculos(): void {
   mc.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:12px">
       <div style="font-size:.8rem;color:var(--ink-3)">${issues.length ? `${issues.length} item${issues.length === 1 ? '' : 's'} para revisar` : 'Todos os vínculos estão consistentes'}</div>
-      <button id="btnRefreshLinks" class="btn btn-ghost" type="button">Atualizar</button>
+      <div style="display:flex;gap:8px"><button id="btnExportLinkFailures" class="btn btn-primary" type="button">Relatório</button><button id="btnRefreshLinks" class="btn btn-ghost" type="button">Atualizar</button></div>
     </div>
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px">
       ${linkMetric('Sem vínculo', missingCount, '#C8922A')}
@@ -409,7 +449,19 @@ function renderVinculos(): void {
       ${linkMetric('Duplicados', duplicateCount, '#7E3AF2')}
     </div>
     <div style="display:flex;flex-direction:column;gap:8px">
-      ${issues.length ? issues.map(item => `
+      ${configIssues.map(item => `
+        <div style="border:1px solid #C8922A;border-left:4px solid #C8922A;border-radius:8px;padding:10px 12px;background:#FFF9E8">
+          <div style="display:flex;justify-content:space-between;gap:8px;align-items:center">
+            <strong style="font-size:.84rem">${escapeHtml(item.title)}</strong>
+            <span style="font-size:.7rem;font-weight:700;color:#8A6200">Configuração</span>
+          </div>
+          <div style="font-size:.76rem;color:var(--ink-3);margin-top:3px">${escapeHtml(item.detail)}</div>
+          <div style="display:flex;justify-content:flex-end;margin-top:8px"><button class="btn btn-ghost" type="button" data-open-agenda-config="${item.id}" style="font-size:.76rem;padding:4px 9px">Abrir Agenda</button></div>
+        </div>`).join('')}
+      ${issues.length ? issues.map(item => {
+        const target = moduleForLinkIssue(item.module)
+        const label = item.module === 'Usuários' ? 'Abrir usuários' : target ? `Abrir ${item.module}` : ''
+        return `
         <div style="border:1px solid var(--border);border-left:4px solid ${item.kind === 'orfao' ? '#B3261E' : item.kind === 'duplicado' ? '#7E3AF2' : '#C8922A'};border-radius:8px;padding:10px 12px">
           <div style="display:flex;justify-content:space-between;gap:8px;align-items:center">
             <strong style="font-size:.84rem">${escapeHtml(item.module)}</strong>
@@ -417,90 +469,30 @@ function renderVinculos(): void {
           </div>
           <div style="font-family:monospace;font-size:.72rem;margin-top:4px;overflow-wrap:anywhere">${escapeHtml(item.id)}</div>
           <div style="font-size:.76rem;color:var(--ink-3);margin-top:3px">${escapeHtml(item.detail)}</div>
-        </div>`).join('') : '<div style="padding:18px;border:1px solid #B7DEC7;background:#F1FAF4;border-radius:8px;color:#1A6B3C;font-size:.84rem">Nenhum vínculo ausente, órfão ou duplicado.</div>'}
+          ${label ? `<div style="display:flex;justify-content:flex-end;margin-top:8px"><button class="btn btn-ghost" type="button" data-resolve-link-module="${escapeHtml(item.module)}" data-resolve-link-id="${escapeHtml(item.id)}" style="font-size:.76rem;padding:4px 9px">${escapeHtml(label)}</button></div>` : ''}
+        </div>`
+      }).join('') : configIssues.length ? '' : '<div style="padding:18px;border:1px solid #B7DEC7;background:#F1FAF4;border-radius:8px;color:#1A6B3C;font-size:.84rem">Nenhum vínculo ausente, órfão ou duplicado.</div>'}
     </div>`
 
   document.getElementById('btnRefreshLinks')?.addEventListener('click', () => void loadRootData(true))
+  document.getElementById('btnExportLinkFailures')?.addEventListener('click', () => openLinkFailureReport(rootData!, issues, configIssues))
+  document.querySelectorAll<HTMLButtonElement>('[data-open-agenda-config]').forEach(button => button.addEventListener('click', resolveAgendaConfigIssue))
+  document.querySelectorAll<HTMLButtonElement>('[data-resolve-link-module]').forEach(button => {
+    button.addEventListener('click', () => {
+      const module = button.dataset['resolveLinkModule'] ?? ''
+      const id = button.dataset['resolveLinkId'] ?? ''
+      const item = issues.find(candidate => candidate.module === module && candidate.id === id)
+      if (item) resolveLinkIssue(item)
+    })
+  })
 }
 
 function linkMetric(label: string, value: number, color: string): string {
   return `<div style="border:1px solid var(--border);border-radius:8px;padding:10px;background:var(--surface)"><div style="font-size:1.1rem;font-weight:800;color:${color}">${value}</div><div style="font-size:.68rem;color:var(--ink-3);margin-top:3px">${label}</div></div>`
 }
 
-interface BackupSummary {
-  pessoas: number
-  usuarios: number
-  modulos: number
-}
-
-type BackupValidation =
-  | { ok: true; data: Record<string, unknown>; summary: BackupSummary }
-  | { ok: false; error: string }
-
 function hasActiveAdmin(candidate: RawUsuarios): boolean {
   return Object.values(candidate).some(user => user.ativo && user.apps?.mestre === true)
-}
-
-function validateFirebaseValue(value: unknown, path = 'raiz'): string | null {
-  if (value === null || typeof value === 'string' || typeof value === 'boolean') return null
-  if (typeof value === 'number') return Number.isFinite(value) ? null : `${path} contém um número inválido.`
-  if (Array.isArray(value)) {
-    for (let index = 0; index < value.length; index += 1) {
-      const error = validateFirebaseValue(value[index], `${path}[${index}]`)
-      if (error) return error
-    }
-    return null
-  }
-  if (!value || typeof value !== 'object') return `${path} contém um valor incompatível.`
-
-  for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
-    if (!key || /[.#$\[\]\/]/.test(key)) return `${path} contém a chave inválida "${key}".`
-    const error = validateFirebaseValue(child, `${path}.${key}`)
-    if (error) return error
-  }
-  return null
-}
-
-function validateBackup(value: unknown): BackupValidation {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return { ok: false, error: 'O arquivo precisa conter a raiz completa do banco.' }
-  }
-  const data = value as Record<string, unknown>
-  const master = objectValue(data['master'])
-  const backupPessoas = records(master['pessoas'])
-  const backupUsuarios = records(data['usuarios'])
-
-  if (!data['master'] || !master['pessoas']) {
-    return { ok: false, error: 'O arquivo não contém master/pessoas.' }
-  }
-  if (!data['usuarios'] || Object.keys(backupUsuarios).length === 0) {
-    return { ok: false, error: 'O arquivo não contém usuários.' }
-  }
-
-  for (const [uid, rawUser] of Object.entries(backupUsuarios)) {
-    const apps = objectValue(rawUser['apps'])
-    if (typeof rawUser['nome'] !== 'string' || typeof rawUser['senha'] !== 'string' ||
-        typeof rawUser['ativo'] !== 'boolean' || !rawUser['apps'] || Array.isArray(rawUser['apps']) ||
-        typeof apps['mestre'] !== 'boolean') {
-      return { ok: false, error: `O usuário ${uid} não tem a estrutura esperada.` }
-    }
-  }
-
-  if (!hasActiveAdmin(backupUsuarios as unknown as RawUsuarios)) {
-    return { ok: false, error: 'O backup precisa manter ao menos um Admin ativo.' }
-  }
-  const firebaseError = validateFirebaseValue(data)
-  if (firebaseError) return { ok: false, error: firebaseError }
-
-  return {
-    ok: true,
-    data,
-    summary: {
-      pessoas: Object.keys(backupPessoas).length,
-      usuarios: Object.keys(backupUsuarios).length,
-      modulos: Object.keys(data).length,
-    },
-  }
 }
 
 function backupFileName(prefix = 'noroeste-backup'): string {
@@ -752,6 +744,7 @@ function openPessoaModal(mid: string | null): void {
         </label>
         <input id="pWpp" class="form-input" value="${escapeHtml(p?.whatsapp)}"
           placeholder="5579999999999" inputmode="numeric">
+        <p id="pSharedWhatsapp" class="form-help" style="margin:6px 0 0"></p>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
         <div class="form-group">
@@ -789,6 +782,16 @@ function openPessoaModal(mid: string | null): void {
   document.body.appendChild(overlay)
   ;(document.getElementById('pNome') as HTMLInputElement).focus()
 
+  const updateSharedWhatsapp = () => {
+    const input = document.getElementById('pWpp') as HTMLInputElement
+    const number = input.value.trim() ? normalizeWhatsapp(input.value) : ''
+    const shared = sharedWhatsappPeople(pessoas, number, mid)
+    const hint = document.getElementById('pSharedWhatsapp')!
+    hint.textContent = shared.length ? `Contato compartilhado com: ${shared.map(([, person]) => person.name).join(', ')}. Isto é permitido.` : 'O WhatsApp é apenas um contato e pode ser compartilhado por familiares.'
+  }
+  document.getElementById('pWpp')?.addEventListener('input', updateSharedWhatsapp)
+  updateSharedWhatsapp()
+
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove() })
   document.getElementById('btnCancelPessoa')!.addEventListener('click', () => overlay.remove())
   document.getElementById('btnSalvarPessoa')!
@@ -807,8 +810,8 @@ async function savePessoa(mid: string | null, overlay: HTMLElement): Promise<voi
   const wpp = wppRaw ? normalizeWhatsapp(wppRaw) : ''
   if (wpp && wpp.length < 12) { toast('WhatsApp inválido — mínimo 12 dígitos'); return }
 
-  // C6: mid derivado do SHA-256 do whatsapp normalizado; fallback aleatório se sem tel
-  const finalMid = mid ?? (wpp ? await midFromWhatsapp(wpp) : genId('m_'))
+  // A identidade é permanente e independente do telefone, que pode ser compartilhado.
+  const finalMid = mid ?? createMasterId()
   const existing = mid ? pessoas[mid] : undefined
 
   const pessoa: MasterPessoa = {
@@ -929,6 +932,7 @@ function usuarioCard(uid: string, u: Usuario): string {
   const badge = u.ativo
     ? `<span style="background:#E3F5EB;color:#1A6B3C;padding:1px 7px;border-radius:10px;font-size:.7rem;font-weight:600">Ativo</span>`
     : `<span style="background:#FEE;color:#B3261E;padding:1px 7px;border-radius:10px;font-size:.7rem;font-weight:600">Inativo</span>`
+  const person = u.masterId ? pessoas[u.masterId] : undefined
   return `
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;
       padding:10px 12px;margin-bottom:6px;display:flex;align-items:center;gap:8px">
@@ -937,7 +941,7 @@ function usuarioCard(uid: string, u: Usuario): string {
           ${escapeHtml(u.nome)} ${badge}
         </div>
         <div style="font-size:.75rem;color:var(--ink-3);margin-top:2px">Apps: ${escapeHtml(appsList(u.apps))}</div>
-        ${u.secretarioPapel === 'coordenador' ? '<div style="font-size:.72rem;color:#006EB6;font-weight:700;margin-top:2px">Coordenador</div>' : ''}
+        ${u.apps.individual ? `<div style="font-size:.72rem;color:${person ? '#1A6B3C' : '#B3261E'};margin-top:2px">Minha Agenda: ${escapeHtml(person?.name ?? 'pessoa não vinculada')}</div>` : ''}
         <div style="font-size:.7rem;color:var(--ink-3);margin-top:1px;font-family:monospace">${escapeHtml(uid)}</div>
       </div>
       <button class="btn btn-ghost" data-edit-usuario="${escapeHtml(uid)}"
@@ -953,6 +957,11 @@ function openUsuarioModal(uid: string | null): void {
     mestre:false, tarefas:false, limpeza:false, escala:false,
     oradores:false, programacao:false, secretario:false,
   }
+  const personOptions = Object.entries(pessoas)
+    .filter(([masterId, person]) => person.active || masterId === u?.masterId)
+    .sort(([, a], [, b]) => a.name.localeCompare(b.name, 'pt-BR'))
+    .map(([masterId, person]) => `<option value="${escapeHtml(masterId)}" ${masterId === u?.masterId ? 'selected' : ''}>${escapeHtml(person.name)} · ${escapeHtml(masterId)}</option>`)
+    .join('')
 
   const overlay = document.createElement('div')
   overlay.className = 'modal-overlay'
@@ -975,13 +984,6 @@ function openUsuarioModal(uid: string | null): void {
         </label>
       </div>
       <div class="form-group">
-        <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
-          <input type="checkbox" id="uCoordenador" ${u?.secretarioPapel === 'coordenador' ? 'checked' : ''}>
-          <span class="form-label" style="margin:0">Acesso do coordenador</span>
-        </label>
-        <p class="form-help">Acesso somente aos períodos e documentos dos módulos selecionados.</p>
-      </div>
-      <div class="form-group">
         <span class="form-label" style="display:block;margin-bottom:6px">Módulos</span>
         <div id="uAdminPermission">${appCheck('mestre', 'Admin', apps.mestre)}</div>
         ${appCheck('tarefas',     'Tarefas',      apps.tarefas)}
@@ -992,6 +994,11 @@ function openUsuarioModal(uid: string | null): void {
         ${appCheck('secretario',  'Secretário',   apps.secretario)}
         <div id="uAgendaPermission">${appCheck('individual', 'Minha agenda', apps.individual ?? false)}</div>
       </div>
+      <div id="uPessoaAgenda" class="form-group">
+        <label class="form-label" for="uMasterId">Pessoa vinculada à Minha Agenda</label>
+        <select id="uMasterId" class="form-select"><option value="">Selecionar pessoa...</option>${personOptions}</select>
+        <p class="form-help">Nome, ID e WhatsApp permanecem no cadastro central de Pessoas.</p>
+      </div>
       <div style="display:flex;gap:8px;margin-top:8px">
         <button id="btnCancelUsuario" class="btn btn-ghost" style="flex:1">Cancelar</button>
         <button id="btnSalvarUsuario" class="btn btn-primary" style="flex:1">Salvar</button>
@@ -1000,14 +1007,15 @@ function openUsuarioModal(uid: string | null): void {
 
   document.body.appendChild(overlay)
 
-  const syncCoordinator = () => {
-    const enabled = (document.getElementById('uCoordenador') as HTMLInputElement).checked
-    ;['mestre', 'individual'].forEach(app => { const input = document.getElementById(`uApp_${app}`) as HTMLInputElement; input.disabled = enabled; if (enabled) input.checked = false })
-    document.getElementById('uAdminPermission')?.classList.toggle('hidden', enabled)
-    document.getElementById('uAgendaPermission')?.classList.toggle('hidden', enabled)
+  const syncAgendaPerson = () => {
+    const enabled = (document.getElementById('uApp_individual') as HTMLInputElement).checked
+    const wrap = document.getElementById('uPessoaAgenda')
+    const select = document.getElementById('uMasterId') as HTMLSelectElement
+    wrap?.classList.toggle('hidden', !enabled)
+    select.disabled = !enabled
   }
-  document.getElementById('uCoordenador')!.addEventListener('change', syncCoordinator)
-  syncCoordinator()
+  document.getElementById('uApp_individual')!.addEventListener('change', syncAgendaPerson)
+  syncAgendaPerson()
 
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove() })
   document.getElementById('btnCancelUsuario')!.addEventListener('click', () => overlay.remove())
@@ -1019,7 +1027,7 @@ async function saveUsuario(uid: string | null, overlay: HTMLElement): Promise<vo
   const nome     = (document.getElementById('uNome')     as HTMLInputElement).value.trim()
   const senha    = (document.getElementById('uSenha')    as HTMLInputElement).value
   const ativo    = (document.getElementById('uAtivo')    as HTMLInputElement).checked
-  const coordenador = (document.getElementById('uCoordenador') as HTMLInputElement).checked
+  const masterId = (document.getElementById('uMasterId') as HTMLSelectElement).value
 
   if (!nome)  { toast('Preencha o nome');  return }
   if (!senha) { toast('Preencha a senha'); return }
@@ -1032,17 +1040,18 @@ async function saveUsuario(uid: string | null, overlay: HTMLElement): Promise<vo
     oradores: checkApp('oradores'), escala: checkApp('escala'), programacao: checkApp('programacao'),
     secretario: checkApp('secretario'), individual: checkApp('individual'),
   }
-  const apps = coordenador ? coordinatorPermissions(selectedApps) : selectedApps
-  if (coordenador && ![apps.tarefas, apps.limpeza, apps.oradores, apps.escala, apps.programacao, apps.secretario].some(Boolean)) { toast('Selecione ao menos um módulo para o Coordenador'); return }
-  const existing = uid ? usuarios[uid] : undefined
+  const apps = selectedApps
+  if (apps.individual && !masterId) { toast('Selecione a pessoa vinculada à Minha Agenda'); return }
+  if (apps.individual && !pessoas[masterId]) { toast('A pessoa selecionada não existe mais no cadastro central'); return }
+  if (apps.individual && personalUserConflict(usuarios, masterId, uid)) { toast('Esta pessoa já possui um usuário para Minha Agenda'); return }
   const usuario: Usuario = {
     ...(uid && usuarios[uid] ? usuarios[uid] : {}),
     nome, senha, ativo,
     apps,
-    ...(coordenador ? { secretarioPapel: 'coordenador' as const } : existing?.secretarioPapel && existing.secretarioPapel !== 'coordenador' ? { secretarioPapel: existing.secretarioPapel } : {}),
   }
-  if (coordenador) delete usuario.masterId
-  else if (existing?.secretarioPapel === 'coordenador') delete usuario.secretarioPapel
+  if (!apps.individual) delete usuario.masterId
+  else usuario.masterId = masterId
+  if (!['secretario', 'publicador', 'assistencia'].includes(String(usuario.secretarioPapel ?? ''))) delete usuario.secretarioPapel
   const finalUid = uid ?? genId('u_')
   const proposedUsuarios: RawUsuarios = { ...usuarios, [finalUid]: usuario }
   if (!hasActiveAdmin(proposedUsuarios)) {
@@ -1095,6 +1104,7 @@ function renderConfig(): void {
   const secs: Array<{ id: typeof activeConfigSection; label: string }> = [
     { id: 'congregacao', label: 'Congregação' },
     { id: 'designacoes', label: 'Designações' },
+    { id: 'agenda', label: 'Agenda' },
   ]
 
   mc.innerHTML = `
@@ -1115,7 +1125,142 @@ function renderConfig(): void {
   })
 
   if (activeConfigSection === 'congregacao') renderConfigCongregacao()
-  else renderConfigDesignacoes()
+  else if (activeConfigSection === 'designacoes') renderConfigDesignacoes()
+  else renderConfigAgenda()
+}
+
+interface GlobalConfigIssue {
+  id: 'quadro-link' | 'ics-reminders'
+  title: string
+  detail: string
+}
+
+function collectAgendaConfigIssues(): GlobalConfigIssue[] {
+  const issues: GlobalConfigIssue[] = []
+  if (!agendaConfig.quadroWhatsAppLink?.trim()) {
+    issues.push({ id: 'quadro-link', title: 'Link do Quadro ausente', detail: 'Cadastre o link do grupo de WhatsApp que o Quadro de anúncios deve usar.' })
+  }
+  const configured = agendaConfig.icsReminders ?? {}
+  const missing = AGENDA_REMINDER_MODULES
+    .filter(module => !Array.isArray(configured[module.id]))
+    .map(module => module.label)
+  if (missing.length) {
+    issues.push({ id: 'ics-reminders', title: 'Lembretes ICS incompletos', detail: `Sem configuração salva para: ${missing.join(', ')}.` })
+  }
+  return issues
+}
+
+function moduleForLinkIssue(module: LinkIssue['module']): ModuleName | null {
+  const modules: Record<string, ModuleName> = {
+    Tarefas: 'tarefas',
+    Escala: 'escala',
+    Secretário: 'secretario',
+    Programação: 'programacao',
+    Oradores: 'oradores',
+  }
+  return modules[module] ?? null
+}
+
+function resolveLinkIssue(item: LinkIssue): void {
+  if (item.module === 'Usuários') {
+    activeTab = 'usuarios'
+    renderContent()
+    return
+  }
+  const module = moduleForLinkIssue(item.module)
+  if (module) void navigateTo(module)
+}
+
+function resolveAgendaConfigIssue(): void {
+  activeTab = 'config'
+  activeConfigSection = 'agenda'
+  renderContent()
+}
+
+const AGENDA_REMINDER_MODULES: Array<{ id: AgendaReminderModule; label: string; defaults: string[] }> = [
+  { id: 'tarefas', label: 'Tarefas', defaults: ['P7D', 'P1D'] },
+  { id: 'oradores', label: 'Oradores', defaults: ['P7D', 'P1D'] },
+  { id: 'programacao', label: 'Vida e Ministério', defaults: ['P7D', 'P1D'] },
+  { id: 'limpeza', label: 'Limpeza', defaults: ['P1D'] },
+  { id: 'escala', label: 'Escala TPL', defaults: ['P1D'] },
+  { id: 'quadro', label: 'Quadro de anúncios', defaults: [] },
+]
+
+const REMINDER_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: '', label: 'Sem lembrete' },
+  { value: 'P1D', label: '1 dia antes' },
+  { value: 'P2D', label: '2 dias antes' },
+  { value: 'P3D', label: '3 dias antes' },
+  { value: 'P7D', label: '1 semana antes' },
+  { value: 'P14D', label: '2 semanas antes' },
+]
+
+function reminderSelect(id: string, selected: string): string {
+  return `<select id="${id}" class="form-select" style="font-size:.8rem">${REMINDER_OPTIONS.map(option =>
+    `<option value="${option.value}" ${option.value === selected ? 'selected' : ''}>${option.label}</option>`,
+  ).join('')}</select>`
+}
+
+function renderConfigAgenda(): void {
+  const el = document.getElementById('configContent')!
+  const reminders = agendaConfig.icsReminders ?? {}
+  const rows = AGENDA_REMINDER_MODULES.map(module => {
+    const values = reminders[module.id] ?? module.defaults
+    return `<div class="admin-reminder-grid admin-reminder-row">
+      <strong style="font-size:.82rem">${module.label}</strong>
+      ${reminderSelect(`agendaReminder1_${module.id}`, values[0] ?? '')}
+      ${reminderSelect(`agendaReminder2_${module.id}`, values[1] ?? '')}
+    </div>`
+  }).join('')
+
+  el.innerHTML = `
+    <div class="form-group">
+      <label class="form-label" for="agendaGroupLink">Link do grupo do Quadro de anúncios</label>
+      <input id="agendaGroupLink" class="form-input" type="url" value="${escapeHtml(agendaConfig.quadroWhatsAppLink)}" placeholder="https://chat.whatsapp.com/...">
+      <p class="form-help">Usado pelo Quadro de anúncios. A Escala TPL manterá seu link antigo somente durante a transição.</p>
+    </div>
+    <div style="margin-top:18px">
+      <div style="font-size:.8rem;font-weight:600;color:var(--ink-2);margin-bottom:4px;text-transform:uppercase;letter-spacing:.05em">Lembretes do calendário</div>
+      <p class="form-help" style="margin-top:0">Cada coluna adiciona um lembrete ao arquivo .ics. Deixe uma ou ambas como “Sem lembrete” quando aquele módulo não precisar avisar.</p>
+      <div class="admin-reminder-grid admin-reminder-heading">
+        <span>Módulo</span><span>1º lembrete</span><span>2º lembrete</span>
+      </div>
+      ${rows}
+    </div>
+    <button id="btnSalvarAgendaConfig" class="btn btn-primary btn-full" style="margin-top:16px">Salvar configurações da Agenda</button>`
+
+  document.getElementById('btnSalvarAgendaConfig')?.addEventListener('click', () => void saveConfigAgenda())
+}
+
+function normalizedReminderValues(values: string[]): string[] {
+  return [...new Set(values.filter(value => REMINDER_OPTIONS.some(option => option.value === value && value)))].sort((a, b) => b.localeCompare(a))
+}
+
+async function saveConfigAgenda(): Promise<void> {
+  const link = (document.getElementById('agendaGroupLink') as HTMLInputElement).value.trim()
+  if (link && !/^https:\/\/(chat\.)?whatsapp\.com\//i.test(link)) {
+    toast('Use um link válido do WhatsApp para o grupo')
+    return
+  }
+  const icsReminders: AgendaConfig['icsReminders'] = {}
+  AGENDA_REMINDER_MODULES.forEach(module => {
+    const values = [
+      (document.getElementById(`agendaReminder1_${module.id}`) as HTMLSelectElement).value,
+      (document.getElementById(`agendaReminder2_${module.id}`) as HTMLSelectElement).value,
+    ]
+    icsReminders[module.id] = normalizedReminderValues(values)
+  })
+  const next: AgendaConfig = { quadroWhatsAppLink: link, icsReminders }
+  setLoading('btnSalvarAgendaConfig', true)
+  try {
+    await set(agendaConfigRef, next)
+    agendaConfig = next
+    toast('Configurações da Agenda salvas ✓')
+  } catch {
+    toast('Erro ao salvar configurações da Agenda')
+  } finally {
+    setLoading('btnSalvarAgendaConfig', false, 'Salvar configurações da Agenda')
+  }
 }
 
 // ── Congregação ───────────────────────────────────────────────────────────────

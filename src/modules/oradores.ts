@@ -3,7 +3,7 @@ import { get, pessoasRef, update, tarefasDiscursosRef, tarefasEventosRef, tarefa
 import { renderMenuCards, type ItemMenu } from '../ui/menu-cards'
 import { moduleBackButton, moduleTitle } from '../ui/module-header'
 import { allowedTheme, assignmentsForSpeaker, confirmationPatch, deriveStatus, eventBlocksLocal, meetingDatesForMonth, missingLocalTalkDates, needsReconfirmation, talkConflicts, themeHistory, type Congregation, type Speaker, type Talk, type Theme } from './oradores-domain'
-import { availableSpeakerThemes, downloadApprovedSpeakersPdf, downloadAvailableThemesPdf, downloadSchedulePdf, downloadThemeCatalogPdf, type ApprovedSpeakerRow, type SchedulePdfRow, type ThemeCatalogRow } from './oradores-documents'
+import { availableSpeakerThemes, downloadSchedulePdf, downloadThemeCatalogPdf, type SchedulePdfRow, type ThemeCatalogRow } from './oradores-documents'
 
 interface LegacyOrador extends Speaker {}
 interface LegacyProgramacao extends Talk {}
@@ -23,7 +23,7 @@ let discursos: LegacyDiscursos = {}
 let pessoas: RawPessoas = {}
 let taskMeetings: { id: string; date?: string; type?: string; assignments?: Record<string, unknown> }[] = []
 let oradoresPlanning: { meetingDays?: { weekendDow?: number }; weekendDow?: number; excludedDates?: string[] | Record<string, unknown> } = {}
-type OradoresTab = 'indice' | 'resumo' | 'cadastro' | 'programacao' | 'designacoes' | 'temas' | 'congregacoes' | 'intercambios' | 'eventos' | 'pendencias'
+type OradoresTab = 'indice' | 'resumo' | 'cadastro' | 'programacao' | 'designacoes' | 'emergencia' | 'temas' | 'congregacoes' | 'intercambios' | 'eventos' | 'pendencias'
 let activeTab: OradoresTab = 'indice'
 const ORADORES_DESIGNATION_SPEAKER_KEY = 'noroeste:oradores:designation-speaker'
 const ORADORES_PERIOD_KEY = 'noroeste:oradores:period'
@@ -92,10 +92,6 @@ function oradorNome(id: string, orador?: LegacyOrador): string {
   return pessoas[orador?.pessoaId ?? '']?.name ?? orador?.nome ?? orador?.name ?? id
 }
 
-function oradorTelefone(orador?: LegacyOrador): string {
-  return pessoas[orador?.pessoaId ?? '']?.whatsapp ?? orador?.telefone ?? ''
-}
-
 function render(): void {
   const el = document.getElementById('oradoresRoot')
   if (!el) return
@@ -116,6 +112,7 @@ function render(): void {
         { id: 'programacao', titulo: 'Programação', subtitulo: `${programacoesFuturas} compromisso${programacoesFuturas === 1 ? '' : 's'} futuro${programacoesFuturas === 1 ? '' : 's'}`, icone: '▣', corFundo: '#7E3AF2' },
         { id: 'designacoes', titulo: 'Designações por orador', subtitulo: 'Agenda individual por orador', icone: '☷', corFundo: '#003F72' },
         { id: 'cadastro', titulo: 'Cadastro', subtitulo: 'Oradores da congregação', icone: '♙', corFundo: '#003F72' },
+        { id: 'emergencia', titulo: 'Emergência', subtitulo: 'Temas disponíveis para copiar', icone: '!', corFundo: '#B83E18' },
         { id: 'temas', titulo: 'Temas', subtitulo: 'Catálogo dos discursos públicos', icone: '▤', corFundo: '#1A6B3C' },
         { id: 'congregacoes', titulo: 'Congregações', subtitulo: 'Locais, visitantes e intercâmbios', icone: '⌂', corFundo: '#006EB6' },
         { id: 'intercambios', titulo: 'Intercâmbios', subtitulo: 'Entradas, saídas e confirmações', icone: '⇄', corFundo: '#7E3AF2' },
@@ -130,8 +127,8 @@ function render(): void {
     button.addEventListener('click', () => { activeTab = button.dataset['oradoresTab'] as OradoresTab; render() })
   })
   el.querySelector<HTMLButtonElement>('[data-add-orador]')?.addEventListener('click', () => openOradorModal(null))
-  el.querySelector<HTMLButtonElement>('[data-download-available-themes]')?.addEventListener('click', () => void downloadAvailableThemes())
-  el.querySelector<HTMLButtonElement>('[data-download-approved-speakers]')?.addEventListener('click', () => void downloadApprovedSpeakers())
+  el.querySelector<HTMLButtonElement>('[data-copy-approved-speakers]')?.addEventListener('click', () => void copyApprovedSpeakersText())
+  el.querySelector<HTMLButtonElement>('[data-copy-emergency-themes]')?.addEventListener('click', () => void copyEmergencyThemesText())
   el.querySelector<HTMLButtonElement>('[data-download-theme-catalog]')?.addEventListener('click', () => void downloadThemeCatalog())
   el.querySelectorAll<HTMLButtonElement>('[data-edit-orador]').forEach(button => {
     button.addEventListener('click', () => openOradorModal(button.dataset['editOrador'] ?? null))
@@ -207,6 +204,7 @@ function renderTabContent(tab: OradoresTab): string {
   if (tab === 'cadastro') return cadastroView()
   if (tab === 'programacao') return programacaoView()
   if (tab === 'designacoes') return designacoesView()
+  if (tab === 'emergencia') return emergenciaView()
   if (tab === 'temas') return temasView()
   if (tab === 'congregacoes') return congregacoesView()
   if (tab === 'intercambios') return intercambiosView()
@@ -374,29 +372,54 @@ async function deleteCongregacao(id: string): Promise<void> {
 function cadastroView(): string {
   const rows = Object.entries(discursos.oradores ?? {}).sort(([idA, a], [idB, b]) => oradorNome(idA, a).localeCompare(oradorNome(idB, b), 'pt-BR'))
   const availableBySpeaker = new Map(availableSpeakerThemes({ speakers: discursos.oradores ?? {}, themes: discursos.temas ?? {}, talks: discursos.programacao ?? {}, today: todayStr() }).map(entry => [entry.nome, entry.temas.length]))
-  const approved = rows.filter(([, speaker]) => speaker.aprovadoParaSaida)
-  return `<div style="margin-top:14px"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:2px"><div><h3 style="font-size:.95rem;color:#5C6062">Cadastro</h3><p style="font-size:.75rem;color:var(--ink-3)">Oradores vinculados ao cadastro central.</p></div><button class="btn btn-primary" type="button" data-add-orador style="padding:6px 10px;font-size:.78rem;white-space:nowrap">Adicionar</button></div><div style="display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;margin:10px 0"><button class="btn btn-ghost" type="button" data-download-available-themes>PDF de temas disponíveis</button><button class="btn btn-ghost" type="button" data-download-approved-speakers>PDF de aprovados para saída</button></div><div style="margin:12px 0"><h3 style="font-size:.9rem;color:#5C6062;margin-bottom:6px">Aprovados para saída</h3>${approved.length ? `<div class="module-option-list">${approved.map(([id, speaker]) => `<div class="module-menu-btn" style="cursor:default"><span>${escapeHtml(oradorNome(id, speaker))}</span><span class="mod-desc">${speaker.temaIds?.length ?? 0} temas</span></div>`).join('')}</div>` : '<p class="empty-state">Nenhum orador aprovado para saída.</p>'}</div><div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:0 12px">${rows.length ? rows.map(([id, o]) => `<div style="display:flex;justify-content:space-between;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)"><div style="flex:1;min-width:0"><strong>${escapeHtml(oradorNome(id, o))}</strong><div style="font-size:.75rem;color:var(--ink-3)">${o.pessoaId ? 'Vinculado ao Admin' : 'Vínculo pendente'} · ${o.temaIds?.length ?? 0} no repertório · ${availableBySpeaker.get(oradorNome(id, o)) ?? 0} disponíveis</div></div><button class="btn btn-ghost" type="button" data-edit-orador="${escapeHtml(id)}" style="padding:4px 8px;font-size:.72rem">Editar</button><button class="btn btn-danger" type="button" data-delete-orador="${escapeHtml(id)}" style="padding:4px 8px;font-size:.72rem">Excluir</button></div>`).join('') : '<p style="padding:16px 0;color:var(--ink-3);text-align:center;font-size:.82rem">Nenhum orador cadastrado.</p>'}</div></div>`
+  const approvedText = approvedSpeakersText()
+  return `<div style="margin-top:14px"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:2px"><div><h3 style="font-size:.95rem;color:#5C6062">Cadastro</h3><p style="font-size:.75rem;color:var(--ink-3)">Oradores vinculados ao cadastro central.</p></div><button class="btn btn-primary" type="button" data-add-orador style="padding:6px 10px;font-size:.78rem;white-space:nowrap">Adicionar</button></div><div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px;margin:12px 0"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px"><div><h3 style="font-size:.9rem;color:#5C6062;margin:0">Aprovados para saída</h3><p class="form-help" style="margin:2px 0 0">Texto para copiar: nome e números dos discursos do repertório.</p></div><button class="btn btn-ghost" type="button" data-copy-approved-speakers>Copiar texto</button></div><pre style="white-space:pre-wrap;margin:0;font-family:inherit;font-size:.82rem;line-height:1.45;color:var(--ink-2)">${escapeHtml(approvedText || 'Nenhum orador aprovado para saída.')}</pre></div><div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:0 12px">${rows.length ? rows.map(([id, o]) => `<div style="display:flex;justify-content:space-between;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)"><div style="flex:1;min-width:0"><strong>${escapeHtml(oradorNome(id, o))}</strong><div style="font-size:.75rem;color:var(--ink-3)">${o.pessoaId ? 'Vinculado ao Admin' : 'Vínculo pendente'} · ${o.temaIds?.length ?? 0} no repertório · ${availableBySpeaker.get(oradorNome(id, o)) ?? 0} disponíveis${o.aprovadoParaSaida ? ' · Aprovado para saída' : ''}</div></div><button class="btn btn-ghost" type="button" data-edit-orador="${escapeHtml(id)}" style="padding:4px 8px;font-size:.72rem">Editar</button><button class="btn btn-danger" type="button" data-delete-orador="${escapeHtml(id)}" style="padding:4px 8px;font-size:.72rem">Excluir</button></div>`).join('') : '<p style="padding:16px 0;color:var(--ink-3);text-align:center;font-size:.82rem">Nenhum orador cadastrado.</p>'}</div></div>`
 }
 
-async function downloadAvailableThemes(): Promise<void> {
-  const entries = availableSpeakerThemes({ speakers: discursos.oradores ?? {}, themes: discursos.temas ?? {}, talks: discursos.programacao ?? {}, today: todayStr() })
-  try {
-    await downloadAvailableThemesPdf({ congregation: 'Noroeste', entries })
-    toast(entries.length ? 'PDF de temas disponíveis gerado' : 'PDF gerado sem temas disponíveis')
-  } catch {
-    toast('Não foi possível gerar o PDF')
-  }
-}
-
-async function downloadApprovedSpeakers(): Promise<void> {
-  const rows: ApprovedSpeakerRow[] = Object.entries(discursos.oradores ?? {})
+function approvedSpeakersText(): string {
+  return Object.entries(discursos.oradores ?? {})
     .filter(([, speaker]) => speaker.aprovadoParaSaida)
     .sort(([idA, a], [idB, b]) => oradorNome(idA, a).localeCompare(oradorNome(idB, b), 'pt-BR'))
-    .map(([id, speaker]) => ({ nome: oradorNome(id, speaker), telefone: oradorTelefone(speaker), temas: (speaker.temaIds ?? []).map(themeId => discursos.temas?.[themeId]).filter((theme): theme is LegacyTema => Boolean(theme)).sort((a, b) => Number(a.numero ?? 0) - Number(b.numero ?? 0)).map(theme => String(theme.numero ?? '')).join(', ') }))
+    .map(([id, speaker]) => {
+      const themes = (speaker.temaIds ?? [])
+        .map(themeId => discursos.temas?.[themeId])
+        .filter((theme): theme is LegacyTema => Boolean(theme))
+        .sort((a, b) => Number(a.numero ?? 0) - Number(b.numero ?? 0))
+        .map(theme => String(theme.numero ?? '').trim())
+        .filter(Boolean)
+        .join(', ')
+      return `${oradorNome(id, speaker)}: ${themes || 'sem temas no repertório'}`
+    })
+    .join('\n')
+}
+
+async function copyApprovedSpeakersText(): Promise<void> {
+  const text = approvedSpeakersText()
+  if (!text) { toast('Nenhum orador aprovado para saída'); return }
   try {
-    await downloadApprovedSpeakersPdf({ congregation: localCongregationName(), rows })
-    toast('PDF de aprovados para saída gerado')
-  } catch { toast('Não foi possível gerar o PDF') }
+    await navigator.clipboard.writeText(text)
+    toast('Texto copiado')
+  } catch { toast('Não foi possível copiar') }
+}
+
+function emergencyThemesText(): string {
+  return availableSpeakerThemes({ speakers: discursos.oradores ?? {}, themes: discursos.temas ?? {}, talks: discursos.programacao ?? {}, today: todayStr() })
+    .map(entry => `${entry.nome}: ${entry.temas.map(theme => String(theme.numero).padStart(3, '0')).join(', ')}`)
+    .join('\n')
+}
+
+function emergenciaView(): string {
+  const text = emergencyThemesText()
+  return `<div style="margin-top:14px"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px"><div><h3 style="font-size:.95rem;color:#5C6062;margin:0">Emergência</h3><p class="form-help" style="margin:2px 0 0">Oradores locais com temas disponíveis para uso imediato.</p></div><button class="btn btn-ghost" type="button" data-copy-emergency-themes>Copiar texto</button></div><div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px"><pre style="white-space:pre-wrap;margin:0;font-family:inherit;font-size:.84rem;line-height:1.5;color:var(--ink-2)">${escapeHtml(text || 'Nenhum orador com tema disponível no momento.')}</pre></div></div>`
+}
+
+async function copyEmergencyThemesText(): Promise<void> {
+  const text = emergencyThemesText()
+  if (!text) { toast('Nenhum tema disponível para emergência'); return }
+  try {
+    await navigator.clipboard.writeText(text)
+    toast('Texto de emergência copiado')
+  } catch { toast('Não foi possível copiar') }
 }
 
 function newOradorId(): string {

@@ -1,6 +1,7 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf-lib/cjs/index.js'
-import type { ConfigCongregacao, MasterPessoa } from '../types'
-import type { CongregationReportSummary, SecretaryAttendance, SecretaryPublisher, SecretaryReport } from './secretario-domain'
+import type { MasterPessoa } from '../types'
+import { previewPdf } from '../ui/pdf-preview.ts'
+import type { SecretaryAttendance, SecretaryPublisher, SecretaryReport } from './secretario-domain'
 
 export interface SensitivePublisherFields { nascimento?: string; batismo?: string; ungido?: boolean }
 
@@ -83,22 +84,6 @@ export async function createS21(
   return output.save()
 }
 
-export async function createS1(template: ArrayBuffer, congregation: ConfigCongregacao, summary: CongregationReportSummary, secretaryName: string): Promise<Uint8Array> {
-  const pdf = await PDFDocument.load(template)
-  const page = pdf.getPage(0); const font = await pdf.embedFont(StandardFonts.Helvetica)
-  text(page, font, congregation.nome, 62, 180, 8); text(page, font, congregation.cidade, 214, 180, 8)
-  text(page, font, summary.competencia, 88, 159, 8)
-  const rows = [
-    [summary.publicadores, summary.estudosPublicadores, ''],
-    [summary.auxiliares, summary.estudosAuxiliares, summary.horasAuxiliares],
-    [summary.regulares, summary.estudosRegulares, summary.horasRegulares],
-  ]
-  rows.forEach((row, index) => { const y = 112 - index * 20; text(page, font, String(row[0] || ''), 150, y, 9); text(page, font, String(row[1] || ''), 210, y, 9); text(page, font, String(row[2] || ''), 269, y, 9) })
-  text(page, font, String(summary.publicadores + summary.auxiliares + summary.regulares), 52, 43, 9)
-  text(page, font, String(summary.mediaFimSemana || ''), 214, 43, 9); text(page, font, secretaryName, 250, 15, 8)
-  return pdf.save()
-}
-
 export async function createS3(template: ArrayBuffer, congregation: string, competence: string, attendance: Record<string, SecretaryAttendance>): Promise<Uint8Array> {
   const pdf = await PDFDocument.load(template); const page = pdf.getPage(0); const font = await pdf.embedFont(StandardFonts.Helvetica)
   text(page, font, congregation, 94, 147, 8); text(page, font, competence, 244, 147, 8)
@@ -127,3 +112,7 @@ export async function createS88(template: ArrayBuffer, attendance: Record<string
 }
 
 export function downloadSecretaryPdf(bytes: Uint8Array, filename: string): void { download(bytes, filename) }
+
+export function previewSecretaryPdf(bytes: Uint8Array, filename: string): void {
+  previewPdf(bytes, filename)
+}

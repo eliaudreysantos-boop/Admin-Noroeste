@@ -1,0 +1,77 @@
+export interface BackupSummary {
+  pessoas: number
+  usuarios: number
+  modulos: number
+}
+
+export type BackupValidation =
+  | { ok: true; data: Record<string, unknown>; summary: BackupSummary }
+  | { ok: false; error: string }
+
+type Row = Record<string, unknown>
+
+const row = (value: unknown): Row => value && typeof value === 'object' && !Array.isArray(value)
+  ? value as Row
+  : {}
+
+function records(value: unknown): Record<string, Row> {
+  return Object.fromEntries(Object.entries(row(value)).filter(([, item]) => item && typeof item === 'object' && !Array.isArray(item))) as Record<string, Row>
+}
+
+function hasActiveAdmin(users: Record<string, Row>): boolean {
+  return Object.values(users).some(user => row(user.apps).mestre === true && user.ativo === true)
+}
+
+export function validateFirebaseValue(value: unknown, path = 'raiz'): string | null {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return null
+  if (typeof value === 'number') return Number.isFinite(value) ? null : `${path} contém um número inválido.`
+  if (Array.isArray(value)) {
+    for (let index = 0; index < value.length; index += 1) {
+      const error = validateFirebaseValue(value[index], `${path}[${index}]`)
+      if (error) return error
+    }
+    return null
+  }
+  if (!value || typeof value !== 'object') return `${path} contém um valor incompatível.`
+  for (const [key, child] of Object.entries(value as Row)) {
+    if (!key || key.includes('.') || key.includes('#') || key.includes('$') || key.includes('[') || key.includes(']') || key.includes('/')) return `${path} contém uma chave inválida "${key}".`
+    const error = validateFirebaseValue(child, `${path}.${key}`)
+    if (error) return error
+  }
+  return null
+}
+
+export function validateBackup(value: unknown): BackupValidation {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return { ok: false, error: 'O arquivo precisa conter a raiz completa do banco.' }
+  const data = value as Row
+  const master = row(data.master)
+  const people = records(master.pessoas)
+  const users = records(data.usuarios)
+  if (!data.master || !master.pessoas) return { ok: false, error: 'O arquivo não contém master/pessoas.' }
+  if (!data.usuarios || Object.keys(users).length === 0) return { ok: false, error: 'O arquivo não contém usuários.' }
+
+  for (const [masterId, person] of Object.entries(people)) {
+    if (typeof person.name !== 'string' || !person.name.trim() || typeof person.whatsapp !== 'string' || typeof person.active !== 'boolean') {
+      return { ok: false, error: `A pessoa ${masterId} não tem a estrutura esperada.` }
+    }
+  }
+
+  const personalAccounts = new Map<string, string>()
+  for (const [uid, user] of Object.entries(users)) {
+    const apps = row(user.apps)
+    if (typeof user.nome !== 'string' || typeof user.senha !== 'string' || typeof user.ativo !== 'boolean' || !user.apps || Array.isArray(user.apps) || typeof apps.mestre !== 'boolean') {
+      return { ok: false, error: `O usuário ${uid} não tem a estrutura esperada.` }
+    }
+    if (apps.individual === true) {
+      const masterId = typeof user.masterId === 'string' ? user.masterId.trim() : ''
+      if (!masterId || !people[masterId]) return { ok: false, error: `O usuário ${uid} da Minha Agenda não possui uma pessoa válida.` }
+      const existingUid = personalAccounts.get(masterId)
+      if (existingUid) return { ok: false, error: `Os usuários ${existingUid} e ${uid} estão ligados à mesma pessoa ${masterId}.` }
+      personalAccounts.set(masterId, uid)
+    }
+  }
+  if (!hasActiveAdmin(users)) return { ok: false, error: 'O backup precisa manter ao menos um Admin ativo.' }
+  const firebaseError = validateFirebaseValue(data)
+  if (firebaseError) return { ok: false, error: firebaseError }
+  return { ok: true, data, summary: { pessoas: Object.keys(people).length, usuarios: Object.keys(users).length, modulos: Object.keys(data).length } }
+}

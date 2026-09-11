@@ -38,7 +38,7 @@ import {
   type TaskTalk,
 } from './tarefas-domain'
 import { formatTaskDate } from './tarefas-output'
-import { printTaskSchedule } from './tarefas-documents'
+import { prepareTaskPrint, printPreparedTaskSchedule } from './tarefas-documents'
 
 type TarefasTab = 'indice' | 'resumo' | 'escala' | 'participantes' | 'pendencias'
 
@@ -531,15 +531,21 @@ function renderParticipantes(): void {
   if (targetPersonId && pessoas[targetPersonId] && context.usuario.apps.mestre) openTaskPersonModal(targetPersonId)
 }
 
+type PendingLevel = 'alta' | 'media' | 'baixa'
+
+const pendingLevelLabel: Record<PendingLevel, string> = { alta: 'Alta', media: 'Media', baixa: 'Baixa' }
+const pendingLevelColor: Record<PendingLevel, string> = { alta: '#B3261E', media: '#8A5B00', baixa: '#006EB6' }
+
 function renderPendencias(): void {
   const content = document.getElementById('tarefasContent')
   if (!content) return
 
-  const items: Array<{ title: string; detail: string; tab: TarefasTab; target?: PendingTarget }> = []
+  const items: Array<{ level: PendingLevel; title: string; detail: string; tab: TarefasTab; target?: PendingTarget }> = []
   const futureEntries = scaleMeetingEntries()
     .filter(entry => entry.meeting.date && entry.meeting.date >= todayStr() && canonicalMeetingType(entry.meeting.type) && !meetingIsBlocked(domainContext(), entry.meeting))
   if (!futureEntries.length) {
     items.push({
+      level: 'alta',
       title: 'Escala futura ainda não gerada',
       detail: 'Abra a Escala, informe a data inicial e gere as designações.',
       tab: 'escala',
@@ -553,6 +559,7 @@ function renderPendencias(): void {
       .map(role => roleLabel(role))
     if (missing.length) {
       items.push({
+        level: missing.length === GENERATED_ROLES.filter(role => meetingAllowsRole(meeting, role)).length ? 'alta' : 'media',
         title: missing.length === GENERATED_ROLES.filter(role => meetingAllowsRole(meeting, role)).length
           ? `Escala de ${formatDate(meeting.date)} por gerar`
           : `Reunião de ${formatDate(meeting.date)} incompleta`,
@@ -567,6 +574,7 @@ function renderPendencias(): void {
       const person = pessoas[personId]
       if (!person) {
         items.push({
+          level: 'alta',
           title: `${roleLabel(role)} aponta para pessoa inexistente`,
           detail: `${formatDate(meeting.date)} · ID ${personId}.`,
           tab: 'participantes',
@@ -574,9 +582,19 @@ function renderPendencias(): void {
         })
         return
       }
+      if (!isActive(person)) {
+        items.push({
+          level: 'media',
+          title: `${roleLabel(role)} aponta para participante inativo`,
+          detail: `${formatDate(meeting.date)} · ${pessoaNome(person, personId)} está inativo em Tarefas.`,
+          tab: 'participantes',
+          target: { personId },
+        })
+      }
       const conflict = manualConflictReason(domainContext(), entry, role, personId)
       if (conflict) {
         items.push({
+          level: 'media',
           title: `${roleLabel(role)} com conflito`,
           detail: `${formatDate(meeting.date)} · ${pessoaNome(person, personId)}: ${conflict}.`,
           tab: 'escala',
@@ -589,16 +607,22 @@ function renderPendencias(): void {
   const unlinked = Object.values(pessoas).filter(person => isActive(person) && !person.masterId).length
   if (unlinked) {
     items.push({
+      level: 'baixa',
       title: `${unlinked} participante${unlinked === 1 ? '' : 's'} sem vínculo com Admin`,
       detail: 'Revise os vínculos antes de gerar uma nova escala.',
       tab: 'participantes',
     })
   }
+  const counts = items.reduce<Record<PendingLevel, number>>((acc, item) => {
+    acc[item.level] += 1
+    return acc
+  }, { alta: 0, media: 0, baixa: 0 })
 
   content.innerHTML = `
     ${sectionTitle('Pendências', items.length ? 'Resolva estes itens antes de confirmar a escala.' : 'A escala atual não tem pendências identificadas.')}
+    ${items.length ? `<div class="pending-summary"><span style="background:#B3261E">Alta: ${counts.alta}</span><span style="background:#8A5B00">Media: ${counts.media}</span><span style="background:#006EB6">Baixa: ${counts.baixa}</span></div>` : ''}
     ${items.length
-      ? `<div style="display:flex;flex-direction:column;gap:8px">${items.map((item, index) => `<button class="module-menu-btn" type="button" data-pending-index="${index}" style="border-radius:8px;padding:12px 14px"><div style="flex:1;min-width:0"><div class="mod-label">${escapeHtml(item.title)}</div><div class="mod-desc">${escapeHtml(item.detail)}</div></div><span style="font-size:1.1rem;color:#B3261E">›</span></button>`).join('')}</div>`
+      ? `<div style="display:flex;flex-direction:column;gap:8px">${items.map((item, index) => `<button class="module-menu-btn" type="button" data-pending-index="${index}" style="border-radius:8px;padding:12px 14px;border-left:4px solid ${pendingLevelColor[item.level]}"><div style="flex:1;min-width:0"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span class="pending-badge" style="background:${pendingLevelColor[item.level]}">${pendingLevelLabel[item.level]}</span><div class="mod-label">${escapeHtml(item.title)}</div></div><div class="mod-desc">${escapeHtml(item.detail)}</div></div><span style="font-size:1.1rem;color:${pendingLevelColor[item.level]}">›</span></button>`).join('')}</div>`
       : '<div style="padding:18px;border:1px solid #B7DEC7;background:#F1FAF4;border-radius:8px;color:#1A6B3C;font-size:.84rem">Tudo certo por enquanto.</div>'}`
 
   content.querySelectorAll<HTMLButtonElement>('[data-pending-index]').forEach(button => {
@@ -827,6 +851,24 @@ function gerarPdfTarefas(preferredFontPt: number): void {
     return
   }
 
-  const chosen = printTaskSchedule(meetings, congregationName, pessoas, preferredFontPt)
-  toast(`PDF em ${chosen} pt`)
+  const prepared = prepareTaskPrint(meetings, congregationName, pessoas, preferredFontPt)
+  const overlay = document.createElement('div')
+  overlay.className = 'modal-overlay'
+  overlay.innerHTML = `
+    <div class="modal tarefas-preview-modal">
+      <h2>Prévia da escala de Tarefas</h2>
+      <p class="form-help">Fonte ajustada para ${prepared.fontPt} pt. Confira antes de imprimir.</p>
+      <div class="tarefas-print-preview" style="font-size:${prepared.fontPt}pt">${prepared.html}</div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
+        <button id="closeTaskPreview" class="btn btn-ghost" type="button">Fechar</button>
+        <button id="printTaskPreview" class="btn btn-primary" type="button">Imprimir</button>
+      </div>
+    </div>`
+  document.body.appendChild(overlay)
+  document.getElementById('closeTaskPreview')?.addEventListener('click', () => overlay.remove())
+  document.getElementById('printTaskPreview')?.addEventListener('click', () => {
+    printPreparedTaskSchedule(prepared)
+    toast(`PDF em ${prepared.fontPt} pt`)
+  })
+  overlay.addEventListener('click', event => { if (event.target === overlay) overlay.remove() })
 }

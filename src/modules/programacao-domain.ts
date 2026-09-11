@@ -56,6 +56,9 @@ export interface ProgramPerson {
   permissions: AssignmentPermission[]
 }
 
+export type ReminderRole = 'principal' | 'ajudante'
+export interface ProgramReminderEntry { program: MeetingProgram; part: ProgramPart; person: ProgramPerson; role: ReminderRole; kind: 's89' | 'geral' }
+
 const MONTHS: Record<string, number> = {
   janeiro: 0, fevereiro: 1, marco: 2, abril: 3, maio: 4, junho: 5,
   julho: 6, agosto: 7, setembro: 8, outubro: 9, novembro: 10, dezembro: 11,
@@ -134,14 +137,31 @@ export function parseOfficialProgram(sourceUrl: string, source: string): Meeting
 export function mergeImportedProgram(existing: MeetingProgram | undefined, incoming: MeetingProgram, stamp: string): MeetingProgram {
   if (!existing) return { ...incoming, importedAt: stamp, updatedAt: stamp }
   const oldParts = new Map(existing.parts.map(part => [part.id, part]))
-  return {
+  const incomingIds = new Set(incoming.parts.map(part => part.id))
+  const manualParts = existing.parts.filter(part => part.id.includes('-manual-') && !incomingIds.has(part.id))
+  const merged: MeetingProgram = {
     ...incoming,
     notes: existing.notes,
     type: existing.type ?? incoming.type,
+    counselorPersonId: existing.counselorPersonId,
     importedAt: existing.importedAt ?? stamp,
     updatedAt: stamp,
-    parts: incoming.parts.map(part => ({ ...part, ...oldParts.get(part.id), title: part.title, section: part.section, durationMinutes: part.durationMinutes, reference: part.reference })),
+    parts: [
+      ...incoming.parts.map(part => ({ ...part, ...oldParts.get(part.id), title: part.title, section: part.section, durationMinutes: part.durationMinutes, reference: part.reference })),
+      ...manualParts,
+    ],
   }
+  return sameProgramContent(existing, merged) ? existing : merged
+}
+
+function sameProgramContent(left: MeetingProgram, right: MeetingProgram): boolean {
+  const fields: Array<keyof MeetingProgram> = ['id', 'meetingDate', 'bibleReading', 'sourceUrl', 'notes', 'type', 'counselorPersonId', 'importedAt']
+  if (fields.some(field => left[field] !== right[field]) || left.parts.length !== right.parts.length) return false
+  return left.parts.every((part, index) => {
+    const other = right.parts[index]
+    const keys = new Set([...Object.keys(part), ...Object.keys(other)])
+    return [...keys].every(key => part[key as keyof ProgramPart] === other[key as keyof ProgramPart])
+  })
 }
 
 export function permissionForPart(part: ProgramPart): AssignmentPermission {
@@ -241,6 +261,10 @@ export function programPendings(programs: MeetingProgram[], people: ProgramPerso
     if (!program.parts.length) result.push({ id: `${program.id}:empty`, date: program.meetingDate, message: 'Semana sem partes cadastradas.', programId: program.id })
     program.parts.forEach(part => {
       const add = (suffix: string, message: string) => result.push({ id: `${program.id}:${part.id}:${suffix}`, date: program.meetingDate, message: `${part.title}: ${message}`, programId: program.id, partId: part.id })
+      if (part.status === 'realizado') {
+        if (!part.realizedPersonId) add('realized', 'informe quem realizou a parte.')
+        return
+      }
       if (!part.assignedPersonId) add('principal', 'principal não definido.')
       else if (!byId.get(part.assignedPersonId)?.active) add('invalid', 'principal ausente ou inativo.')
       if (part.absent && !part.substitutePersonId) add('substitute', 'designado ausente sem substituto.')
@@ -255,7 +279,6 @@ export function programPendings(programs: MeetingProgram[], people: ProgramPerso
       if (part.assignedPersonId && !part.remindedAt) add('delivery', 'lembrete do principal ainda não aberto.')
       if (part.assistantPersonId && !part.assistantRemindedAt) add('assistant-delivery', 'lembrete do ajudante ainda não aberto.')
       if (part.assignedPersonId && !part.confirmedAt) add('confirmation', 'confirmação pendente.')
-      if (part.status === 'realizado' && !part.realizedPersonId) add('realized', 'informe quem realizou a parte.')
     })
   })
   return result.sort((a, b) => a.date.localeCompare(b.date) || a.message.localeCompare(b.message, 'pt-BR'))
@@ -266,4 +289,17 @@ export function reminderMessage(person: ProgramPerson, program: MeetingProgram, 
   const date = year && month && day ? `${day}/${month}/${year}` : program.meetingDate
   const text = template?.trim() || 'Olá, {nome}!\n\nLembrando sua designação na reunião de {data}, às {horario}:\n\nParte: {parte}\n\nPor favor, confirme o recebimento.'
   return text.replace(/\{nome\}/g, person.name).replace(/\{data\}/g, date).replace(/\{horario\}/g, time).replace(/\{parte\}/g, part.title)
+}
+
+export function programReminderEntries(programs: MeetingProgram[], people: ProgramPerson[]): ProgramReminderEntry[] {
+  const byId = new Map(people.filter(person => person.whatsapp.trim()).map(person => [person.id, person]))
+  return programs.flatMap(program => program.parts.flatMap(part => {
+    const kind = part.section === 'ministerio' ? 's89' as const : 'geral' as const
+    const principal = byId.get(part.substitutePersonId ?? part.assignedPersonId ?? '')
+    const assistant = byId.get(part.assistantPersonId ?? '')
+    const entries: ProgramReminderEntry[] = []
+    if (principal) entries.push({ program, part, person: principal, role: 'principal', kind })
+    if (assistant && assistant.id !== principal?.id) entries.push({ program, part, person: assistant, role: 'ajudante', kind })
+    return entries
+  }))
 }
