@@ -2,10 +2,19 @@ import type { AgendaSubscription } from '../../src/types.ts'
 import { privateSubscriptionStore, type SubscriptionStore } from '../lib/subscription-store.ts'
 
 const SOURCES = new Set(['tarefas', 'limpeza', 'escala', 'oradores', 'programacao', 'servicoCampo'])
-const json = (status: number, value: unknown): Response => new Response(JSON.stringify(value), {
+const json = (status: number, value: unknown, headers: Record<string, string> = {}): Response => new Response(JSON.stringify(value), {
   status,
-  headers:{ 'content-type':'application/json; charset=utf-8', 'cache-control':'no-store' },
+  headers:{ 'content-type':'application/json; charset=utf-8', 'cache-control':'no-store', ...headers },
 })
+
+function storeErrorCode(error: unknown): string {
+  const message = error instanceof Error ? error.message : ''
+  if (message.includes('não configuradas')) return 'configuration-missing'
+  if (error instanceof SyntaxError) return 'credentials-invalid'
+  if (/credential|invalid_grant|unauthorized/i.test(message)) return 'authentication-failed'
+  if (/permission|denied/i.test(message)) return 'permission-denied'
+  return 'store-unavailable'
+}
 
 function randomToken(): string {
   const bytes = new Uint8Array(24)
@@ -80,7 +89,7 @@ export async function subscriptionsResponse(
     return json(200, next)
   } catch (error) {
     console.error('Calendar subscription store failed:', error instanceof Error ? error.message : 'Unknown error')
-    return json(503, { error:'Serviço de assinaturas indisponível.' })
+    return json(503, { error:'Serviço de assinaturas indisponível.' }, { 'x-calendar-error':storeErrorCode(error) })
   }
 }
 
