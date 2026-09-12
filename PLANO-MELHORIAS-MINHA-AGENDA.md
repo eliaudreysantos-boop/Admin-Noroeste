@@ -16,8 +16,9 @@ descritas devem orientar a implementacao sem alterar os contratos de identidade,
 - O snapshot pessoal e sanitizado e permite abertura offline.
 - Rascunhos de relatorio permanecem locais ate o envio explicito.
 - Assinaturas pessoais e do Quadro usam tokens independentes por instalacao.
-- O Quadro possui texto por data, PDFs por periodo e assinatura atualizavel.
-- Suite completa com 127 testes e build aprovados.
+- O Quadro possui texto por data, um card inicial de arquivos e assinatura
+  atualizavel. A separacao definitiva dos PDFs ainda sera implementada.
+- Suite completa com 132 testes e build aprovados.
 
 ## Regra obrigatoria de persistencia da interface
 
@@ -33,7 +34,7 @@ aparelho.
 - filtros de origem e status;
 - data selecionada no calendario Geral;
 - data selecionada em `Dados das reunioes`;
-- periodo selecionado em `Arquivos publicados`;
+- periodo selecionado em `PDFs dos modulos` e `Documentos do Admin`;
 - paineis expansivos abertos ou fechados;
 - selecao ainda nao publicada dos modulos da assinatura do Quadro;
 - pessoa que o Admin escolheu para consultar;
@@ -231,12 +232,102 @@ nao para administrar o calendario.
 - Abrir `Dados das reunioes` por padrao na primeira utilizacao.
 - Mostrar no cabecalho a data e o tipo da reuniao selecionada.
 - Persistir data e paineis abertos.
-- Remover o seletor mensal superior; `Dados das reunioes` ja usa data e
-  `Arquivos publicados` ja usa periodo.
+- Remover o seletor mensal superior; `Dados das reunioes` ja usa data e os
+  arquivos usam um unico seletor de periodo.
 - Manter Copiar e WhatsApp junto ao texto da reuniao.
 - Mostrar quantidade de PDFs e estado da assinatura nos cabecalhos recolhidos.
 - Manter meio de semana com Tarefas, Vida e Ministerio e Limpeza.
 - Manter fim de semana com Tarefas, Oradores e Limpeza, incluindo saidas.
+
+## PDFs publicos no Quadro
+
+O card atual `Arquivos publicados` deve ser substituido por duas areas distintas.
+
+### PDFs dos modulos
+
+Usar um unico seletor de periodo, com nomes legiveis como `Setembro de 2026`.
+A escolha deve ser persistida no estado local da Minha Agenda.
+
+Exibir sempre cinco linhas fixas, cada uma com seu proprio botao:
+
+- Tarefas: `Baixar PDF`;
+- Oradores: `Baixar PDF`;
+- Escala TPL: `Baixar PDF`;
+- Limpeza: `Baixar PDF`;
+- Servico de Campo: `Baixar PDF`.
+
+Regras obrigatorias:
+
+- nunca usar um unico botao generico para todos os modulos;
+- o nome e a identidade visual do modulo devem ficar ao lado do botao;
+- o botao deve baixar somente o arquivo daquele modulo;
+- o nome do arquivo deve ser previsivel, como `tarefas-2026-09.pdf`;
+- manter o botao visivel e desabilitado quando o periodo nao estiver publicado;
+- mostrar `Ainda nao publicado` sem oferecer geracao ao usuario;
+- a Minha Agenda apenas baixa o PDF oficial e nunca gera, publica ou altera a
+  escala;
+- usar somente dados de periodos publicados ou travados pelo modulo responsavel;
+- selecionar a versao oficial mais recente, sem listar duplicatas de previas;
+- para documentos mensais, relacionar o arquivo ao mes selecionado;
+- para documentos bimestrais, disponibilizar o arquivo em todos os meses que ele
+  abrange e mostrar seu periodo real no nome;
+- excluir completamente documentos do Secretario;
+- nao publicar automaticamente S-89, S-140 ou outros documentos de Vida e
+  Ministerio nessa area.
+
+### Publicacao pelos modulos
+
+O PDF oficial deve ser criado e arquivado quando o responsavel publicar o
+periodo. Gerar ou abrir uma previa nao pode criar documento publico nem duplicar
+arquivos no Quadro.
+
+- Limpeza, Oradores e Servico de Campo devem mover o arquivamento atual da acao
+  de previa para a acao de publicar;
+- Tarefas e Escala TPL precisam produzir um PDF real baixavel, pois atualmente
+  usam apenas a impressao do navegador;
+- cada modulo deve substituir sua propria versao anterior do mesmo periodo;
+- os metadados devem incluir modulo, inicio, fim, periodo exibido, nome,
+  `storagePath`, data de publicacao e identificador do periodo de origem;
+- despublicar ou reabrir um periodo deve retirar o PDF da area publica ate uma
+  nova publicacao;
+- falha ao arquivar o PDF deve impedir que a publicacao seja apresentada como
+  concluida;
+- os motores atuais de previa devem continuar disponiveis para o operador.
+
+### Documentos do Admin
+
+Manter uma area separada para PDFs enviados manualmente pelo Admin.
+
+- usar o mesmo seletor de periodo da area de modulos;
+- listar nome do documento e um botao `Baixar` por arquivo;
+- permitir varios documentos do Admin no mesmo periodo;
+- manter previa obrigatoria antes da publicacao no Admin;
+- somente o Admin pode adicionar ou remover esses documentos pela interface;
+- nenhum documento manual deve substituir automaticamente um PDF de modulo.
+
+## Regras configuraveis dos motores
+
+Adicionar `Regras do motor` dentro das configuracoes de cada modulo gerador. O
+Admin pode editar as regras; outros usuarios do modulo apenas consultam o estado.
+As configuracoes devem ser salvas no Firebase, nunca apenas no `localStorage`,
+para que todos os aparelhos usem o mesmo comportamento.
+
+Comecar por Tarefas e Escala TPL:
+
+- Tarefas: permitir ativar ou desativar o aproveitamento do Presidente em uma
+  segunda tarefa mecanica e outras preferencias de equilibrio e repeticao;
+- Escala TPL: permitir ativar ou desativar a prioridade de pioneiro regular e
+  preferencias de repeticao e equilibrio;
+- mostrar quantas regras estao ativas perto do comando de geracao;
+- oferecer `Restaurar padroes` apenas dentro da configuracao;
+- registrar em cada periodo gerado uma copia versionada das regras aplicadas;
+- alteracoes de configuracao devem valer para a proxima geracao e nao modificar
+  silenciosamente periodos existentes.
+
+Regras de integridade nao podem ser desligadas: pessoa ativa e existente,
+habilitacao para a funcao, disponibilidade declarada, vinculos `somente com`,
+uma pessoa diferente em cada lugar da dupla, datas validas, preservacao de
+edicoes manuais e bloqueio de periodos publicados.
 
 ## Acessibilidade e celular
 
@@ -258,7 +349,9 @@ Situacao em 12/09/2026:
 - Fase 1 implementada e coberta por testes automatizados.
 - Fase 2 implementada com atualizacao semanal silenciosa.
 - Fases 3 e 4 implementadas e verificadas na interface local.
-- Fase 5 depende da homologacao manual em calendarios, aparelhos e dados reais.
+- Fases 5, 6 e 7 ainda precisam ser implementadas.
+- Fase 8 depende da homologacao manual em calendarios, aparelhos e dados reais
+  e deve permanecer por ultimo.
 
 ### Fase 1 - Persistencia local
 
@@ -291,7 +384,33 @@ Situacao em 12/09/2026:
 - Remover o mes superior redundante do Quadro.
 - Persistir todas as escolhas dessas telas.
 
-### Fase 5 - Homologacao real
+### Fase 5 - Contrato dos PDFs publicos
+
+- Ampliar `AgendaPublicDocument` para Tarefas e Escala TPL.
+- Adicionar intervalo e identificador de origem aos metadados.
+- Criar operacao idempotente de substituir o PDF oficial do modulo e periodo.
+- Separar documento de modulo de documento manual do Admin.
+- Remover o arquivamento automatico de Vida e Ministerio.
+- Adicionar testes de permissao, periodo, substituicao e despublicacao.
+
+### Fase 6 - Motores PDF de Tarefas e Escala TPL
+
+- Extrair geradores PDF reais a partir dos layouts de previa atuais.
+- Preservar paginacao, tamanho de fonte e formatacao existentes.
+- Arquivar os cinco PDFs somente durante a publicacao do periodo.
+- Fazer a publicacao aguardar o upload antes de confirmar sucesso.
+- Impedir duplicacao quando o operador publicar novamente o mesmo periodo.
+
+### Fase 7 - Interface de downloads e regras dos motores
+
+- Substituir `Arquivos publicados` pelas duas areas definidas neste documento.
+- Implementar seletor unico de periodo e cinco botoes independentes.
+- Manter os botoes indisponiveis quando nao existir versao oficial.
+- Implementar `Regras do motor` inicialmente em Tarefas e Escala TPL.
+- Registrar as regras aplicadas no periodo e cobrir migracao dos padroes atuais.
+- Verificar interface em celular e desktop e executar a suite completa.
+
+### Fase 8 - Homologacao real
 
 - Executar `HOMOLOGACAO-ICS-DADOS-E-APARELHOS.md`.
 - Testar Google Calendar, Android e Apple Calendar.
@@ -316,7 +435,18 @@ Situacao em 12/09/2026:
 - ciclo semanal baixa silenciosamente o shell novo;
 - atualizacao nao interrompe rascunho ou envio;
 - calendario Geral possui nome acessivel com quantidade de eventos;
-- Quadro restaura data, periodo e paineis sem misturar pessoas.
+- Quadro restaura data, periodo e paineis sem misturar pessoas;
+- cada um dos cinco botoes baixa apenas o PDF do modulo indicado;
+- periodo mensal e bimestral selecionam o documento correto;
+- previa de modulo nao publica nem duplica documento;
+- publicar novamente substitui a versao oficial anterior;
+- despublicar remove a disponibilidade publica;
+- documentos do Admin permanecem separados e aceitam varios arquivos;
+- Secretario e Vida e Ministerio nao aparecem entre os PDFs publicos;
+- configuracoes dos motores migram para os padroes atuais quando inexistentes;
+- Tarefas e Escala TPL respeitam cada regra opcional ativada ou desativada;
+- regras obrigatorias continuam protegidas independentemente da configuracao;
+- o periodo registra a versao das regras usadas na geracao.
 
 ## Criterio de conclusao
 
@@ -333,4 +463,9 @@ Minha Agenda pode ser considerada encerrada quando:
 6. Estado offline e falhas obrigatorias forem compreensiveis sem oferecer
    atualizacao manual de rotina.
 7. Acessibilidade e layout forem homologados em celular e desktop.
-8. O roteiro de ICS, aparelhos e concorrencia estiver integralmente aprovado.
+8. Os cinco modulos publicarem um PDF oficial por periodo e a Minha Agenda
+   oferecer um botao identificado para cada um.
+9. Documentos manuais do Admin estiverem separados dos PDFs dos modulos.
+10. As regras opcionais dos motores forem configuraveis sem enfraquecer as regras
+    obrigatorias de integridade.
+11. O roteiro de ICS, aparelhos e concorrencia estiver integralmente aprovado.
