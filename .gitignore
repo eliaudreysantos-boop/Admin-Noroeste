@@ -8,3 +8,6 @@ NAO FAZER COMMIT DESSA PASTA/
 *.zip
 *.rar
 .DS_Store
+
+# Local Netlify folder
+.netlify
