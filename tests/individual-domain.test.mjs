@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { agendaMessage, agendaToIcs, announcementMessage, collectAgendaEvents, collectAnnouncementEvents, eventsInFeedWindow, sanitizeAgendaPeople, upcomingAgendaEvents } from '../src/modules/individual-domain.ts'
+import { agendaMessage, agendaToIcs, announcementMessage, boardMeetingDates, boardMeetingEvents, collectAgendaEvents, collectAnnouncementEvents, eventsInFeedWindow, sanitizeAgendaPeople, upcomingAgendaEvents } from '../src/modules/individual-domain.ts'
 
 const root = {
   master: { pessoas:{ m1:{ name:'Ana', active:true }, m2:{ name:'Bruno', active:true } } },
@@ -9,7 +9,7 @@ const root = {
     scale: { periods: { '2026-09': { locked:true, meetings: { a: { date:'2026-09-09', type:'midweek', assignments:{ leitor:'task1', mic1:'task2' } } } } } },
     discursos: { oradores:{ o1:{ pessoaId:'task1' } }, programacao:{ p1:{ data:'2026-09-13', tipo:'saida_orador', oradorId:'o1', temaTitulo:'Esperança', congregacaoDestinoNome:'Centro' } } },
   },
-  limpeza: { periodos:{ p:{ semanas:[{ dataMeioSemana:'2026-09-10', grupo:2, grupoNome:'Grupo 2', membrosMid:['m1'] }] } } },
+  limpeza: { periodos:{ p:{ semanas:[{ dataMeioSemana:'2026-09-10', dataFimSemana:'2026-09-13', grupo:2, grupoNome:'Grupo 2', membrosMid:['m1'] }] } } },
   escala: { participants:{ e1:{ masterId:'m1' } }, publishedMonths:{ '2026-09':true }, settings:{ locals:{ l1:{ name:'Praça' } } }, tables:{ l1:{ '2026-09':{ rows:{ '2026-09-12':{ slots:{ '08:00':{ p1:'e1', p2:'e2' } } } } } } } },
   programacao: { pessoas:{ m1:{ masterId:'m1' } }, settings:{ meetingTime:'19:30', rooms:[{ id:'main', name:'Salão principal' }] }, programs:{ w:{ meetingDate:'2026-09-16', parts:[{ id:'x', title:'Leitura da Bíblia', assignedPersonId:'m1', confirmedAt:'2026-09-01' }] } } },
   servicoCampo:{ periods:{ '2026-09':{ month:'2026-09', published:true, assignments:{ s1:{ id:'s1', templateId:'t1', date:'2026-09-17', time:'16:00', location:'Salão do Reino', label:'Saída de campo', leaderId:'m1' } } } } },
@@ -22,7 +22,7 @@ test('cache de identidades remove telefone e grupo de limpeza', () => {
 
 test('agrega apenas atribuicoes do masterId solicitado', () => {
   const events = collectAgendaEvents(root, 'm1')
-  assert.deepEqual(events.map(event => event.source), ['tarefas', 'limpeza', 'escala', 'oradores', 'programacao', 'servicoCampo'])
+  assert.deepEqual(events.map(event => event.source), ['tarefas', 'limpeza', 'escala', 'oradores', 'limpeza', 'programacao', 'servicoCampo'])
   assert.equal(events.some(event => event.title === 'Microfone 1'), false)
   assert.equal(events.find(event => event.source === 'tarefas')?.status, 'futuro')
   assert.equal(events.find(event => event.source === 'escala')?.title, 'Escala TPL')
@@ -120,6 +120,23 @@ test('quadro de anúncios agrupa designações por pessoa e por origem', () => {
   assert.equal(announcements.some(item => item.source === 'programacao' && item.people.includes('Ana')), true)
   assert.equal(announcements.some(item => item.source === 'tarefas' && item.people.includes('Ana')), true)
   assert.equal(announcements.some(item => item.source === 'tarefas' && item.people.includes('Bruno')), true)
+})
+
+test('dados das reuniões selecionam datas futuras e módulos conforme o tipo', () => {
+  const events = collectAnnouncementEvents(root)
+  const dates = boardMeetingDates(events, '2026-09-10')
+  assert.deepEqual(dates.map(item => [item.date, item.kind]), [
+    ['2026-09-10', 'midweek'],
+    ['2026-09-13', 'weekend'],
+    ['2026-09-16', 'midweek'],
+  ])
+  const weekend = boardMeetingEvents(events, dates[1])
+  assert.equal(weekend.some(item => item.source === 'oradores' && item.title === 'Discurso em outra congregação'), true)
+  assert.equal(weekend.some(item => item.source === 'limpeza'), true)
+  assert.equal(weekend.some(item => item.source === 'programacao'), false)
+  const midweek = boardMeetingEvents(events, dates[2])
+  assert.equal(midweek.some(item => item.source === 'programacao'), true)
+  assert.equal(midweek.some(item => item.source === 'oradores'), false)
 })
 
 test('quadro inclui discursos visitantes sem vínculo com o cadastro central', () => {

@@ -10,6 +10,9 @@ export interface AgendaEvent {
 
 export interface AnnouncementEvent extends AgendaEvent { people: string[] }
 
+export type BoardMeetingKind = 'midweek' | 'weekend'
+export interface BoardMeetingDate { date: string; kind: BoardMeetingKind }
+
 export interface AgendaIcsOptions {
   reminders?: Partial<Record<AgendaSource, string[]>>
   namespace?: string
@@ -59,7 +62,10 @@ export function collectAgendaEvents(rootValue: unknown, masterId: string, allowe
 
   if (allowed.limpeza !== false) Object.entries(rows(rows(root['limpeza'])['periodos'])).forEach(([periodId, periodValue]) => values(rows(periodValue)['semanas']).forEach((weekValue, index) => {
     const week = rows(weekValue), ids = [text(week['superintendenteMid']), ...values(week['ajudantesMid']).map(text), ...values(week['membrosMid']).map(text)]
-    if (ids.includes(masterId)) add({ id:`limpeza:${periodId}:${index}`, source:'limpeza', date:text(week['dataMeioSemana']) || text(week['referencia']), title:`Limpeza - ${text(week['grupoNome']) || `Grupo ${Number(week['grupo'])}`}`, detail:'Escala de limpeza do Salão do Reino', status:'futuro' })
+    if (!ids.includes(masterId)) return
+    const title = `Limpeza - ${text(week['grupoNome']) || `Grupo ${Number(week['grupo'])}`}`
+    add({ id:`limpeza:${periodId}:${index}:midweek`, source:'limpeza', date:text(week['dataMeioSemana']) || text(week['referencia']), title, detail:'Limpeza após a reunião do meio de semana', status:'futuro' })
+    if (text(week['dataFimSemana'])) add({ id:`limpeza:${periodId}:${index}:weekend`, source:'limpeza', date:text(week['dataFimSemana']), title, detail:'Limpeza semanal do Salão do Reino', status:'futuro' })
   }))
 
   if (allowed.escala !== false) {
@@ -210,4 +216,29 @@ export function agendaMessage(events: AgendaEvent[]): string {
 export function announcementMessage(events: AnnouncementEvent[]): string {
   if (!events.length) return 'Quadro de anúncios Noroeste: nenhuma designação registrada neste período.'
   return `Quadro de anúncios Noroeste:\n${events.map(event => `${event.date.split('-').reverse().join('/')} ${event.time || ''} - ${event.title}\n${event.detail}${event.location ? ` · ${event.location}` : ''}\n${event.people.join(', ')}`.replace('  ', ' ')).join('\n\n')}`
+}
+
+function eventMeetingKind(event: AnnouncementEvent): BoardMeetingKind | null {
+  if (event.source === 'programacao' || /meio de semana/i.test(event.detail)) return 'midweek'
+  if (event.source === 'oradores' || /fim de semana|limpeza semanal/i.test(event.detail)) return 'weekend'
+  return null
+}
+
+export function boardMeetingDates(events: AnnouncementEvent[], today: string): BoardMeetingDate[] {
+  const dates = new Map<string, BoardMeetingKind>()
+  events.forEach(event => {
+    if (event.date < today) return
+    const kind = eventMeetingKind(event)
+    if (!kind || dates.has(event.date)) return
+    dates.set(event.date, kind)
+  })
+  return [...dates].map(([date, kind]) => ({ date, kind })).sort((a, b) => a.date.localeCompare(b.date))
+}
+
+export function boardMeetingEvents(events: AnnouncementEvent[], selected: BoardMeetingDate | undefined): AnnouncementEvent[] {
+  if (!selected) return []
+  const sources = selected.kind === 'midweek'
+    ? new Set<AgendaSource>(['tarefas', 'programacao', 'limpeza'])
+    : new Set<AgendaSource>(['tarefas', 'oradores', 'limpeza'])
+  return events.filter(event => event.date === selected.date && sources.has(event.source))
 }

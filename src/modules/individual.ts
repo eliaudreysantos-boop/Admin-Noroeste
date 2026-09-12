@@ -1,7 +1,7 @@
 import type { AppContext, RawRoot } from '../types'
 import { agendaConfigRef, agendaDocumentsRef, escalaParticipantsRef, escalaPublishedMonthRef, escalaPublishedMonthsRef, escalaPubSnapshotsRef, escalaScalesRef, escalaTablesRef, get, limpezaPeriodosRef, pessoasRef, programacaoRef, runTransaction, secretarioRef, servicoCampoRef, tarefasCongregacoesRef, tarefasOradoresRef, tarefasPeopleRef, tarefasProgramacaoOradoresRef, tarefasScaleRef } from '../firebase'
 import { moduleTitle } from '../ui/module-header'
-import { agendaMessage, agendaToIcs, announcementMessage, collectAgendaEvents, collectAnnouncementEvents, upcomingAgendaEvents, type AgendaEvent, type AgendaSource, type AgendaStatus, type AnnouncementEvent } from './individual-domain'
+import { agendaMessage, agendaToIcs, announcementMessage, boardMeetingDates, boardMeetingEvents, collectAgendaEvents, collectAnnouncementEvents, upcomingAgendaEvents, type AgendaEvent, type AgendaSource, type AgendaStatus, type AnnouncementEvent } from './individual-domain'
 import { canonicalReportId, CATEGORY_LABELS, isClosedMonth, matchingReports, normalizePersonalReport, preparePersonalReportCommit, records, reportCreatedBy, reportLastEditedBy, serviceYearStart, type SecretaryPublisher, type SecretaryReport } from './secretario-domain'
 import type { AgendaConfig, AgendaPublicDocument, AgendaSubscription, MasterPessoa } from '../types'
 
@@ -13,6 +13,7 @@ let agendaSource: AgendaSource | 'todas' = 'todas'
 let agendaStatus: AgendaStatus | 'todos' = 'todos'
 let generalSelectedDate = ''
 let boardDocumentPeriod = month
+let boardMeetingDate = ''
 const boardSubscriptionModules = new Set<AgendaSource>(['tarefas', 'escala', 'oradores', 'programacao', 'servicoCampo'])
 let subscriptionPersonId = ''
 let loadingAssignments = true
@@ -331,14 +332,18 @@ function saveReportDraft(masterId: string, draft: PersonalReportDraft): void { l
 function removeReportDraft(masterId: string, competence: string): void { localStorage.removeItem(reportDraftKey(masterId, competence)) }
 
 function renderBoard(root: HTMLElement): void {
-  const events = announcementEvents().filter(event => event.date.startsWith(month))
+  const allEvents = announcementEvents()
+  const meetingDates = boardMeetingDates(allEvents, fortalezaDate())
+  if (!meetingDates.some(item => item.date === boardMeetingDate)) boardMeetingDate = meetingDates[0]?.date ?? ''
+  const selectedMeeting = meetingDates.find(item => item.date === boardMeetingDate)
+  const meetingEvents = boardMeetingEvents(allEvents, selectedMeeting)
   const allDocuments = documents().sort((a, b) => b.criadoEm.localeCompare(a.criadoEm)), periods = [...new Set(allDocuments.map(item => item.periodo))].sort((a, b) => b.localeCompare(a))
   if (!periods.includes(boardDocumentPeriod)) boardDocumentPeriod = periods[0] ?? month
   const visibleDocuments = allDocuments.filter(item => item.periodo === boardDocumentPeriod)
   root.innerHTML = `${moduleTitle('Minha agenda')}${screenTabs()}${loadingAssignments ? '<div class="notice">Atualizando designações dos módulos...</div>' : ''}
     <div class="agenda-toolbar"><button class="btn btn-ghost" id="boardPrev" type="button" aria-label="Mês anterior">‹</button><input class="form-input" id="boardMonth" type="month" value="${month}"><button class="btn btn-ghost" id="boardNext" type="button" aria-label="Próximo mês">›</button></div>
     <div class="agenda-board-sections">
-      <details class="form-panel agenda-board-card"><summary><strong>Dados das reuniões</strong><span>Texto pronto</span></summary><div class="agenda-board-body"><textarea id="boardInlineDraft" class="form-input" rows="12" maxlength="4000">${esc(announcementMessage(events))}</textarea><div class="agenda-actions"><button class="btn btn-ghost" id="boardInlineCopy" type="button">Copiar texto</button><button class="btn btn-primary" id="boardWhatsapp" type="button">Abrir WhatsApp</button></div><p class="form-help">${agendaConfig().quadroWhatsAppLink ? 'O texto será copiado e o grupo configurado no Admin será aberto.' : 'Nenhum grupo foi configurado no Admin; o seletor comum do WhatsApp será aberto.'}</p></div></details>
+      <details class="form-panel agenda-board-card"><summary><strong>Dados das reuniões</strong><span>Texto por data</span></summary><div class="agenda-board-body"><label class="form-field"><span>Reunião</span><select id="boardMeetingDate">${meetingDates.map(item => `<option value="${esc(item.date)}" ${item.date === boardMeetingDate ? 'selected' : ''}>${esc(labelDate(item.date))} · ${item.kind === 'midweek' ? 'Meio de semana' : 'Fim de semana'}</option>`).join('') || '<option value="">Nenhuma reunião futura</option>'}</select></label><textarea id="boardInlineDraft" class="form-input" rows="12" maxlength="4000">${esc(announcementMessage(meetingEvents))}</textarea><div class="agenda-actions"><button class="btn btn-ghost" id="boardInlineCopy" type="button">Copiar texto</button><button class="btn btn-primary" id="boardWhatsapp" type="button">Abrir WhatsApp</button></div><p class="form-help">${agendaConfig().quadroWhatsAppLink ? 'O texto será copiado e o grupo configurado no Admin será aberto.' : 'Nenhum grupo foi configurado no Admin; o seletor comum do WhatsApp será aberto.'}</p></div></details>
       <details class="form-panel agenda-board-card"><summary><strong>Arquivos publicados</strong><span>${allDocuments.length} arquivo(s)</span></summary><div class="agenda-board-body"><label class="form-field"><span>Período</span><select id="boardDocumentPeriod">${periods.map(period => `<option value="${esc(period)}" ${period === boardDocumentPeriod ? 'selected' : ''}>${esc(period)}</option>`).join('') || `<option value="${esc(month)}">${esc(month)}</option>`}</select></label><div class="agenda-document-list">${visibleDocuments.map(item => `<a class="agenda-document" href="${esc(item.url)}" target="_blank" rel="noopener noreferrer"><span><strong>${esc(item.nome)}</strong><small>${esc(documentSourceLabels[item.modulo] ?? item.modulo)} · publicado em ${esc(labelDate(item.criadoEm.slice(0, 10)))}</small></span><b>Baixar PDF</b></a>`).join('') || '<p class="empty-state">Nenhum PDF publicado neste período.</p>'}</div></div></details>
       ${boardSubscriptionPanel()}
     </div>`
@@ -346,6 +351,7 @@ function renderBoard(root: HTMLElement): void {
   document.getElementById('boardPrev')?.addEventListener('click', () => moveMonth(-1))
   document.getElementById('boardNext')?.addEventListener('click', () => moveMonth(1))
   document.getElementById('boardMonth')?.addEventListener('change', event => { month = (event.target as HTMLInputElement).value || month; render() })
+  document.getElementById('boardMeetingDate')?.addEventListener('change', event => { boardMeetingDate = (event.target as HTMLSelectElement).value; render() })
   document.getElementById('boardDocumentPeriod')?.addEventListener('change', event => { boardDocumentPeriod = (event.target as HTMLSelectElement).value; render() })
   document.getElementById('boardInlineCopy')?.addEventListener('click', () => void navigator.clipboard.writeText((document.getElementById('boardInlineDraft') as HTMLTextAreaElement).value))
   document.getElementById('boardWhatsapp')?.addEventListener('click', () => openBoardWhatsapp((document.getElementById('boardInlineDraft') as HTMLTextAreaElement).value))
