@@ -1,6 +1,6 @@
 # Plano final de conclusao do Admin SPA
 
-Atualizado em 11/09/2026.
+Atualizado em 12/09/2026.
 
 Este documento substitui, para as etapas que ainda faltam, os planos espalhados
 na antiga pasta de arquivos Markdown. Ele deve continuar utilizavel mesmo depois
@@ -86,8 +86,7 @@ Confirmado:
 Falta:
 
 - vincular manualmente as contas administrativas antigas as pessoas corretas
-  quando os dados reais forem revisados;
-- publicar as regras e as funcoes privadas da assinatura na Fase 6.
+  quando os dados reais forem revisados.
 
 ### Tarefas - concluido no codigo
 
@@ -232,7 +231,7 @@ Falta apenas depois do fechamento funcional:
 - preencher locais, horarios e dirigentes reais;
 - comparar visualmente o PDF com o modelo atual fornecido pelo usuario.
 
-### Minha Agenda - concluida no codigo, exceto publicacao ICS
+### Minha Agenda - concluida no codigo e publicada
 
 Confirmado:
 
@@ -262,7 +261,7 @@ Confirmado:
 Falta:
 
 - homologar o envio concorrente e a falha de conexao em dois clientes reais;
-- publicar e homologar as funcoes e regras da assinatura na ultima fase.
+- homologar a assinatura em calendarios e aparelhos reais na ultima fase.
 
 Dados de exemplo identificados durante a auditoria:
 
@@ -492,8 +491,8 @@ Executar com a conta Admin e dados de exemplo antes dos dados reais:
 
 ## Fase 6 - Assinatura ICS, sempre por ultimo
 
-O codigo da assinatura foi concluido em 11/09/2026. A publicacao das regras e
-funcoes e o teste em calendarios reais continuam obrigatoriamente por ultimo.
+O codigo e a publicacao da assinatura foram concluidos em 12/09/2026. O teste
+em calendarios e aparelhos reais continua obrigatoriamente por ultimo.
 
 ### Implementacao entregue
 
@@ -518,17 +517,20 @@ funcoes e o teste em calendarios reais continuam obrigatoriamente por ultimo.
 - Testes automatizados cobrem instalacoes independentes, propriedade, alteracao,
   revogacao, validacao, isolamento pessoal e filtros do Quadro.
 
-### Publicacao obrigatoria
+### Publicacao concluida em 12/09/2026
 
-1. Configurar na Netlify `FIREBASE_DATABASE_URL` e
-   `FIREBASE_SERVICE_ACCOUNT_JSON` conforme `.env.example`.
-2. Publicar `database.rules.json` no projeto Firebase e confirmar que a leitura
-   da raiz e de ambos os caminhos de assinatura retorna permissao negada.
-3. Publicar o site e as duas Netlify Functions.
-4. Gerar tokens novos; assinaturas antigas de `agenda/assinaturas` nao sao
-   migradas nem reutilizadas.
-5. Confirmar no endereco publicado os retornos `400`, `404`, `410` e `200` do
-   feed sem registrar tokens em logs.
+- `FIREBASE_DATABASE_URL` e `FIREBASE_SERVICE_ACCOUNT_JSON` configuradas na
+  Netlify; a conta dedicada possui somente o papel de administrador do Realtime
+  Database.
+- `database.rules.json` publicado no projeto `oradoress2`.
+- Leitura anonima da raiz e de `agendaAssinaturasPrivadas` retorna `401`, enquanto
+  as raizes publicas usadas pelo aplicativo continuam acessiveis.
+- Site e duas Netlify Functions publicados automaticamente pela `main` do GitHub.
+- Fluxo real validado no endereco publicado: criacao `201`, feed ICS `200`,
+  revogacao `200`, token revogado `410` e token invalido `400`.
+- O token criado para a verificacao foi revogado ao final do teste.
+- Os handlers foram adaptados ao contexto da Netlify para impedir que o objeto
+  de runtime seja confundido com as dependencias injetadas pelos testes.
 
 ### Testes obrigatorios
 
@@ -552,8 +554,8 @@ funcoes e o teste em calendarios reais continuam obrigatoriamente por ultimo.
 - endpoint Netlify publicado e variaveis configuradas;
 - regras Firebase publicadas e tokens nao enumeraveis pelo navegador;
 - assinaturas independentes por instalacao e revogacao validadas;
-- feed atualizado validado em calendario real;
-- testes e build aprovados depois da publicacao.
+- feed atualizado ainda precisa ser validado em calendario real;
+- 126 testes e build aprovados depois da publicacao.
 
 ## Itens posteriores ao fechamento funcional
 
