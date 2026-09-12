@@ -97,4 +97,4 @@ export async function calendarResponse(request: Request, fetcher: typeof fetch =
   })
 }
 
-export default calendarResponse
+export default (request: Request): Promise<Response> => calendarResponse(request)

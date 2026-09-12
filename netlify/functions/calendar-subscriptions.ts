@@ -93,4 +93,4 @@ export async function subscriptionsResponse(
   }
 }
 
-export default subscriptionsResponse
+export default (request: Request): Promise<Response> => subscriptionsResponse(request)
