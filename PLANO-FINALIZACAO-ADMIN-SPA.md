@@ -11,7 +11,7 @@ que essa pasta de referencias for apagada.
 - Repositorio principal: `admin-spa`.
 - Baseline auditada: commit `662a4fd`.
 - Build de producao concluido sem erros.
-- Suite completa com 126 testes aprovados.
+- Suite completa com 127 testes aprovados.
 - Admin/Mestre, Tarefas, Limpeza, Oradores, Escala TPL, Vida e Ministerio,
   Secretario, Servico de Campo e Minha Agenda ja possuem seus fluxos principais.
 - Os dados atuais sao exemplos para validar o aplicativo. A revisao e o
@@ -555,7 +555,7 @@ em calendarios e aparelhos reais continua obrigatoriamente por ultimo.
 - regras Firebase publicadas e tokens nao enumeraveis pelo navegador;
 - assinaturas independentes por instalacao e revogacao validadas;
 - feed atualizado ainda precisa ser validado em calendario real;
-- 126 testes e build aprovados depois da publicacao.
+- 127 testes e build aprovados depois da publicacao.
 
 ## Itens posteriores ao fechamento funcional
 
