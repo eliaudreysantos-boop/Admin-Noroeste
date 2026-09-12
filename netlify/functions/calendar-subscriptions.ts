@@ -78,7 +78,8 @@ export async function subscriptionsResponse(
     const next = { ...current, modulos:selectedModules }
     await store.set(current.token, next)
     return json(200, next)
-  } catch {
+  } catch (error) {
+    console.error('Calendar subscription store failed:', error instanceof Error ? error.message : 'Unknown error')
     return json(503, { error:'Serviço de assinaturas indisponível.' })
   }
 }
