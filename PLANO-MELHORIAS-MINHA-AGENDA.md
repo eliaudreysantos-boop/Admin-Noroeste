@@ -36,6 +36,7 @@ aparelho.
 - periodo selecionado em `Arquivos publicados`;
 - paineis expansivos abertos ou fechados;
 - selecao ainda nao publicada dos modulos da assinatura do Quadro;
+- pessoa que o Admin escolheu para consultar;
 - preferencia de exibir ou recolher o calendario da tela Pessoal;
 - ultima visualizacao escolhida em Pessoal: proximos compromissos ou mes;
 - rascunho do relatorio, como ja ocorre atualmente.
@@ -143,10 +144,11 @@ Correcao obrigatoria:
    completar sete dias.
 4. Depois da atualizacao, guardar o novo HTML e seus assets com hash.
 5. Remover assets antigos que nao pertencem mais ao shell atual.
-6. Informar `Nova versao disponivel` e oferecer o botao `Atualizar`.
+6. Guardar silenciosamente o shell novo para a proxima abertura.
 7. Nao recarregar automaticamente enquanto existir modal, rascunho ou envio em
    andamento.
-8. Exibir a versao nova na proxima abertura mesmo se o usuario nao tocar no botao.
+8. Nao mostrar aviso, botao ou data de atualizacao. O Admin avisara as pessoas
+   quando uma nova versao precisar ser usada.
 
 Excecoes legitimas ao limite semanal da Netlify:
 
@@ -184,21 +186,12 @@ nao para administrar o calendario.
 - Manter o estado da tela anterior no `localStorage`.
 - Destacar a tela ativa com cor, contraste e `aria-selected`.
 
-### 3. Atualizacao do aplicativo
+### 3. Atualizacao silenciosa
 
-- Exibir aviso curto quando um shell novo tiver sido baixado.
-- Usar botao `Atualizar` como comando explicito.
-- Preservar preferencias e rascunhos antes de recarregar.
+- Preservar preferencias e rascunhos durante a troca de versao.
 - Nao interromper o envio de relatorio.
-
-Durante a auditoria visual, uma aba ja aberta continuou mostrando a versao
-anterior depois do deploy. O aviso e a ativacao controlada resolvem essa falta de
-clareza.
-
-Nao exibir horario da ultima sincronizacao nem oferecer atualizacao manual de
-rotina. Esses controles podem incentivar requisicoes desnecessarias. A
-sincronizacao permanece automatica; avisos ao usuario ficam restritos a estado
-offline, falha de uma acao obrigatoria ou nova versao realmente disponivel.
+- Nao exibir ultima sincronizacao, aviso de versao ou botao para atualizar.
+- Deixar a comunicacao de novas versoes sob responsabilidade do Admin.
 
 ## Melhorias por tela
 
@@ -260,6 +253,13 @@ offline, falha de uma acao obrigatoria ou nova versao realmente disponivel.
 
 ## Fases de implementacao
 
+Situacao em 12/09/2026:
+
+- Fase 1 implementada e coberta por testes automatizados.
+- Fase 2 implementada com atualizacao semanal silenciosa.
+- Fases 3 e 4 implementadas e verificadas na interface local.
+- Fase 5 depende da homologacao manual em calendarios, aparelhos e dados reais.
+
 ### Fase 1 - Persistencia local
 
 - Criar helper unico para ler, validar, migrar e salvar o estado da interface.
@@ -273,7 +273,7 @@ offline, falha de uma acao obrigatoria ou nova versao realmente disponivel.
 - Tornar a navegacao do PWA `cache-first`.
 - Manter primeiro acesso e recuperacao como `network fallback`.
 - Atualizar o shell somente no ciclo semanal.
-- Remover assets antigos e apresentar aviso de versao.
+- Remover assets antigos sem apresentar aviso de versao.
 - Testar abertura online, offline, cache vazio e atualizacao apos sete dias.
 
 ### Fase 3 - Pessoal e navegacao
@@ -313,7 +313,7 @@ offline, falha de uma acao obrigatoria ou nova versao realmente disponivel.
 - envio de relatorio consulta o Firebase mesmo com cache recente;
 - navegacao usa cache sem consultar Netlify antes de sete dias;
 - cache vazio usa a rede;
-- ciclo semanal baixa o shell novo e informa a atualizacao;
+- ciclo semanal baixa silenciosamente o shell novo;
 - atualizacao nao interrompe rascunho ou envio;
 - calendario Geral possui nome acessivel com quantidade de eventos;
 - Quadro restaura data, periodo e paineis sem misturar pessoas.
@@ -330,7 +330,7 @@ Minha Agenda pode ser considerada encerrada quando:
    explicitos que exigem dados atuais.
 4. Pessoal priorizar o proximo compromisso.
 5. Geral, Relatorio e Quadro nao apresentarem controles ou mensagens redundantes.
-6. Estado offline e nova versao forem compreensiveis sem incentivar atualizacoes
-   manuais de rotina.
+6. Estado offline e falhas obrigatorias forem compreensiveis sem oferecer
+   atualizacao manual de rotina.
 7. Acessibilidade e layout forem homologados em celular e desktop.
 8. O roteiro de ICS, aparelhos e concorrencia estiver integralmente aprovado.

@@ -137,5 +137,5 @@ window.addEventListener('online', () => void init())
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') void init() })
 
 if ('serviceWorker' in navigator && location.hostname !== '127.0.0.1' && location.hostname !== 'localhost') {
-  void navigator.serviceWorker.register('/agenda/sw.js', { scope:'/agenda/' }).then(registration => refreshServiceWorkerWeekly(registration, 'noroeste_agenda_shell_sync'))
+  void navigator.serviceWorker.getRegistration('/agenda/').then(existing => existing ?? navigator.serviceWorker.register('/agenda/sw.js', { scope:'/agenda/', updateViaCache:'all' })).then(registration => refreshServiceWorkerWeekly(registration, 'noroeste_agenda_shell_sync'))
 }

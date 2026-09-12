@@ -1,0 +1,29 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { agendaUiStorageKey, defaultAgendaUiPreferences, parseAgendaUiPreferences } from '../src/modules/individual-preferences.ts'
+
+test('preferencias invalidas voltam a padroes seguros', () => {
+  const parsed = parseAgendaUiPreferences(JSON.stringify({
+    screen:'inexistente',
+    personal:{ month:'2026-99', source:'outro', status:'errado', view:'grade', openPanels:['calendar', 'desconhecido'] },
+    general:{ selectedDate:'amanha' },
+    board:{ subscriptionModules:['tarefas', 'inexistente', 'tarefas'] },
+  }), '2026-09')
+  assert.equal(parsed.screen, 'agenda')
+  assert.equal(parsed.personal.month, '2026-09')
+  assert.equal(parsed.personal.source, 'todas')
+  assert.deepEqual(parsed.personal.openPanels, ['calendar'])
+  assert.equal(parsed.general.selectedDate, '')
+  assert.deepEqual(parsed.board.subscriptionModules, ['tarefas'])
+})
+
+test('json corrompido e valor excessivo nao quebram a agenda', () => {
+  assert.deepEqual(parseAgendaUiPreferences('{', '2026-09'), defaultAgendaUiPreferences('2026-09'))
+  assert.deepEqual(parseAgendaUiPreferences('x'.repeat(20_001), '2026-09'), defaultAgendaUiPreferences('2026-09'))
+})
+
+test('preferencias ficam isoladas por pessoa e contexto', () => {
+  assert.notEqual(agendaUiStorageKey('pessoa-a', 'standalone'), agendaUiStorageKey('pessoa-b', 'standalone'))
+  assert.notEqual(agendaUiStorageKey('pessoa-a', 'standalone'), agendaUiStorageKey('pessoa-a', 'admin'))
+})
+
