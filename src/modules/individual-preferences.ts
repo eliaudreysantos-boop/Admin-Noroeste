@@ -4,7 +4,7 @@ export type AgendaScreen = 'agenda' | 'geral' | 'relatorio' | 'quadro'
 export type AgendaUiContext = 'standalone' | 'admin'
 export type PersonalView = 'upcoming' | 'month'
 export type PersonalPanel = 'calendar' | 'filters' | 'sharing'
-export type BoardPanel = 'meetings' | 'documents' | 'subscription'
+export type BoardPanel = 'meetings' | 'moduleDocuments' | 'adminDocuments' | 'subscription'
 
 export interface AgendaUiPreferences {
   screen: AgendaScreen
@@ -37,7 +37,7 @@ const SOURCES: AgendaSource[] = ['tarefas', 'limpeza', 'escala', 'oradores', 'pr
 const STATUSES: AgendaStatus[] = ['futuro', 'confirmacao-pendente', 'alterado', 'realizado']
 const PERSONAL_VIEWS: PersonalView[] = ['upcoming', 'month']
 const PERSONAL_PANELS: PersonalPanel[] = ['calendar', 'filters', 'sharing']
-const BOARD_PANELS: BoardPanel[] = ['meetings', 'documents', 'subscription']
+const BOARD_PANELS: BoardPanel[] = ['meetings', 'moduleDocuments', 'adminDocuments', 'subscription']
 const DEFAULT_SUBSCRIPTION_MODULES: AgendaSource[] = ['tarefas', 'escala', 'oradores', 'programacao', 'servicoCampo']
 
 const record = (value: unknown): Record<string, unknown> => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
@@ -95,4 +95,3 @@ export function parseAgendaUiPreferences(raw: string | null, currentMonth: strin
 export function agendaUiStorageKey(masterId: string, context: AgendaUiContext): string {
   return `noroeste_agenda_ui_v1:${masterId}:${context}`
 }
-

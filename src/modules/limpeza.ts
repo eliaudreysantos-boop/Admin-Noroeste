@@ -18,7 +18,8 @@ import {
   configReunioesRef,
   limpezaPeriodosRef,
   tarefasPlanejamentoRef,
-  secretarioRef,
+  secretarioGruposRef,
+  secretarioPublicadoresRef,
 } from '../firebase'
 import { renderMenuCards, type ItemMenu } from '../ui/menu-cards'
 import { moduleBackButton } from '../ui/module-header'
@@ -28,6 +29,8 @@ import {
   periodBounds,
   type CleaningPeriodMode,
 } from './limpeza-domain'
+import { PublicationPreviewGate } from './pdf-publication-preview'
+import { apiJson } from '../secure-api.ts'
 
 type LimpezaTab = 'indice' | 'escala' | 'grupos' | 'config' | 'pdf'
 
@@ -45,6 +48,11 @@ interface GrupoServico { id?: string; nome?: string; ativo?: boolean }
 interface PublicadorServico { masterId?: string; grupoId?: string; ativo?: boolean }
 let gruposServico: Record<string, GrupoServico> = {}
 let publicadoresServico: Record<string, PublicadorServico> = {}
+const cleaningPdfPreview = new PublicationPreviewGate()
+
+function cleaningPdfPreviewInput(period: LimpezaPeriodoGerado, fontSize: number): unknown {
+  return { period, fontSize }
+}
 
 function toast(msg: string, ms = 2600): void {
   const el = document.getElementById('toast')
@@ -166,14 +174,15 @@ async function loadAll(): Promise<void> {
   }
 
   try {
-    const [pessoasSnap, limpezaSnap, periodosSnap, congregacaoSnap, reunioesSnap, planejamentoSnap, secretarioSnap] = await Promise.all([
+    const [pessoasSnap, limpezaSnap, periodosSnap, congregacaoSnap, reunioesSnap, planejamentoSnap, gruposSnap, publicadoresSnap] = await Promise.all([
       get(pessoasRef),
       get(configLimpezaRef),
       get(limpezaPeriodosRef),
       get(configCongregacaoRef),
       get(configReunioesRef),
       get(tarefasPlanejamentoRef),
-      get(secretarioRef),
+      get(secretarioGruposRef),
+      get(secretarioPublicadoresRef),
     ])
     pessoas = pessoasSnap.exists() ? (pessoasSnap.val() as RawPessoas) : {}
     limpeza = limpezaSnap.exists() ? (limpezaSnap.val() as ConfigLimpeza) : {}
@@ -183,7 +192,10 @@ async function loadAll(): Promise<void> {
     reunioes = reunioesSnap.exists() ? (reunioesSnap.val() as ConfigReunioes) : {}
     const planejamento = planejamentoSnap.exists() ? (planejamentoSnap.val() as { periodMode?: CleaningPeriodMode }) : {}
     periodMode = planejamento.periodMode === 'month' ? 'month' : 'bimester'
-    const secretario = secretarioSnap.exists() ? secretarioSnap.val() as { grupos?: Record<string, GrupoServico>; publicadores?: Record<string, PublicadorServico> } : {}
+    const secretario = {
+      grupos:gruposSnap.exists() ? gruposSnap.val() as Record<string, GrupoServico> : {},
+      publicadores:publicadoresSnap.exists() ? publicadoresSnap.val() as Record<string, PublicadorServico> : {},
+    }
     gruposServico = secretario.grupos ?? {}
     publicadoresServico = secretario.publicadores ?? {}
     const ids = Object.keys(periodos).sort()
@@ -391,13 +403,10 @@ async function saveGrupos(ativos: [string, MasterPessoa][]): Promise<void> {
   if (limpezaChanges.size === 0) { toast('Nenhuma alteração'); return }
 
   setLoading('btnSalvarLimpezaGrupos', true, 'Salvar Grupos')
-  const updates: Record<string, unknown> = {}
-  for (const [mid, grupo] of limpezaChanges) {
-    updates[`${mid}/limpeza/grupo`] = grupo
-  }
+  const groups = Object.fromEntries(limpezaChanges)
 
   try {
-    await update(pessoasRef, updates)
+    await apiJson('cleaning-groups', { method:'PATCH', body:JSON.stringify({ groups }) })
     for (const [mid, grupo] of limpezaChanges) {
       const p = pessoas[mid]
       if (p) p.limpeza = { grupo }
@@ -560,6 +569,7 @@ function renderPdf(): void {
         ${period ? `<div style="text-align:center;font-weight:800;font-size:1.1rem;margin-bottom:10px">LIMPEZA DO SALÃO</div>${renderPeriodRows(period)}` : '<p style="text-align:center;color:var(--ink-3)">Nenhuma escala gerada.</p>'}
       </div>
       <button id="btnGerarPdfLimpeza" class="btn btn-primary btn-full" type="button" ${period ? '' : 'disabled'}>Abrir previa do PDF</button>
+      ${period ? `<button id="btnPublicarPdfLimpeza" class="btn btn-ghost btn-full" style="margin-top:8px" type="button">${period.publicado ? 'Reabrir período' : 'Publicar período'}</button>` : ''}
     </div>`
   document.getElementById('pdfLimpezaPeriodo')?.addEventListener('change', event => {
     selectedPeriodId = (event.target as HTMLSelectElement).value
@@ -572,6 +582,33 @@ function renderPdf(): void {
     if (label) label.textContent = `${value} pt`
   })
   document.getElementById('btnGerarPdfLimpeza')?.addEventListener('click', () => void exportCleaningPdf())
+  document.getElementById('btnPublicarPdfLimpeza')?.addEventListener('click', () => void toggleCleaningPublication())
+}
+
+async function toggleCleaningPublication(): Promise<void> {
+  const period = generatedPeriod()
+  if (!period) return
+  try {
+    const { createCleaningPdf } = await import('./limpeza-documents')
+    const { publishAgendaModulePdf, unpublishAgendaModulePdf } = await import('./agenda-documents')
+    if (period.publicado) {
+      await unpublishAgendaModulePdf('limpeza', period.id)
+      await update(limpezaPeriodosRef, { [`${period.id}/publicado`]:false, [`${period.id}/publicadoEm`]:null })
+      period.publicado = false; delete period.publicadoEm
+      toast('Período reaberto e retirado do Quadro')
+    } else {
+      const fontSize = Number(localStorage.getItem('noroeste_limpeza_pdf_font') ?? 15)
+      if (!cleaningPdfPreview.matches(cleaningPdfPreviewInput(period, fontSize))) { toast('Abra a prévia atual do PDF antes de publicar'); return }
+      const result = await createCleaningPdf(period, { requestedFontSize:fontSize })
+      const label = period.modo === 'bimester' ? `${period.inicio.slice(0, 7)} a ${period.fim.slice(0, 7)}` : period.inicio.slice(0, 7)
+      await publishAgendaModulePdf(result.bytes, { modulo:'limpeza', periodo:label, inicio:period.inicio, fim:period.fim, origemPeriodoId:period.id, nome:`limpeza-${period.id}.pdf` })
+      const publishedAt = new Date().toISOString()
+      await update(limpezaPeriodosRef, { [`${period.id}/publicado`]:true, [`${period.id}/publicadoEm`]:publishedAt })
+      period.publicado = true; period.publicadoEm = publishedAt
+      toast('Período publicado no Quadro')
+    }
+    renderPdf()
+  } catch { toast('Não foi possível alterar a publicação') }
 }
 
 async function exportCleaningPdf(): Promise<void> {
@@ -583,6 +620,7 @@ async function exportCleaningPdf(): Promise<void> {
     if (button) { button.disabled = true; button.textContent = 'Preparando PDF...' }
     const { downloadCleaningPdf } = await import('./limpeza-documents')
     const result = await downloadCleaningPdf(period, { requestedFontSize: fontSize })
+    cleaningPdfPreview.mark(cleaningPdfPreviewInput(period, fontSize))
     toast(result.effectiveFontSize < fontSize ? `Previa ajustada para ${result.effectiveFontSize} pt sem quebrar texto` : 'Previa do PDF aberta')
   } catch {
     toast('Erro ao gerar o PDF')

@@ -1,23 +1,24 @@
 import './style.css'
 import {
+  authenticate,
+  logout,
   loadUsuarios,
   loadCachedUserChoices,
-  saveSession,
-  loadSession,
-  clearSession,
+  restoreSession,
 } from './auth'
-import { initRouter, navigateBack, navigateModuleIndex } from './router'
-import type { RawUsuarios, Usuario } from './types'
+import { initRouter, navigateBack, navigateModuleIndex, routeState } from './router'
+import type { Usuario } from './types'
+import type { CachedUserChoices } from './auth-domain'
 import { animateKpis } from './ui/animations'
 import { refreshServiceWorkerWeekly } from './pwa-sync'
 
 // ─── Elementos ──────────────────────────────────────────────────────────────
 
 const loginOverlay  = document.getElementById('loginOverlay')!
+const loginForm     = document.getElementById('loginBox') as HTMLFormElement
 const appShell      = document.getElementById('appShell')!
 const selectUsuario = document.getElementById('selectUsuario') as HTMLSelectElement
 const inputSenha    = document.getElementById('inputSenha')    as HTMLInputElement
-const btnEntrar     = document.getElementById('btnEntrar')     as HTMLButtonElement
 const btnSair       = document.getElementById('btnSair')       as HTMLButtonElement
 const btnBack       = document.getElementById('btnBack')       as HTMLButtonElement
 const bottomUser    = document.getElementById('bottomUser')!
@@ -25,7 +26,7 @@ const loginError    = document.getElementById('loginError')!
 const statusBar     = document.getElementById('statusBar')!
 const toast         = document.getElementById('toast')!
 
-let usuariosDisponiveis: RawUsuarios = {}
+let usuariosDisponiveis: CachedUserChoices = {}
 let carregandoUsuarios = true
 
 // ─── Toast ──────────────────────────────────────────────────────────────────
@@ -57,7 +58,7 @@ function showApp(usuario: Usuario): void {
 
 /** Popula o <select> com usuários ativos ordenados por nome.
  *  Se não houver nenhum usuário ativo, mostra mensagem no lugar do select. */
-function populateUsuarioSelect(usuarios: RawUsuarios): void {
+function populateUsuarioSelect(usuarios: CachedUserChoices): void {
   const ativos = Object.entries(usuarios)
     .filter(([, u]) => u.ativo)
     .sort(([, a], [, b]) => a.nome.localeCompare(b.nome, 'pt-BR'))
@@ -69,33 +70,24 @@ function populateUsuarioSelect(usuarios: RawUsuarios): void {
   }
 
   selectUsuario.innerHTML = ativos
-    .map(([uid, u]) => `<option value="${uid}">${u.nome}</option>`)
+    .map(([uid, u]) => `<option value="${uid.replace(/[&<>"']/g, '')}">${u.nome.replace(/[&<>"']/g, '')}</option>`)
     .join('')
   selectUsuario.disabled = false
 }
 
 // ─── Sessão restaurada ───────────────────────────────────────────────────────
 
-async function tryRestoreSession(
-  usuarios: RawUsuarios,
-): Promise<boolean> {
-  const uid = loadSession()
-  if (!uid) return false
-
-  const usuario = usuarios[uid]
-  if (!usuario || !usuario.ativo) {
-    clearSession()
-    return false
-  }
-
-  showApp(usuario)
-  initRouter(uid, usuario)
+async function tryRestoreSession(): Promise<boolean> {
+  const session = await restoreSession()
+  if (!session) return false
+  showApp(session.usuario)
+  initRouter(session.uid, session.usuario)
   return true
 }
 
 // ─── Login ──────────────────────────────────────────────────────────────────
 
-function handleLogin(): void {
+async function handleLogin(): Promise<void> {
   const uid   = selectUsuario.value
   const senha = inputSenha.value
 
@@ -106,40 +98,39 @@ function handleLogin(): void {
     return
   }
 
-  const usuario = usuariosDisponiveis[uid]
-
-  if (carregandoUsuarios && !usuario?.senha) {
+  if (carregandoUsuarios) {
     loginError.textContent = 'Carregando os dados do usuário. Tente novamente em instantes.'
     return
   }
 
-  if (!usuario || usuario.senha !== senha || !usuario.ativo) {
+  try {
+    const session = await authenticate(uid, senha)
+    loginError.textContent = ''
+    inputSenha.value = ''
+    showApp(session.usuario)
+    initRouter(session.uid, session.usuario)
+    showToast(`Bem-vindo, ${session.usuario.nome}!`)
+  } catch {
     loginError.textContent = 'Usuário ou senha inválidos.'
     inputSenha.classList.add('field-error')
     setTimeout(() => inputSenha.classList.remove('field-error'), 1000)
     inputSenha.value = ''
     inputSenha.focus()
-    return
   }
-
-  loginError.textContent = ''
-  saveSession(uid)
-  showApp(usuario)
-  initRouter(uid, usuario)
-  showToast(`Bem-vindo, ${usuario.nome}!`)
 }
 
 // ─── Botão Sair ──────────────────────────────────────────────────────────────
 
-function handleSair(): void {
-  clearSession()
+async function handleSair(): Promise<void> {
+  await logout()
   location.reload()
 }
 
 // ─── Botão Voltar ────────────────────────────────────────────────────────────
 
 function handleBack(): void {
-  navigateBack()
+  if (document.querySelector('[data-module-index-marker]')) navigateModuleIndex()
+  else navigateBack()
 }
 
 document.addEventListener('click', event => {
@@ -147,7 +138,17 @@ document.addEventListener('click', event => {
   if (target.closest('[data-module-index]')) navigateModuleIndex()
 })
 
-const kpiObserver = new MutationObserver(() => animateKpis(document))
+function syncBottomNavigation(): void {
+  const state = routeState()
+  const insideModuleScreen = Boolean(document.querySelector('[data-module-index-marker]'))
+  const canBack = insideModuleScreen || state.canReturnToModules
+  btnBack.textContent = '← Voltar'
+  btnBack.title = insideModuleScreen ? 'Voltar ao início do módulo' : 'Voltar aos módulos'
+  btnBack.classList.toggle('hidden', !canBack)
+  btnSair.classList.toggle('hidden', canBack)
+}
+
+const kpiObserver = new MutationObserver(() => { animateKpis(document); syncBottomNavigation() })
 kpiObserver.observe(document.getElementById('appContent')!, { childList: true, subtree: true })
 
 // ─── Bootstrap ──────────────────────────────────────────────────────────────
@@ -155,13 +156,13 @@ kpiObserver.observe(document.getElementById('appContent')!, { childList: true, s
 async function init(): Promise<void> {
   setStatus('Carregando dados…')
 
-  usuariosDisponiveis = loadCachedUserChoices()
-  if (Object.keys(usuariosDisponiveis).length > 0) populateUsuarioSelect(usuariosDisponiveis)
+  const cachedChoices = loadCachedUserChoices()
+  if (Object.keys(cachedChoices).length > 0) populateUsuarioSelect(cachedChoices)
 
   // Os campos ficam utilizáveis antes da resposta do Firebase chegar.
-  btnEntrar.addEventListener('click', () => handleLogin())
-  inputSenha.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') handleLogin()
+  loginForm.addEventListener('submit', event => {
+    event.preventDefault()
+    void handleLogin()
   })
   selectUsuario.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') inputSenha.focus()
@@ -175,7 +176,7 @@ async function init(): Promise<void> {
   try {
     usuariosDisponiveis = await Promise.race([
       usuariosPromise,
-      new Promise<RawUsuarios>((_, reject) => {
+      new Promise<CachedUserChoices>((_, reject) => {
         setTimeout(() => reject(new Error('Tempo excedido ao carregar usuários')), 8000)
       }),
     ])
@@ -184,7 +185,7 @@ async function init(): Promise<void> {
   } catch (err) {
     setStatus('Erro de conexão com Firebase')
     console.error(err)
-    if (Object.keys(usuariosDisponiveis).length === 0) {
+    if (Object.keys(cachedChoices).length === 0) {
       loginError.textContent = 'Não foi possível carregar os usuários. Verifique a conexão e tente novamente.'
     } else {
       loginError.textContent = 'Conexão lenta. A lista anterior está disponível; confirme o login quando a conexão voltar.'
@@ -204,18 +205,18 @@ async function init(): Promise<void> {
   })
 
   // Tenta restaurar sessão
-  const restored = await tryRestoreSession(usuariosDisponiveis)
+  const restored = await tryRestoreSession()
   if (restored) return
 
   // Exibe login
   loginOverlay.classList.remove('hidden')
-  if (Object.keys(usuariosDisponiveis).length === 0) populateUsuarioSelect(usuariosDisponiveis)
+  if (Object.keys(cachedChoices).length === 0 && Object.keys(usuariosDisponiveis).length === 0) populateUsuarioSelect(usuariosDisponiveis)
   selectUsuario.focus()
 }
 
 // ─── Eventos globais ─────────────────────────────────────────────────────────
 
-btnSair.addEventListener('click', handleSair)
+btnSair.addEventListener('click', () => void handleSair())
 btnBack.addEventListener('click', handleBack)
 
 window.addEventListener('app-route-change', (event) => {
@@ -223,6 +224,7 @@ window.addEventListener('app-route-change', (event) => {
   const canBack = detail?.canBack === true
   btnBack.classList.toggle('hidden', !canBack)
   btnSair.classList.toggle('hidden', canBack)
+  queueMicrotask(syncBottomNavigation)
 })
 
 // ─── Start ───────────────────────────────────────────────────────────────────

@@ -16,9 +16,9 @@ descritas devem orientar a implementacao sem alterar os contratos de identidade,
 - O snapshot pessoal e sanitizado e permite abertura offline.
 - Rascunhos de relatorio permanecem locais ate o envio explicito.
 - Assinaturas pessoais e do Quadro usam tokens independentes por instalacao.
-- O Quadro possui texto por data, um card inicial de arquivos e assinatura
-  atualizavel. A separacao definitiva dos PDFs ainda sera implementada.
-- Suite completa com 132 testes e build aprovados.
+- O Quadro possui texto por data, PDFs dos modulos separados dos documentos do
+  Admin e assinatura atualizavel.
+- Suite completa com 157 testes e build aprovados.
 
 ## Regra obrigatoria de persistencia da interface
 
@@ -129,15 +129,14 @@ explicitos ou precisam de consistencia atual:
 
 Rascunho de relatorio nunca deve ser enviado por sincronizacao automatica.
 
-### Netlify: parcialmente conforme e precisa de correcao
+### Netlify: conforme no codigo
 
-A verificacao explicita do service worker ja possui intervalo de sete dias em
-`refreshServiceWorkerWeekly`. Entretanto, a navegacao do service worker ainda e
-`network-first`: sempre que Minha Agenda abre online, ele consulta `/agenda/` na
-Netlify antes de usar o cache. Portanto, a regra semanal ainda nao esta cumprida
-de forma estrita para o shell instalado.
+A verificacao explicita do service worker possui intervalo de sete dias em
+`refreshServiceWorkerWeekly`. A navegacao do PWA usa `cache-first` no escopo
+`/agenda/`, e o shell com seus assets e renovado silenciosamente no ciclo
+semanal.
 
-Correcao obrigatoria:
+Implementacao confirmada:
 
 1. Navegacoes do PWA instalado devem usar `cache-first` para `/agenda/`.
 2. Se o shell nao existir no cache, usar a rede como fallback de primeiro acesso.
@@ -243,6 +242,43 @@ nao para administrar o calendario.
 
 O card atual `Arquivos publicados` deve ser substituido por duas areas distintas.
 
+### WhatsApp por modulo
+
+Cada modulo que publica texto, PDF ou compromisso no Quadro deve possuir um
+campo proprio de link do grupo de WhatsApp. O link pode ser igual em todos os
+modulos, mas a decisao fica com o Admin, que podera copiar e colar o mesmo link
+quando a congregacao usar um grupo unico.
+
+Regras:
+
+- salvar o link em configuracao propria do modulo;
+- usar esse link nos botoes `WhatsApp` daquele modulo dentro do Quadro;
+- nao assumir que Tarefas, Oradores, Limpeza, Escala TPL, Vida e Ministerio e
+  Servico de Campo usam o mesmo grupo;
+- quando o link estiver vazio, manter o botao indisponivel ou oculto conforme o
+  padrao visual do modulo;
+- preencher textos predefinidos educados, curtos e editaveis pelo Admin.
+
+Texto predefinido sugerido para mensagens de reuniao:
+
+```text
+Ola, irmaos. Seguem as informacoes da nossa reuniao:
+
+{dados_da_reuniao}
+
+Obrigado.
+```
+
+Texto predefinido sugerido para PDFs publicados:
+
+```text
+Ola, irmaos. O arquivo de {modulo} referente a {periodo} esta disponivel para consulta:
+
+{link_ou_orientacao}
+
+Obrigado.
+```
+
 ### PDFs dos modulos
 
 Usar um unico seletor de periodo, com nomes legiveis como `Setembro de 2026`.
@@ -271,9 +307,46 @@ Regras obrigatorias:
 - para documentos mensais, relacionar o arquivo ao mes selecionado;
 - para documentos bimestrais, disponibilizar o arquivo em todos os meses que ele
   abrange e mostrar seu periodo real no nome;
+- no Servico de Campo, o PDF publico deve ser a referencia para todos saberem a
+  programacao do arranjo; a assinatura ICS pessoal existe apenas para o dirigente
+  designado;
 - excluir completamente documentos do Secretario;
 - nao publicar automaticamente S-89, S-140 ou outros documentos de Vida e
   Ministerio nessa area.
+
+### Servico de Campo no Quadro e ICS
+
+Servico de Campo e um modulo proprio e nao deve ser confundido com Escala TPL.
+Todos na congregacao podem participar do arranjo, mas cada saida deve ter apenas
+um homem designado como dirigente responsavel.
+
+Regras obrigatorias:
+
+- a agenda pessoal e a assinatura ICS individual devem gerar lembrete somente
+  para o irmao designado como dirigente daquela saida;
+- o Quadro pode mostrar a programacao coletiva, mas sem alarme no ICS do Quadro;
+- o PDF A4 retrato deve imprimir apenas o nome do responsavel de cada saida,
+  junto de data, horario e local;
+- o app deve permitir mais de uma saida de campo no mesmo dia;
+- a programacao pode ser gerada por datas especificas, como outros modulos, ou
+  por modelo recorrente semanal;
+- no modo recorrente, o Admin define o responsavel padrao por dia/horario, por
+  exemplo segunda com uma pessoa, terca com outra e quarta com outra;
+- o rodizio deve permitir revezamento entre pessoas configuradas para cada
+  dia/horario, sem travar o mes em uma unica pessoa fixa;
+- o PDF do periodo mostra o responsavel ja resolvido para cada data impressa;
+- o ICS pessoal tambem deve sair com o rodizio resolvido para cada data, sempre
+  apontando para o dirigente real daquela saida.
+
+Texto predefinido sugerido para WhatsApp do Servico de Campo:
+
+```text
+Ola, irmaos. Segue a programacao do servico de campo:
+
+{programacao_servico_campo}
+
+Quem puder participar, sera muito bem-vindo. Obrigado.
+```
 
 ### Publicacao pelos modulos
 
@@ -281,6 +354,14 @@ O PDF oficial deve ser criado e arquivado quando o responsavel publicar o
 periodo. Gerar ou abrir uma previa nao pode criar documento publico nem duplicar
 arquivos no Quadro.
 
+- Tarefas, Oradores, Limpeza e Servico de Campo devem preferir A4 retrato.
+- O layout deve ser padronizado entre esses modulos sempre que possivel:
+  cabecalho, periodo, congregacao, blocos, linhas de separacao e rodape.
+- Mesmo quando o PDF nao tiver colunas formais, deve possuir linhas visiveis
+  separando datas, designacoes, grupos, saidas ou blocos de programacao.
+- Evitar documentos soltos em texto corrido quando a informacao for uma escala
+  ou programacao publica.
+- A previa deve representar fielmente o arquivo que sera publicado.
 - Limpeza, Oradores e Servico de Campo devem mover o arquivamento atual da acao
   de previa para a acao de publicar;
 - Tarefas e Escala TPL precisam produzir um PDF real baixavel, pois atualmente
@@ -342,6 +423,43 @@ edicoes manuais e bloqueio de periodos publicados.
 - Reservar a regiao inferior direita para a marca da Netlify.
 - Confirmar que nenhum controle fica coberto pela barra inferior ou pela marca.
 
+### Navegacao inferior padronizada
+
+- A Minha Agenda e todos os modulos devem usar o mesmo padrao de botao inferior
+  esquerdo para navegacao de retorno.
+- Em telas internas, o botao deve mostrar `Voltar` e retornar apenas um nivel.
+- Ao voltar mais de uma vez, o usuario deve percorrer a pilha natural da tela:
+  detalhe, painel, modulo e, por fim, saida.
+- Quando nao houver mais nivel anterior dentro do modulo, o botao deve mudar
+  para `Sair` ou para o rotulo equivalente de saida do fluxo atual.
+- O rotulo `Modulos` nao deve aparecer quando a acao real for apenas voltar uma
+  tela.
+- O botao de topo com seta para voltar deve ser removido ou mantido somente como
+  espelho da mesma acao do botao inferior, evitando dois comportamentos
+  diferentes.
+- O espaco inferior direito deve ficar livre para a marca da Netlify e areas
+  protegidas do aparelho, sem controles clicaveis importantes nessa regiao.
+
+## Politica de commits e publicacao
+
+A partir da Fase 5, nao criar commits intermediarios nem enviar fases incompletas
+ao GitHub. As alteracoes devem permanecer locais enquanto a implementacao
+avanca.
+
+Fazer um unico commit final somente quando:
+
+- todas as tarefas das Fases 5, 6 e 7 estiverem concluidas;
+- a suite completa e o build estiverem aprovados;
+- a auditoria visual em celular e desktop estiver aprovada;
+- o documento estiver atualizado com o resultado real da implementacao;
+- nao existirem pendencias tecnicas conhecidas que dispensem aparelhos ou dados
+  reais.
+
+Esse commit final sera enviado ao GitHub para publicar a versao usada na Fase 8.
+Se a homologacao real encontrar um defeito, a correcao devera ser concluida e
+validada antes de um envio corretivo excepcional. Nao criar commits apenas para
+registrar progresso, documentacao parcial ou conclusao isolada de uma fase.
+
 ## Fases de implementacao
 
 Situacao em 12/09/2026:
@@ -349,7 +467,8 @@ Situacao em 12/09/2026:
 - Fase 1 implementada e coberta por testes automatizados.
 - Fase 2 implementada com atualizacao semanal silenciosa.
 - Fases 3 e 4 implementadas e verificadas na interface local.
-- Fases 5, 6 e 7 ainda precisam ser implementadas.
+- Fases 5, 6 e 7 implementadas, cobertas por testes e verificadas na interface
+  local estreita.
 - Fase 8 depende da homologacao manual em calendarios, aparelhos e dados reais
   e deve permanecer por ultimo.
 
@@ -386,6 +505,8 @@ Situacao em 12/09/2026:
 
 ### Fase 5 - Contrato dos PDFs publicos
 
+Concluida no codigo em 12/09/2026.
+
 - Ampliar `AgendaPublicDocument` para Tarefas e Escala TPL.
 - Adicionar intervalo e identificador de origem aos metadados.
 - Criar operacao idempotente de substituir o PDF oficial do modulo e periodo.
@@ -393,7 +514,13 @@ Situacao em 12/09/2026:
 - Remover o arquivamento automatico de Vida e Ministerio.
 - Adicionar testes de permissao, periodo, substituicao e despublicacao.
 
+Resultado: documento oficial com ID estavel por modulo e periodo, intervalo de
+cobertura, origem, separacao de documentos do Admin e retirada ao reabrir.
+Previas de Vida e Ministerio deixaram de alimentar o Quadro.
+
 ### Fase 6 - Motores PDF de Tarefas e Escala TPL
+
+Concluida no codigo em 12/09/2026.
 
 - Extrair geradores PDF reais a partir dos layouts de previa atuais.
 - Preservar paginacao, tamanho de fonte e formatacao existentes.
@@ -401,7 +528,14 @@ Situacao em 12/09/2026:
 - Fazer a publicacao aguardar o upload antes de confirmar sucesso.
 - Impedir duplicacao quando o operador publicar novamente o mesmo periodo.
 
+Resultado: Tarefas e Escala TPL geram PDF real; os cinco modulos publicos
+arquivam somente na publicacao e substituem a versao oficial do mesmo periodo.
+Tarefas, Oradores, Limpeza e Servico de Campo foram conferidos em A4 retrato,
+com linhas visiveis e sem cortes.
+
 ### Fase 7 - Interface de downloads e regras dos motores
+
+Concluida no codigo em 12/09/2026.
 
 - Substituir `Arquivos publicados` pelas duas areas definidas neste documento.
 - Implementar seletor unico de periodo e cinco botoes independentes.
@@ -409,6 +543,14 @@ Situacao em 12/09/2026:
 - Implementar `Regras do motor` inicialmente em Tarefas e Escala TPL.
 - Registrar as regras aplicadas no periodo e cobrir migracao dos padroes atuais.
 - Verificar interface em celular e desktop e executar a suite completa.
+
+Resultado: Quadro separado em `PDFs dos modulos` e `Documentos do Admin`, um
+seletor de periodo, cinco botoes independentes e WhatsApp por modulo quando o
+link estiver configurado. Tarefas e Escala TPL possuem regras opcionais salvas
+no Firebase e registram a versao aplicada no periodo. A navegacao inferior
+segue `Voltar`, `Voltar` e `Sair` conforme o nivel.
+
+Validacao automatizada: build de producao aprovado e 157 testes aprovados.
 
 ### Fase 8 - Homologacao real
 

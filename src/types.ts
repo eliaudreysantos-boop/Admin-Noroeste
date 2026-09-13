@@ -105,6 +105,8 @@ export interface LimpezaPeriodoGerado {
   geradoEm:    string
   congregacao: string
   semanas:     LimpezaSemanaGerada[]
+  publicado?:  boolean
+  publicadoEm?: string
 }
 
 export interface ConfigLimpeza {
@@ -140,13 +142,31 @@ export type AgendaReminderModule =
 
 export interface AgendaConfig {
   quadroWhatsAppLink?: string
+  moduleWhatsApp?: Partial<Record<AgendaReminderModule, {
+    groupLink?: string
+    meetingText?: string
+    documentText?: string
+  }>>
   icsReminders?: Partial<Record<AgendaReminderModule, string[]>>
 }
 
+export type AgendaPublicDocumentModule =
+  | 'tarefas'
+  | 'limpeza'
+  | 'escala'
+  | 'oradores'
+  | 'programacao'
+  | 'servicoCampo'
+  | 'admin'
+
 export interface AgendaPublicDocument {
   id: string
-  modulo: 'limpeza' | 'oradores' | 'programacao' | 'servicoCampo' | 'admin'
+  modulo: AgendaPublicDocumentModule
+  tipo?: 'modulo' | 'admin'
   periodo: string
+  inicio?: string
+  fim?: string
+  origemPeriodoId?: string
   nome: string
   url: string
   storagePath?: string

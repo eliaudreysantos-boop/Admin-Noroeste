@@ -6,6 +6,7 @@ export interface FieldServiceTemplate {
   location: string
   active: boolean
   sortOrder: number
+  leaderIds?: string[]
 }
 
 export interface FieldServiceAssignment {
@@ -76,6 +77,7 @@ export function generateFieldServicePeriod(input: {
 
   const templates = Object.values(input.templates).filter(template => template.active !== false && validTime(template.time) && template.location.trim()).sort((a, b) => a.sortOrder - b.sortOrder || a.dow - b.dow || a.time.localeCompare(b.time) || a.location.localeCompare(b.location, 'pt-BR'))
   for (const template of templates) {
+    const templateLeaders = (template.leaderIds?.length ? template.leaderIds.filter(id => leaders.includes(id)) : leaders)
     for (const date of datesForDow(input.month, template.dow)) {
       const id = `${date}-${template.id}`
       const old = previous[id]
@@ -88,8 +90,8 @@ export function generateFieldServicePeriod(input: {
         continue
       }
       const used = usedByDate.get(date) ?? new Set<string>()
-      const available = leaders.filter(id => !used.has(id))
-      const candidates = available.length ? available : leaders
+      const available = templateLeaders.filter(id => !used.has(id))
+      const candidates = available.length ? available : templateLeaders
       const leaderId = [...candidates].sort((a, b) => (counts[a] ?? 0) - (counts[b] ?? 0) || leaders.indexOf(a) - leaders.indexOf(b))[0] ?? ''
       assignments[id] = { id, templateId:template.id, date, time:template.time, location:template.location, label:template.label || 'Saída de campo', leaderId }
       if (leaderId) { counts[leaderId] = (counts[leaderId] ?? 0) + 1; used.add(leaderId); usedByDate.set(date, used) }

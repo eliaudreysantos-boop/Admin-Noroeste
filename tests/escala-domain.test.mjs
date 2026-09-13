@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  activeDates, analyzeCell, availabilityKey, generateAll, generateLocal,
+  activeDates, analyzeCell, availabilityKey, choosePair, generateAll, generateLocal,
   isBlocked, localSlots, pairRule, participantDirectoryForHistory, validatePair,
 } from '../src/modules/escala-domain.ts'
 import {
@@ -107,4 +107,14 @@ test('geração é determinística e não altera os dados de entrada', () => {
   assert.deepEqual(first, second)
   assert.deepEqual(input, before)
   assert.ok(Object.values(first.table.rows).some(row => Object.values(row.slots).some(cell => cell.p1 && cell.p2)))
+})
+
+test('prioridade de pioneiro e equilíbrio podem ser desligados sem alterar regras da dupla', () => {
+  const candidates = [
+    { id:'a', person:person({ name:'Ana', pioneer:false }) },
+    { id:'b', person:person({ name:'Bia', pioneer:false }) },
+    { id:'c', person:person({ name:'Caio', pioneer:true }) },
+  ]
+  assert.equal(choosePair(candidates, { a:0, b:0, c:0 })?.[0].id, 'c')
+  assert.equal(choosePair(candidates, { a:9, b:0, c:0 }, { prioridadePioneiroRegular:false, equilibrarDesignacoes:false })?.[0].id, 'a')
 })

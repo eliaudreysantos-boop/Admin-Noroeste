@@ -1,4 +1,4 @@
-import { cert, getApps, initializeApp, type ServiceAccount } from 'firebase-admin/app'
+import { cert, getApps, initializeApp, type App, type ServiceAccount } from 'firebase-admin/app'
 import { getDatabase } from 'firebase-admin/database'
 import type { AgendaSubscription } from '../../src/types.ts'
 
@@ -13,26 +13,31 @@ function environment(): Record<string, string | undefined> {
   return ((globalThis as unknown as { process?: { env?: Record<string, string | undefined> } }).process?.env ?? {})
 }
 
-function database() {
+export function adminApp(): App {
   const env = environment()
   const databaseURL = env['FIREBASE_DATABASE_URL']?.trim()
   const credentials = env['FIREBASE_SERVICE_ACCOUNT_JSON']?.trim()
   if (!databaseURL || !credentials) throw new Error('Credenciais privadas do calendário não configuradas.')
+  const serviceAccount = JSON.parse(credentials) as ServiceAccount & { project_id?: string }
   const name = 'calendar-subscriptions'
   const existing = getApps().find(app => app.name === name)
-  const app = existing ?? initializeApp({
-    credential:cert(JSON.parse(credentials) as ServiceAccount),
+  return existing ?? initializeApp({
+    credential:cert(serviceAccount),
     databaseURL,
+    storageBucket:env['FIREBASE_STORAGE_BUCKET']?.trim() || (serviceAccount.project_id ? `${serviceAccount.project_id}.firebasestorage.app` : undefined),
   }, name)
-  return getDatabase(app)
+}
+
+export function adminDatabase() {
+  return getDatabase(adminApp())
 }
 
 export const privateSubscriptionStore: SubscriptionStore = {
   async get(token) {
-    const snapshot = await database().ref(`${PRIVATE_PATH}/${token}`).get()
+    const snapshot = await adminDatabase().ref(`${PRIVATE_PATH}/${token}`).get()
     return snapshot.exists() ? snapshot.val() as AgendaSubscription : null
   },
   async set(token, value) {
-    await database().ref(`${PRIVATE_PATH}/${token}`).set(value)
+    await adminDatabase().ref(`${PRIVATE_PATH}/${token}`).set(value)
   },
 }

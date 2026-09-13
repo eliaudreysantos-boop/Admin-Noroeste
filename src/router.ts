@@ -83,6 +83,10 @@ export function navigateModuleIndex(): void {
   if (_currentModule) void navigateTo(_currentModule)
 }
 
+export function routeState(): { moduleOpen: boolean; canReturnToModules: boolean } {
+  return { moduleOpen:_currentModule !== null, canReturnToModules:_currentModule !== null && _accessList.length > 1 }
+}
+
 // ─── Init ───────────────────────────────────────────────────────────────────
 
 export function initRouter(uid: string, usuario: import('./types').Usuario): void {

@@ -2,13 +2,13 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 
-test('regras não permitem enumerar tokens de calendário', async () => {
+test('Realtime Database nega toda leitura e escrita direta do cliente', async () => {
   const rules = JSON.parse(await readFile(new URL('../database.rules.json', import.meta.url), 'utf8')).rules
-  assert.equal(rules['.read'], false)
-  assert.equal(rules.agenda.assinaturas['.read'], false)
-  assert.equal(rules.agenda.assinaturas['.write'], false)
-  assert.equal(rules.agendaAssinaturasPrivadas['.read'], false)
-  assert.equal(rules.agendaAssinaturasPrivadas['.write'], false)
-  assert.equal(rules.agenda.config['.read'], true)
-  assert.equal(rules.agenda.documentos['.read'], true)
+  assert.deepEqual(rules, { '.read':false, '.write':false })
+})
+
+test('Storage nega acesso direto; PDFs são geridos somente pela função privada', async () => {
+  const rules = await readFile(new URL('../storage.rules', import.meta.url), 'utf8')
+  assert.match(rules, /match \/\{document=\*\*\}[\s\S]*allow read, write: if false;/)
+  assert.doesNotMatch(rules, /if true/)
 })

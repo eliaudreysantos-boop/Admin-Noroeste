@@ -1,5 +1,5 @@
 export function moduleBackButton(): string {
-  return '<button class="module-back-btn" type="button" data-module-index aria-label="Voltar ao índice do módulo">← Voltar</button>'
+  return '<span data-module-index-marker hidden></span>'
 }
 
 export function moduleTitle(title: string, color = 'var(--blue-deep)'): string {

@@ -1,21 +1,6 @@
 {
   "rules": {
     ".read": false,
-    ".write": false,
-    "master": { ".read": true, ".write": true },
-    "usuarios": { ".read": true, ".write": true },
-    "tarefas": { ".read": true, ".write": true },
-    "limpeza": { ".read": true, ".write": true },
-    "oradores": { ".read": true, ".write": true },
-    "escala": { ".read": true, ".write": true },
-    "programacao": { ".read": true, ".write": true },
-    "secretario": { ".read": true, ".write": true },
-    "servicoCampo": { ".read": true, ".write": true },
-    "agenda": {
-      "config": { ".read": true, ".write": true },
-      "documentos": { ".read": true, ".write": true },
-      "assinaturas": { ".read": false, ".write": false }
-    },
-    "agendaAssinaturasPrivadas": { ".read": false, ".write": false }
+    ".write": false
   }
 }

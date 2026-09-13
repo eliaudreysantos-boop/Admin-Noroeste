@@ -16,6 +16,7 @@ import { moduleBackButton } from '../ui/module-header'
 import {
   TASK_ROLES,
   TASK_ROLE_LABELS,
+  DEFAULT_TASK_GENERATION_RULES,
   assignmentForRole,
   canonicalMeetingType,
   computeGeneration,
@@ -27,9 +28,11 @@ import {
   personName,
   personPhone,
   roleApplies,
+  normalizeTaskGenerationRules,
   withCanonicalPeriod,
   type TaskDomainContext,
   type TaskEvent,
+  type TaskGenerationRules,
   type TaskMeeting,
   type TaskPeriod,
   type TaskPerson,
@@ -38,7 +41,9 @@ import {
   type TaskTalk,
 } from './tarefas-domain'
 import { formatTaskDate } from './tarefas-output'
-import { prepareTaskPrint, printPreparedTaskSchedule } from './tarefas-documents'
+import { createTaskSchedulePdf, previewTaskSchedulePdf } from './tarefas-documents'
+import { publishAgendaModulePdf, unpublishAgendaModulePdf } from './agenda-documents'
+import { PublicationPreviewGate } from './pdf-publication-preview'
 
 type TarefasTab = 'indice' | 'resumo' | 'escala' | 'participantes' | 'pendencias' | 'config'
 
@@ -60,6 +65,7 @@ interface TarefasPlanning {
   midweekDow?: number
   weekendDow?: number
   excludedDates?: string[] | Record<string, string>
+  engineRules?: Partial<TaskGenerationRules>
 }
 
 interface PendingTarget {
@@ -92,6 +98,11 @@ let participantSearch = ''
 let participantMeetingRule = ''
 let participantRoleFilter = ''
 let pendingTarget: PendingTarget | null = null
+const taskPdfPreview = new PublicationPreviewGate()
+
+function taskPdfPreviewInput(periodId: string, meetings: TarefasMeeting[], font: number): unknown {
+  return { periodId, meetings, congregationName, pessoas, font }
+}
 
 function monthNow(): string {
   const date = new Date()
@@ -126,19 +137,6 @@ function pessoaNome(p: TarefasPessoa, fallback: string): string {
 
 function isActive(p: TarefasPessoa): boolean {
   return personIsActive(p)
-}
-
-function allMeetings(): TarefasMeeting[] {
-  return Object.values(periods)
-    .flatMap(period => Object.values(period.meetings ?? {}))
-    .filter(meeting => meeting && typeof meeting === 'object' && canonicalMeetingType(meeting.type))
-}
-
-function futureMeetings(): TarefasMeeting[] {
-  const hoje = todayStr()
-  return allMeetings()
-    .filter(meeting => !meeting.date || meeting.date >= hoje)
-    .sort((a, b) => String(a.date ?? '').localeCompare(String(b.date ?? '')))
 }
 
 function assignmentCount(meeting: TarefasMeeting): number {
@@ -286,6 +284,7 @@ function renderEscala(): void {
     .filter(meeting => canonicalMeetingType(meeting.type))
     .sort((a, b) => String(a.date ?? '').localeCompare(String(b.date ?? '')))
   const font = printFont()
+  const activeRules = Object.values(normalizeTaskGenerationRules(planning.engineRules)).filter(Boolean).length
   const preservedMeetings = scaleMeetingEntries().filter(entry => entry.periodId !== selectedPeriodId && assignmentCount(entry.meeting) > 0).sort((a, b) => String(b.meeting.date).localeCompare(String(a.meeting.date))).slice(0, 12)
 
   content.innerHTML = `
@@ -297,7 +296,7 @@ function renderEscala(): void {
         <div class="form-group" style="margin:0"><label class="form-label" for="tarefasPeriodMonth">Período</label><input id="tarefasPeriodMonth" class="form-input" type="month" value="${escapeHtml(selectedPeriodMonth)}"></div>
       </div>
       <div class="scale-actions" style="margin-top:8px">
-        <button id="btnGenerateScale" class="btn btn-primary" type="button" ${locked ? 'disabled' : ''}>Gerar escala</button>
+        <button id="btnGenerateScale" class="btn btn-primary" type="button" ${locked ? 'disabled' : ''}>Gerar escala · ${activeRules} regras</button>
         <button id="btnToggleTaskLock" class="btn btn-ghost" type="button">${locked ? 'Reabrir escala' : 'Publicar escala'}</button>
         <button id="btnClearTaskScale" class="btn btn-danger" type="button" ${locked || !allPeriodMeetings.length ? 'disabled' : ''}>Limpar escala</button>
       </div>
@@ -308,7 +307,7 @@ function renderEscala(): void {
           <div class="scale-actions" style="align-items:end"><button id="btnGenerateTaskRole" class="btn btn-ghost" type="button" ${locked ? 'disabled' : ''}>Gerar função</button><button id="btnClearTaskRole" class="btn btn-danger" type="button" ${locked ? 'disabled' : ''}>Limpar função</button></div>
         </div>
         <label style="display:flex;align-items:center;gap:7px;margin-top:12px;font-size:.84rem;color:var(--ink-2)"><input id="tarefasOnlyPending" type="checkbox" ${onlyPendingMeetings ? 'checked' : ''}> Apenas datas pendentes</label>
-        <div style="display:flex;gap:8px;align-items:center;margin-top:12px"><label class="form-label" for="tarefasPrintFont" style="margin:0;white-space:nowrap">Letra do PDF</label><input id="tarefasPrintFont" class="form-input" type="range" min="${PRINT_MIN_PT}" max="${PRINT_MAX_PT}" step="1" value="${font}" style="padding:0;flex:1"><span id="tarefasPrintFontValue" style="min-width:42px;text-align:right;font-size:.82rem;font-weight:700;color:var(--ink-2)">${font} pt</span><button id="btnTarefasPdf" class="btn btn-ghost" type="button">Gerar PDF</button></div>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:12px"><label class="form-label" for="tarefasPrintFont" style="margin:0;white-space:nowrap">Letra do PDF</label><input id="tarefasPrintFont" class="form-input" type="range" min="${PRINT_MIN_PT}" max="${PRINT_MAX_PT}" step="1" value="${font}" style="padding:0;flex:1"><span id="tarefasPrintFontValue" style="min-width:42px;text-align:right;font-size:.82rem;font-weight:700;color:var(--ink-2)">${font} pt</span><button id="btnTarefasPdf" class="btn btn-ghost" type="button">Abrir prévia</button></div>
       </details>
     </div>
     <div class="task-desktop-scale">${taskDesktopTable(allPeriodMeetings)}</div>
@@ -387,7 +386,21 @@ function renderEscala(): void {
 async function toggleTaskLock(periodId: string): Promise<void> {
   const locked = periods[periodId]?.locked === true
   try {
-    await update(tarefasScaleRef, { [`${periodId}/locked`]: !locked })
+    const period = periods[periodId]
+    const meetings = Object.values(period?.meetings ?? {}).filter(meeting => canonicalMeetingType(meeting.type)).sort((a, b) => String(a.date ?? '').localeCompare(String(b.date ?? '')))
+    if (!locked) {
+      if (!meetings.length) { toast('Gere e revise a escala antes de publicar'); return }
+      const font = printFont()
+      if (!taskPdfPreview.matches(taskPdfPreviewInput(periodId, meetings, font))) { toast('Abra a prévia atual do PDF antes de publicar'); return }
+      const first = meetings[0]?.date ?? `${periodId}-01`
+      const last = meetings[meetings.length - 1]?.date ?? first
+      const result = await createTaskSchedulePdf(meetings, congregationName, pessoas, font)
+      await publishAgendaModulePdf(result.bytes, { modulo:'tarefas', periodo:periodId, inicio:first, fim:last, origemPeriodoId:periodId, nome:`tarefas-${periodId}.pdf` })
+      await update(tarefasScaleRef, { [`${periodId}/locked`]:true })
+    } else {
+      await unpublishAgendaModulePdf('tarefas', periodId)
+      await update(tarefasScaleRef, { [`${periodId}/locked`]:false })
+    }
     periods[periodId] ??= {}
     periods[periodId].locked = !locked
     toast(locked ? 'Escala reaberta para edição' : 'Escala publicada no Minha Agenda')
@@ -451,7 +464,7 @@ async function generateScale(startDate: string, mode: 'month' | 'bimester', role
       return
     }
     const context = { ...domainContext(), periods: canonical.periods }
-    const result = computeGeneration(context, startDate, role, generatedAt, canonical.periodId, onlyPending, todayStr())
+    const result = computeGeneration(context, startDate, role, generatedAt, canonical.periodId, onlyPending, todayStr(), planning.engineRules)
     if (result.aborted) {
       showGenerationErrors(result.errors)
       return
@@ -547,8 +560,11 @@ function renderTaskConfig(): void {
   const content = document.getElementById('tarefasContent')
   if (!content) return
   const dates = planningExcludedDates().sort()
+  const rules = normalizeTaskGenerationRules(planning.engineRules)
+  const canEditRules = context.usuario.apps.mestre === true
   content.innerHTML = `${sectionTitle('Configuração', 'Preferências próprias de Tarefas. Dias e horários das reuniões continuam vindo do Admin.')}
     <div class="form-panel"><div class="module-form-grid"><label class="form-field"><span>Formato padrão</span><select id="taskConfigMode"><option value="month" ${selectedPeriodMode === 'month' ? 'selected' : ''}>Mensal</option><option value="bimester" ${selectedPeriodMode === 'bimester' ? 'selected' : ''}>Bimestral</option></select></label><label class="form-field"><span>Fonte preferida do PDF: <strong id="taskConfigFontValue">${printFont()} pt</strong></span><input id="taskConfigFont" type="range" min="${PRINT_MIN_PT}" max="${PRINT_MAX_PT}" value="${printFont()}"></label></div><button id="saveTaskConfig" class="btn btn-primary" type="button">Salvar preferências</button></div>
+    <div class="form-panel"><h3 style="margin-top:0">Regras do motor</h3><p class="form-help">Estas opções valem apenas para as próximas gerações. Regras de integridade continuam obrigatórias.</p><div class="engine-rule-list"><label><input id="taskRulePresident" type="checkbox" ${rules.presidenteSegundaTarefa ? 'checked' : ''} ${canEditRules ? '' : 'disabled'}> Aproveitar o presidente em uma segunda tarefa mecânica</label><label><input id="taskRuleBalance" type="checkbox" ${rules.equilibrarDesignacoes ? 'checked' : ''} ${canEditRules ? '' : 'disabled'}> Equilibrar o total de designações</label><label><input id="taskRuleRepeat" type="checkbox" ${rules.evitarRepetirFuncao ? 'checked' : ''} ${canEditRules ? '' : 'disabled'}> Evitar repetir a mesma função</label></div>${canEditRules ? '<div class="scale-actions" style="margin-top:12px"><button id="saveTaskRules" class="btn btn-primary" type="button">Salvar regras</button><button id="restoreTaskRules" class="btn btn-ghost" type="button">Restaurar padrões</button></div>' : '<div class="notice">Somente o Admin pode alterar estas regras.</div>'}</div>
     <div class="form-panel"><h3 style="margin-top:0">Datas sem reunião</h3><div style="display:flex;gap:8px"><input id="taskExcludedDate" class="form-input" type="date"><button id="addTaskExcludedDate" class="btn btn-ghost" type="button">Adicionar</button></div><div class="module-option-list" style="margin-top:10px">${dates.map(date => `<div class="secretary-row"><strong>${escapeHtml(formatDate(date))}</strong><button class="btn btn-danger" data-remove-task-date="${escapeHtml(date)}" type="button">Remover</button></div>`).join('') || '<p class="empty-state">Nenhuma data excluída.</p>'}</div></div>`
   document.getElementById('taskConfigFont')?.addEventListener('input', event => { const value = (event.target as HTMLInputElement).value; document.getElementById('taskConfigFontValue')!.textContent = `${value} pt` })
   document.getElementById('saveTaskConfig')?.addEventListener('click', async () => {
@@ -556,6 +572,8 @@ function renderTaskConfig(): void {
     const font = Number((document.getElementById('taskConfigFont') as HTMLInputElement).value)
     try { await update(tarefasPlanejamentoRef, { periodMode:mode }); selectedPeriodMode = mode; planning.periodMode = mode; localStorage.setItem(TAREFAS_PERIOD_MODE_KEY, mode); localStorage.setItem(PRINT_FONT_KEY, String(font)); toast('Preferências salvas') } catch { toast('Não foi possível salvar as preferências') }
   })
+  document.getElementById('saveTaskRules')?.addEventListener('click', () => void saveTaskRules())
+  document.getElementById('restoreTaskRules')?.addEventListener('click', () => void saveTaskRules(DEFAULT_TASK_GENERATION_RULES))
   document.getElementById('addTaskExcludedDate')?.addEventListener('click', async () => {
     const date = (document.getElementById('taskExcludedDate') as HTMLInputElement).value
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { toast('Escolha uma data válida'); return }
@@ -566,6 +584,17 @@ function renderTaskConfig(): void {
     const next = dates.filter(date => date !== button.dataset['removeTaskDate'])
     try { await update(tarefasPlanejamentoRef, { excludedDates:next.length ? next : null }); planning.excludedDates = next; renderTaskConfig() } catch { toast('Não foi possível remover a data') }
   }))
+}
+
+async function saveTaskRules(value?: TaskGenerationRules): Promise<void> {
+  if (!context.usuario.apps.mestre) { toast('Somente o Admin pode alterar as regras'); return }
+  const next = value ?? {
+    presidenteSegundaTarefa:(document.getElementById('taskRulePresident') as HTMLInputElement).checked,
+    equilibrarDesignacoes:(document.getElementById('taskRuleBalance') as HTMLInputElement).checked,
+    evitarRepetirFuncao:(document.getElementById('taskRuleRepeat') as HTMLInputElement).checked,
+  }
+  try { await update(tarefasPlanejamentoRef, { engineRules:{ ...next, version:1 } }); planning.engineRules = next; toast(value ? 'Padrões restaurados' : 'Regras salvas'); renderTaskConfig() }
+  catch { toast('Não foi possível salvar as regras') }
 }
 
 type PendingLevel = 'alta' | 'media' | 'baixa'
@@ -886,31 +915,13 @@ function emptyState(text: string): string {
     </div>`
 }
 
-function gerarPdfTarefas(preferredFontPt: number): void {
-  const meetings = futureMeetings()
+async function gerarPdfTarefas(preferredFontPt: number): Promise<void> {
+  const periodId = periodKeyForDate(`${selectedPeriodMonth}-01`, selectedPeriodMode)
+  const meetings = Object.values(periods[periodId]?.meetings ?? {}).filter(meeting => canonicalMeetingType(meeting.type)).sort((a, b) => String(a.date ?? '').localeCompare(String(b.date ?? '')))
   if (meetings.length === 0) {
     toast('Nenhuma reunião para gerar PDF')
     return
   }
-
-  const prepared = prepareTaskPrint(meetings, congregationName, pessoas, preferredFontPt)
-  const overlay = document.createElement('div')
-  overlay.className = 'modal-overlay'
-  overlay.innerHTML = `
-    <div class="modal tarefas-preview-modal">
-      <h2>Prévia da escala de Tarefas</h2>
-      <p class="form-help">Fonte ajustada para ${prepared.fontPt} pt. Confira antes de imprimir.</p>
-      <div class="tarefas-print-preview" style="font-size:${prepared.fontPt}pt">${prepared.html}</div>
-      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
-        <button id="closeTaskPreview" class="btn btn-ghost" type="button">Fechar</button>
-        <button id="printTaskPreview" class="btn btn-primary" type="button">Imprimir</button>
-      </div>
-    </div>`
-  document.body.appendChild(overlay)
-  document.getElementById('closeTaskPreview')?.addEventListener('click', () => overlay.remove())
-  document.getElementById('printTaskPreview')?.addEventListener('click', () => {
-    printPreparedTaskSchedule(prepared)
-    toast(`PDF em ${prepared.fontPt} pt`)
-  })
-  overlay.addEventListener('click', event => { if (event.target === overlay) overlay.remove() })
+  try { await previewTaskSchedulePdf(meetings, congregationName, pessoas, preferredFontPt, periodId); taskPdfPreview.mark(taskPdfPreviewInput(periodId, meetings, preferredFontPt)); toast('Prévia do PDF aberta e pronta para publicação') }
+  catch { toast('Não foi possível gerar o PDF') }
 }

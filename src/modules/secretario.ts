@@ -1,9 +1,9 @@
 import type { AppContext, ConfigCongregacao, RawPessoas } from '../types'
-import { configCongregacaoRef, get, pessoasRef, runTransaction, secretarioRef, storage, update } from '../firebase'
-import { getDownloadURL, ref as storageRef, uploadBytes } from 'firebase/storage'
+import { configCongregacaoRef, get, pessoasRef, secretarioRef, update } from '../firebase'
+import { apiJson, uploadPdf } from '../secure-api.ts'
 import { renderMenuCards, type ItemMenu } from '../ui/menu-cards'
 import { moduleBackButton } from '../ui/module-header'
-import { canonicalReportId, CATEGORY_LABELS, activityByServiceYear, archiveCanBeDeleted, attendanceByMonth, duplicateReportGroups, isClosedMonth, isReportLate, matchingReports, pendingPublishers, publisherReportState, records, reportCreatedBy, reportLastEditedBy, serviceYearStart, summarizeCongregation, type PublisherCategory, type PublisherReportState, type SecretaryAttendance, type SecretaryGroup, type SecretaryPublisher, type SecretaryReport } from './secretario-domain'
+import { CATEGORY_LABELS, activityByServiceYear, archiveCanBeDeleted, attendanceByMonth, duplicateReportGroups, isClosedMonth, isReportLate, matchingReports, pendingPublishers, publisherReportState, records, reportCreatedBy, reportLastEditedBy, serviceYearStart, summarizeCongregation, type PublisherCategory, type PublisherReportState, type SecretaryAttendance, type SecretaryGroup, type SecretaryPublisher, type SecretaryReport } from './secretario-domain'
 
 type Tab = 'indice' | 'publicadores' | 'grupos' | 'relatorios' | 'conferencia' | 'assistencia' | 'analise' | 'documentos' | 'arquivos'
 interface ArchiveRecord { id: string; nome: string; tipo: string; referencia: string; criadoEm: string }
@@ -147,22 +147,21 @@ async function submitReport(form: HTMLFormElement): Promise<void> {
   const number = (name: string) => Math.max(0, Number(data.get(name) ?? 0) || 0), previousId = String(data.get('recordId') ?? '')
   const competencia = String(data.get('competencia')), recebidoEm = String(data.get('recebidoEm'))
   if (isReportMonthClosed(competencia)) { toast('Esta competência está fechada. Reabra-a antes de alterar relatórios.'); return }
-  const recordId = canonicalReportId(publisher.masterId, competencia)
   const conflicts = matchingReports(reports(), publisher.masterId, competencia).filter(([id]) => id !== previousId)
   if (conflicts.length) { toast('Já existe um relatório oficial para esta pessoa e competência'); return }
   try {
-    const result = await runTransaction(secretarioRef, currentValue => {
-      const currentRoot = records(currentValue), liveReports = records<SecretaryReport>(currentRoot['relatorios']), livePrevious = previousId ? liveReports[previousId] : undefined
-      if (isClosedMonth(competencia, currentRoot['fechamentos'])) return undefined
-      if (matchingReports(liveReports, publisher.masterId, competencia).some(([id]) => id !== previousId)) return undefined
-      const createdBy = livePrevious ? reportCreatedBy(livePrevious) : 'secretario', revision = Math.max(0, Number(livePrevious?.revision) || 0) + 1
-      const item: SecretaryReport = { id:recordId, masterId:publisher.masterId, competencia, categoria:publisher.categoria, participou:String(data.get('participou')) === 'true', estudos:number('estudos'), horasCampo:number('horasCampo'), horasAtividadeAprovada:number('horasAtividadeAprovada'), creditoHoras:number('creditoHoras'), pioneiroAuxiliar:String(data.get('pioneiroAuxiliar')) === 'true', observacoes:String(data.get('observacoes') ?? '').trim().slice(0, 250), atrasado:isReportLate(competencia, recebidoEm) || String(data.get('atrasado')) === 'true', recebidoEm, atualizadoEm:new Date().toISOString(), origem:livePrevious?.origem ?? 'secretario', createdBy, lastEditedBy:'secretario', status:'revisado', revision, ...(livePrevious?.submissionId ? { submissionId:livePrevious.submissionId } : {}) }
-      const nextReports = { ...liveReports, [recordId]:item }; if (previousId && previousId !== recordId) delete nextReports[previousId]
-      return { ...currentRoot, relatorios:nextReports }
-    }, { applyLocally:false })
-    if (!result.committed) { toast('Outro relatório para esta pessoa e competência foi recebido. Recarregue antes de editar.'); return }
-    root = records(result.snapshot.val()); toast(previousId && previousId !== recordId ? 'Relatório salvo e migrado para a chave canônica' : 'Relatório salvo'); reportMonth = competencia; editingReport = ''; render()
-  } catch { toast('Não foi possível salvar') }
+    const response = await apiJson<{ report: SecretaryReport }>('secretary-report', {
+      method:'POST',
+      body:JSON.stringify({
+        mode:'admin', masterId:publisher.masterId, previousId,
+        report:{ competencia, participou:String(data.get('participou')) === 'true', estudos:number('estudos'), horasCampo:number('horasCampo'), horasAtividadeAprovada:number('horasAtividadeAprovada'), creditoHoras:number('creditoHoras'), pioneiroAuxiliar:String(data.get('pioneiroAuxiliar')) === 'true', observacoes:String(data.get('observacoes') ?? '').trim().slice(0, 250), atrasado:isReportLate(competencia, recebidoEm) || String(data.get('atrasado')) === 'true', recebidoEm },
+      }),
+    })
+    const nextReports = { ...reports(), [response.report.id]:response.report }
+    if (previousId && previousId !== response.report.id) delete nextReports[previousId]
+    root['relatorios'] = nextReports
+    toast(previousId && previousId !== response.report.id ? 'Relatório salvo e migrado para a chave canônica' : 'Relatório salvo'); reportMonth = competencia; editingReport = ''; render()
+  } catch (error) { toast(error instanceof Error ? error.message : 'Não foi possível salvar') }
 }
 async function deleteRecord(collection: string, recordId: string, question: string): Promise<void> { if (collection === 'relatorios' && isReportMonthClosed(reports()[recordId]?.competencia ?? '')) { toast('Esta competência está fechada. Reabra-a antes de excluir relatórios.'); return }; if (!window.confirm(question)) return; try { await update(secretarioRef, { [`${collection}/${recordId}`]: null }); const current = records(root[collection]); delete current[recordId]; root[collection] = current; toast('Registro excluído'); render() } catch { toast('Não foi possível excluir') } }
 function renderConference(element: HTMLElement): void {
@@ -230,7 +229,7 @@ async function previewOfficialTemplate(kind: TemplateKey, inputId: string): Prom
     toast('Prévia aberta. Revise antes de salvar.')
   } catch (error) { toast(error instanceof Error ? error.message : 'Não foi possível abrir a prévia') }
 }
-async function saveOfficialTemplate(kind: TemplateKey, inputId: string): Promise<void> { const file = (document.getElementById(inputId) as HTMLInputElement | null)?.files?.[0]; if (!file) { toast('Selecione o PDF que será salvo como padrão'); return }; if (previewedOfficialTemplates[kind] !== templateFingerprint(file)) { toast('Abra a prévia deste PDF antes de salvá-lo como padrão'); return }; try { const target = storageRef(storage, `secretario/templates/${kind}.pdf`); await uploadBytes(target, file, { contentType:'application/pdf' }); const item: OfficialTemplate = { url:await getDownloadURL(target), nome:file.name, enviadoEm:new Date().toISOString() }, config = records(root['config']); await update(secretarioRef, { [`config/templates/${kind}`]:item }); root['config'] = { ...config, templates:{ ...records(config['templates']), [kind]:item } }; delete previewedOfficialTemplates[kind]; toast('Template oficial salvo'); render() } catch { toast('Não foi possível salvar o template oficial') } }
+async function saveOfficialTemplate(kind: TemplateKey, inputId: string): Promise<void> { const file = (document.getElementById(inputId) as HTMLInputElement | null)?.files?.[0]; if (!file) { toast('Selecione o PDF que será salvo como padrão'); return }; if (previewedOfficialTemplates[kind] !== templateFingerprint(file)) { toast('Abra a prévia deste PDF antes de salvá-lo como padrão'); return }; try { const url = await uploadPdf(`secretario/templates/${kind}.pdf`, new Uint8Array(await file.arrayBuffer())); const item: OfficialTemplate = { url, nome:file.name, enviadoEm:new Date().toISOString() }, config = records(root['config']); await update(secretarioRef, { [`config/templates/${kind}`]:item }); root['config'] = { ...config, templates:{ ...records(config['templates']), [kind]:item } }; delete previewedOfficialTemplates[kind]; toast('Template oficial salvo'); render() } catch { toast('Não foi possível salvar o template oficial') } }
 async function generateDocument(kind: TemplateKey): Promise<void> {
   try {
     const docs = await import('./secretario-documents'), year = Number((document.getElementById('documentServiceYear') as HTMLInputElement).value), month = (document.getElementById('documentMonth') as HTMLInputElement).value; let bytes: Uint8Array, filename: string

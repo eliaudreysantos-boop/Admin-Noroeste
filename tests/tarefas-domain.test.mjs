@@ -158,6 +158,20 @@ test('geração somente de datas pendentes ignora reuniões anteriores', () => {
   assert.equal(result.patch['2026-09/meetings/old/assignments/leitor'], undefined)
 })
 
+test('regras opcionais podem impedir o reaproveitamento do presidente e ficam registradas', () => {
+  const people = Object.fromEntries(Array.from({ length: 8 }, (_, index) => [`p${index + 1}`, basePerson({ name:`Pessoa ${index + 1}` })]))
+  const context = baseContext(people)
+  const result = computeGeneration(context, '2026-09-01', null, '2026-09-01T12:00:00.000Z', '2026-09', false, '', {
+    presidenteSegundaTarefa:false,
+    equilibrarDesignacoes:false,
+    evitarRepetirFuncao:false,
+  })
+  assert.equal(result.aborted, false)
+  const assigned = TASK_ROLES.map(role => result.patch[`2026-09/meetings/m1/assignments/${role}`]).filter(Boolean)
+  assert.equal(new Set(assigned).size, assigned.length)
+  assert.deepEqual(result.patch['2026-09/appliedRules'], { presidenteSegundaTarefa:false, equilibrarDesignacoes:false, evitarRepetirFuncao:false, version:1 })
+})
+
 test('paginação mantém todos os itens e nunca cria página vazia', () => {
   const items = Array.from({ length: 37 }, (_, index) => index)
   const pageSize = rowsPerPrintPage(700, 80, 30, 32)

@@ -1,5 +1,7 @@
-const CACHE = 'noroeste-admin-v4'
+const CACHE = 'noroeste-admin-v5'
 const ASSETS = ['/', '/index.html'] // vite adiciona o resto no build
+
+const cacheableAsset = path => path.startsWith('/assets/') || ['/manifest.json', '/icon-192.png', '/icon-512.png'].includes(path)
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)))
@@ -36,7 +38,12 @@ self.addEventListener('fetch', e => {
     return
   }
 
-  e.respondWith(
-    caches.match(e.request).then(r => r || fetch(e.request))
-  )
+  const url = new URL(e.request.url)
+  if (e.request.method !== 'GET' || url.origin !== self.location.origin || !cacheableAsset(url.pathname)) return
+  e.respondWith(caches.match(e.request).then(async cached => {
+    if (cached) return cached
+    const response = await fetch(e.request)
+    if (response.ok) void caches.open(CACHE).then(cache => cache.put(e.request, response.clone()))
+    return response
+  }))
 })

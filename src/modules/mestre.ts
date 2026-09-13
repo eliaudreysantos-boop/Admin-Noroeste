@@ -126,12 +126,6 @@ function objectValue(value: unknown): Record<string, unknown> {
     : {}
 }
 
-function genId(prefix: string): string {
-  const arr = new Uint8Array(4)
-  crypto.getRandomValues(arr)
-  return prefix + Array.from(arr).map(b => b.toString(16).padStart(2, '0')).join('')
-}
-
 function roleLabel(role: Role | null): string {
   const map: Record<string, string> = {
     'anciao': 'Ancião', 'servo-ministerial': 'Servo min.',
@@ -889,8 +883,21 @@ async function savePessoa(mid: string | null, overlay: HTMLElement): Promise<voi
 
   setLoading('btnSalvarPessoa', true)
   try {
-    if (existing) await update(pessoaRef(finalMid), pessoa)
-    else await set(pessoaRef(finalMid), pessoa)
+    if (existing) {
+      const patch: Record<string, unknown> = {
+        [`master/pessoas/${finalMid}/name`]:pessoa.name,
+        [`master/pessoas/${finalMid}/whatsapp`]:pessoa.whatsapp,
+        [`master/pessoas/${finalMid}/sex`]:pessoa.sex,
+        [`master/pessoas/${finalMid}/role`]:pessoa.role,
+        [`master/pessoas/${finalMid}/active`]:pessoa.active,
+        [`master/pessoas/${finalMid}/limpeza`]:pessoa.limpeza,
+      }
+      Object.entries(usuarios).forEach(([uid, user]) => {
+        if (user.masterId === finalMid) patch[`usuarios/${uid}/nome`] = pessoa.name
+      })
+      await update(rootRef, patch)
+      Object.values(usuarios).forEach(user => { if (user.masterId === finalMid) user.nome = pessoa.name })
+    } else await set(pessoaRef(finalMid), pessoa)
     pessoas[finalMid] = existing ? { ...existing, ...pessoa } : pessoa
     rootData = null
     overlay.remove()
@@ -998,6 +1005,7 @@ function renderUsuarios(): void {
 }
 
 function usuarioCard(uid: string, u: Usuario): string {
+  const linkedName = u.masterId ? pessoas[u.masterId]?.name : ''
   const badge = u.ativo
     ? `<span style="background:#E3F5EB;color:#1A6B3C;padding:1px 7px;border-radius:10px;font-size:.7rem;font-weight:600">Ativo</span>`
     : `<span style="background:#FEE;color:#B3261E;padding:1px 7px;border-radius:10px;font-size:.7rem;font-weight:600">Inativo</span>`
@@ -1006,7 +1014,7 @@ function usuarioCard(uid: string, u: Usuario): string {
       padding:10px 12px;margin-bottom:6px;display:flex;align-items:center;gap:8px">
       <div style="flex:1;min-width:0">
         <div style="font-weight:600;font-size:.9rem;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-          ${escapeHtml(u.nome)} ${badge}
+          ${escapeHtml(linkedName || u.nome)} ${badge}
         </div>
         <div style="font-size:.75rem;color:var(--ink-3);margin-top:2px">Pessoa: ${escapeHtml(u.masterId ? pessoas[u.masterId]?.name ?? 'Vínculo inválido' : 'Sem vínculo')}</div>
         <div style="font-size:.75rem;color:var(--ink-3);margin-top:2px">Apps: ${escapeHtml(appsList(u.apps))}</div>
@@ -1036,10 +1044,6 @@ function openUsuarioModal(uid: string | null): void {
   overlay.innerHTML = `
     <div class="modal">
       <h2>${uid ? 'Editar Usuário' : 'Novo Usuário'}</h2>
-      <div class="form-group">
-        <label class="form-label">Nome *</label>
-        <input id="uNome" class="form-input" value="${escapeHtml(u?.nome)}" placeholder="Nome de login">
-      </div>
       <div class="form-group">
         <label class="form-label" for="uMasterId">Pessoa vinculada *</label>
         <select id="uMasterId" class="form-select"><option value="">Selecione uma pessoa</option>${personOptions}</select>
@@ -1082,13 +1086,12 @@ function openUsuarioModal(uid: string | null): void {
 }
 
 async function saveUsuario(uid: string | null, overlay: HTMLElement): Promise<void> {
-  const nome     = (document.getElementById('uNome')     as HTMLInputElement).value.trim()
   const senha    = (document.getElementById('uSenha')    as HTMLInputElement).value
   const masterId = (document.getElementById('uMasterId') as HTMLSelectElement).value
   const ativo    = (document.getElementById('uAtivo')    as HTMLInputElement).checked
-  if (!nome)  { toast('Preencha o nome');  return }
   if (!senha) { toast('Preencha a senha'); return }
   if (!masterId || !pessoas[masterId]) { toast('Selecione uma pessoa válida'); return }
+  const nome = pessoas[masterId].name.trim()
   if (ativo && personalUserConflict(usuarios, masterId, uid)) { toast('Esta pessoa já possui outra conta ativa', 4000); return }
 
   const checkApp = (id: string) =>
@@ -1106,7 +1109,7 @@ async function saveUsuario(uid: string | null, overlay: HTMLElement): Promise<vo
     apps,
   }
   if (!['secretario', 'publicador', 'assistencia'].includes(String(usuario.secretarioPapel ?? ''))) delete usuario.secretarioPapel
-  const finalUid = uid ?? genId('u_')
+  const finalUid = uid ?? masterId
   const proposedUsuarios: RawUsuarios = { ...usuarios, [finalUid]: usuario }
   if (!hasActiveAdmin(proposedUsuarios)) {
     toast('Mantenha ao menos um usuário Admin ativo', 4000)
@@ -1260,6 +1263,7 @@ function reminderSelect(id: string, selected: string): string {
 function renderConfigAgenda(): void {
   const el = document.getElementById('configContent')!
   const reminders = agendaConfig.icsReminders ?? {}
+  const moduleWhatsApp = agendaConfig.moduleWhatsApp ?? {}
   const manualDocuments = Object.values(agendaDocuments).filter(item => item.modulo === 'admin').sort((a, b) => b.criadoEm.localeCompare(a.criadoEm))
   const rows = AGENDA_REMINDER_MODULES.map(module => {
     const values = reminders[module.id] ?? module.defaults
@@ -1269,13 +1273,15 @@ function renderConfigAgenda(): void {
       ${reminderSelect(`agendaReminder2_${module.id}`, values[1] ?? '')}
     </div>`
   }).join('')
+  const whatsAppRows = AGENDA_REMINDER_MODULES.map(module => {
+    const current = moduleWhatsApp[module.id] ?? {}
+    const fallbackLink = module.id === 'quadro' ? agendaConfig.quadroWhatsAppLink ?? '' : ''
+    const defaultMeeting = module.id === 'servicoCampo' ? 'Olá, irmãos. Segue a programação do serviço de campo:\n\n{programacao_servico_campo}\n\nQuem puder participar, será muito bem-vindo. Obrigado.' : 'Olá, irmãos. Seguem as informações da nossa reunião:\n\n{dados_da_reuniao}\n\nObrigado.'
+    return `<details class="form-panel"><summary>${escapeHtml(module.label)}</summary><div class="form-group" style="margin-top:12px"><label class="form-label" for="agendaWhatsLink_${module.id}">Link do grupo</label><input id="agendaWhatsLink_${module.id}" class="form-input" type="url" value="${escapeHtml(current.groupLink ?? fallbackLink)}" placeholder="https://chat.whatsapp.com/..."></div><div class="form-group"><label class="form-label" for="agendaWhatsMeeting_${module.id}">Texto de reunião ou programação</label><textarea id="agendaWhatsMeeting_${module.id}" class="form-input" rows="5">${escapeHtml(current.meetingText ?? defaultMeeting)}</textarea></div><div class="form-group"><label class="form-label" for="agendaWhatsDocument_${module.id}">Texto de PDF publicado</label><textarea id="agendaWhatsDocument_${module.id}" class="form-input" rows="4">${escapeHtml(current.documentText ?? 'Olá, irmãos. O arquivo de {modulo} referente a {periodo} está disponível para consulta:\n\n{link_ou_orientacao}\n\nObrigado.')}</textarea></div></details>`
+  }).join('')
 
   el.innerHTML = `
-    <div class="form-group">
-      <label class="form-label" for="agendaGroupLink">Link do grupo do Quadro de anúncios</label>
-      <input id="agendaGroupLink" class="form-input" type="url" value="${escapeHtml(agendaConfig.quadroWhatsAppLink)}" placeholder="https://chat.whatsapp.com/...">
-      <p class="form-help">Usado pelo Quadro de anúncios. A Escala TPL manterá seu link antigo somente durante a transição.</p>
-    </div>
+    <div><h3 style="margin-top:0">WhatsApp por módulo</h3><p class="form-help">Cada módulo pode abrir um grupo diferente. Quando o mesmo grupo for usado, repita o link nos módulos desejados. Os textos são predefinidos, educados e editáveis.</p>${whatsAppRows}</div>
     <div style="margin-top:18px">
       <div style="font-size:.8rem;font-weight:600;color:var(--ink-2);margin-bottom:4px;text-transform:uppercase;letter-spacing:.05em">Lembretes do calendário</div>
       <p class="form-help" style="margin-top:0">Cada coluna adiciona um lembrete ao arquivo .ics. Deixe uma ou ambas como “Sem lembrete” quando aquele módulo não precisar avisar.</p>
@@ -1346,10 +1352,15 @@ function normalizedReminderValues(values: string[]): string[] {
 }
 
 async function saveConfigAgenda(): Promise<void> {
-  const link = (document.getElementById('agendaGroupLink') as HTMLInputElement).value.trim()
-  if (link && !/^https:\/\/(chat\.)?whatsapp\.com\//i.test(link)) {
-    toast('Use um link válido do WhatsApp para o grupo')
-    return
+  const moduleWhatsApp: NonNullable<AgendaConfig['moduleWhatsApp']> = {}
+  for (const module of AGENDA_REMINDER_MODULES) {
+    const groupLink = (document.getElementById(`agendaWhatsLink_${module.id}`) as HTMLInputElement).value.trim()
+    if (groupLink && !/^https:\/\/(chat\.)?whatsapp\.com\//i.test(groupLink)) { toast(`Use um link válido do WhatsApp em ${module.label}`); return }
+    moduleWhatsApp[module.id] = {
+      groupLink,
+      meetingText:(document.getElementById(`agendaWhatsMeeting_${module.id}`) as HTMLTextAreaElement).value.trim(),
+      documentText:(document.getElementById(`agendaWhatsDocument_${module.id}`) as HTMLTextAreaElement).value.trim(),
+    }
   }
   const icsReminders: AgendaConfig['icsReminders'] = {}
   AGENDA_REMINDER_MODULES.forEach(module => {
@@ -1359,7 +1370,7 @@ async function saveConfigAgenda(): Promise<void> {
     ]
     icsReminders[module.id] = normalizedReminderValues(values)
   })
-  const next: AgendaConfig = { quadroWhatsAppLink: link, icsReminders }
+  const next: AgendaConfig = { quadroWhatsAppLink:moduleWhatsApp.quadro?.groupLink ?? '', moduleWhatsApp, icsReminders }
   setLoading('btnSalvarAgendaConfig', true)
   try {
     await set(agendaConfigRef, next)

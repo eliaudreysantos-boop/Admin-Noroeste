@@ -89,9 +89,9 @@ function wrapText(font: PDFFont, value: string, size: number, width: number): st
   return lines.length ? lines : ['']
 }
 
-function drawHeader(page: PDFPage, bold: PDFFont, regular: PDFFont, congregacao: string, pageNumber: number): number {
+function drawHeader(page: PDFPage, bold: PDFFont, regular: PDFFont, congregacao: string, pageNumber: number, title = 'TEMAS DISPONIVEIS'): number {
   const [, height] = A4
-  page.drawText('TEMAS DISPONIVEIS', { x: MARGIN, y: height - 54, size: 18, font: bold, color: rgb(.08, .1, .14) })
+  page.drawText(title, { x: MARGIN, y: height - 54, size: 18, font: bold, color: rgb(.08, .1, .14) })
   page.drawText(congregacao.toLocaleUpperCase('pt-BR'), { x: MARGIN, y: height - 72, size: 9, font: regular, color: rgb(.32, .34, .38) })
   page.drawText(`Pagina ${pageNumber}`, { x: 488, y: height - 62, size: 8, font: regular, color: rgb(.32, .34, .38) })
   page.drawLine({ start: { x: MARGIN, y: height - 82 }, end: { x: A4[0] - MARGIN, y: height - 82 }, thickness: 1, color: rgb(.32, .37, .43) })
@@ -189,6 +189,12 @@ function drawScheduleRows(page: PDFPage, regular: PDFFont, bold: PDFFont, title:
   y -= 12
   page.drawLine({ start: { x: MARGIN, y }, end: { x: A4[0] - MARGIN, y }, thickness: .5, color: rgb(.68, .7, .73) })
   y -= 13
+  if (!rows.length) {
+    page.drawText('Nenhum item neste período.', { x: MARGIN, y, size: 8.5, font: regular, color: rgb(.32, .34, .38) })
+    y -= 15
+    page.drawLine({ start: { x: MARGIN, y }, end: { x: A4[0] - MARGIN, y }, thickness: .35, color: rgb(.78, .79, .81) })
+    return y - 10
+  }
   for (const row of rows) {
     const cells = [formatDate(row.data), row.orador || '—', row.tema || '—', row.congregacao || '—']
     const lines = cells.map((value, index) => wrapText(regular, value, 8.5, [64, 112, 155, 145][index]))
@@ -199,7 +205,9 @@ function drawScheduleRows(page: PDFPage, regular: PDFFont, bold: PDFFont, title:
       })
       y -= 11
     }
-    y -= 4
+    y -= 3
+    page.drawLine({ start: { x: MARGIN, y }, end: { x: A4[0] - MARGIN, y }, thickness: .35, color: rgb(.78, .79, .81) })
+    y -= 6
   }
   return y
 }
@@ -219,17 +227,30 @@ export async function createSchedulePdf(params: {
     ['Saídas', saidas],
   ]
   let pageNumber = 0
+  let page!: PDFPage
+  let y = 0
+  const addPage = () => {
+    page = pdf.addPage(A4)
+    pageNumber += 1
+    y = drawHeader(page, bold, regular, params.congregation || 'Congregacao', pageNumber, 'PROGRAMAÇÃO DE ORADORES')
+    page.drawText(params.periodLabel.toLocaleUpperCase('pt-BR'), { x: MARGIN, y, size: 11, font: bold, color: rgb(.08, .1, .14) })
+    y -= 28
+  }
+  addPage()
+
   for (const [title, rows] of sections) {
-    const pages = rows.length ? Array.from({ length: Math.ceil(rows.length / 20) }, (_, index) => rows.slice(index * 20, index * 20 + 20)) : [[]]
-    for (const pageRows of pages) {
-      const page = pdf.addPage(A4)
-      pageNumber += 1
-      let y = drawHeader(page, bold, regular, params.congregation || 'Congregacao', pageNumber)
-      page.drawText(`PROGRAMAÇÃO DE ORADORES — ${params.periodLabel.toLocaleUpperCase('pt-BR')}`, { x: MARGIN, y, size: 11, font: bold, color: rgb(.08, .1, .14) })
-      y -= 28
-      drawScheduleRows(page, regular, bold, title, pageRows, y)
+    const chunks = rows.length ? Array.from({ length: Math.ceil(rows.length / 12) }, (_, index) => rows.slice(index * 12, index * 12 + 12)) : [[]]
+    for (const [chunkIndex, pageRows] of chunks.entries()) {
+      const estimatedHeight = 54 + Math.max(1, pageRows.length) * 27
+      if (y - estimatedHeight < MARGIN) addPage()
+      y = drawScheduleRows(page, regular, bold, chunkIndex ? `${title} (continuação)` : title, pageRows, y)
+      y -= 12
     }
   }
+
+  pdf.getPages().forEach(currentPage => {
+    currentPage.drawText('Gerado pelo sistema Noroeste', { x:MARGIN, y:24, size:7, font:regular, color:rgb(.42, .45, .49) })
+  })
 
   return { bytes:Uint8Array.from(await pdf.save()), pages:pdf.getPageCount() }
 }
@@ -242,7 +263,6 @@ export async function downloadSchedulePdf(params: {
   const result = await createSchedulePdf(params)
   const filename = `programacao-oradores-${params.periodLabel}.pdf`
   previewPdf(result.bytes, filename, 'Previa da programacao de oradores')
-  void import('./agenda-documents.ts').then(({ archiveAgendaPdf }) => archiveAgendaPdf(result.bytes, { modulo:'oradores', periodo:params.periodLabel, nome:filename })).catch(() => undefined)
 }
 
 export async function createThemeCatalogPdf(params: {

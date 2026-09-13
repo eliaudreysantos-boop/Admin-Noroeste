@@ -9,16 +9,16 @@ function assertPdf(result, expectedPages) {
   return PDFDocument.load(result.bytes).then(document => assert.equal(document.getPageCount(), expectedPages))
 }
 
-test('gera programação de oradores real e separa local de saída', async () => {
+test('gera programação de oradores em uma A4 quando local e saída cabem', async () => {
   const rows = [
     { data:'2026-09-06', tipo:'discurso_local', orador:'Orador local', tema:'1 Tema local', congregacao:'Noroeste' },
     { data:'2026-09-13', tipo:'saida_orador', orador:'Orador em saída', tema:'2 Tema de saída', congregacao:'Centro' },
   ]
-  await assertPdf(await createSchedulePdf({ congregation:'Noroeste', periodLabel:'2026-09', rows }), 2)
+  await assertPdf(await createSchedulePdf({ congregation:'Noroeste', periodLabel:'2026-09', rows }), 1)
 })
 
-test('programação vazia continua gerando páginas válidas', async () => {
-  await assertPdf(await createSchedulePdf({ congregation:'Noroeste', periodLabel:'2026-09', rows:[] }), 2)
+test('programação vazia continua gerando uma página válida', async () => {
+  await assertPdf(await createSchedulePdf({ congregation:'Noroeste', periodLabel:'2026-09', rows:[] }), 1)
 })
 
 test('catálogo e temas disponíveis paginam listas extensas', async () => {

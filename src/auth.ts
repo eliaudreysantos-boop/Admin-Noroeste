@@ -1,89 +1,53 @@
-import { get, usuariosRef }           from './firebase'
-import type { Usuario, AppPermissions, RawUsuarios } from './types'
+import type { Usuario, AppPermissions } from './types'
+import { sanitizeCachedUserChoices, type CachedUserChoices } from './auth-domain'
+import { apiJson, clearCsrfToken, setCsrfToken } from './secure-api.ts'
 
-const SESSION_KEY = 'noroeste_uid'
 const USER_CHOICES_KEY = 'noroeste_user_choices'
 
-type CachedUserChoice = Pick<Usuario, 'nome' | 'ativo'>
+export interface AuthenticatedSession { uid: string; usuario: Usuario; csrf: string }
 
-// ─── Leitura ───────────────────────────────────────────────────────────────
-
-export async function loadUsuarios(): Promise<RawUsuarios> {
-  const snap = await get(usuariosRef)
-  if (!snap.exists()) return {}
-  const usuarios = snap.val() as RawUsuarios
-  const choices: Record<string, CachedUserChoice> = {}
-  Object.entries(usuarios).forEach(([uid, usuario]) => {
-    choices[uid] = { nome: usuario.nome, ativo: usuario.ativo }
-  })
-  localStorage.setItem(USER_CHOICES_KEY, JSON.stringify(choices))
-  return usuarios
+function validSession(value: AuthenticatedSession): boolean {
+  return Boolean(value && typeof value.uid === 'string' && /^[a-f0-9]{48}$/.test(value.csrf) && value.usuario && value.usuario.ativo === true && typeof value.usuario.nome === 'string' && value.usuario.apps && typeof value.usuario.apps === 'object')
 }
 
-export function loadCachedUserChoices(): RawUsuarios {
+export async function loadUsuarios(): Promise<CachedUserChoices> {
+  const choices = sanitizeCachedUserChoices(await apiJson<CachedUserChoices>('auth-users'))
+  localStorage.setItem(USER_CHOICES_KEY, JSON.stringify(choices))
+  return choices
+}
+
+export function loadCachedUserChoices(): CachedUserChoices {
   try {
-    return JSON.parse(localStorage.getItem(USER_CHOICES_KEY) ?? '{}') as RawUsuarios
+    const choices = sanitizeCachedUserChoices(JSON.parse(localStorage.getItem(USER_CHOICES_KEY) ?? '{}'))
+    localStorage.setItem(USER_CHOICES_KEY, JSON.stringify(choices))
+    return choices
   } catch {
+    localStorage.removeItem(USER_CHOICES_KEY)
     return {}
   }
 }
 
-// ─── Autenticação — por UID (novo padrão: select de usuário) ───────────────
-
-export function loginByUid(
-  usuarios: RawUsuarios,
-  uid:      string,
-  senha:    string,
-): { uid: string; usuario: Usuario } | null {
-  const usuario = usuarios[uid]
-  if (!usuario || !usuario.ativo) return null
-  if (usuario.senha !== senha)    return null
-  return { uid, usuario }
+function acceptSession(session: AuthenticatedSession): AuthenticatedSession {
+  if (!validSession(session)) throw new Error('Resposta de sessão inválida.')
+  setCsrfToken(session.csrf)
+  return session
 }
 
-// ─── Autenticação — legado (por nome digitado) ─────────────────────────────
-// Mantida para compatibilidade. Preferir loginByUid.
-
-export function login(
-  usuarios: RawUsuarios,
-  nome:     string,
-  senha:    string,
-): { uid: string; usuario: Usuario } | null {
-  const nomeLower = nome.trim().toLowerCase()
-
-  for (const [uid, usuario] of Object.entries(usuarios)) {
-    if (
-      usuario.nome.trim().toLowerCase() === nomeLower &&
-      usuario.senha === senha &&
-      usuario.ativo
-    ) {
-      return { uid, usuario }
-    }
-  }
-  return null
+export async function authenticate(uid: string, senha: string): Promise<AuthenticatedSession> {
+  return acceptSession(await apiJson<AuthenticatedSession>('auth-session', { method:'POST', body:JSON.stringify({ uid, senha }) }))
 }
 
-// ─── Sessão ────────────────────────────────────────────────────────────────
-
-export function saveSession(uid: string): void {
-  sessionStorage.setItem(SESSION_KEY, uid)
+export async function restoreSession(): Promise<AuthenticatedSession | null> {
+  try { return acceptSession(await apiJson<AuthenticatedSession>('auth-session')) }
+  catch { clearCsrfToken(); return null }
 }
 
-export function loadSession(): string {
-  return sessionStorage.getItem(SESSION_KEY) ?? ''
+export async function logout(): Promise<void> {
+  try { await apiJson('auth-session', { method:'DELETE' }) }
+  catch { /* A tela ainda deve encerrar localmente quando a rede cair. */ }
+  finally { clearCsrfToken() }
 }
 
-export function clearSession(): void {
-  sessionStorage.removeItem(SESSION_KEY)
-}
-
-// ─── Permissões ────────────────────────────────────────────────────────────
-
-export function hasModuleAccess(
-  usuario: Usuario,
-  modulo:  keyof AppPermissions,
-): boolean {
-  // apps.mestre = Admin → acesso total a todos os módulos
-  if (usuario.apps.mestre) return true
-  return usuario.apps[modulo] === true
+export function hasModuleAccess(usuario: Usuario, modulo: keyof AppPermissions): boolean {
+  return usuario.apps.mestre || usuario.apps[modulo] === true
 }

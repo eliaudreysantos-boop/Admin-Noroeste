@@ -1,14 +1,16 @@
 import './style.css'
-import { get, pessoasRef, usuariosRef } from './firebase'
-import type { MasterPessoa, RawUsuarios, Usuario } from './types'
+import type { MasterPessoa, Usuario } from './types'
 import mountAgenda from './modules/individual'
 import { sanitizeAgendaPeople } from './modules/individual-domain'
-import { advanceUnlockTap, validAdminPassword, type UnlockTapState } from './modules/agenda-identity-domain'
+import { advanceUnlockTap, type UnlockTapState } from './modules/agenda-identity-domain'
 import { refreshServiceWorkerWeekly } from './pwa-sync'
+import { apiJson } from './secure-api.ts'
 
 const PERSON_KEY = 'noroeste_agenda_person'
 const PEOPLE_KEY = 'noroeste_agenda_people_v2'
 const PEOPLE_SYNC_KEY = 'noroeste_agenda_people_sync_v2'
+const INSTALLATION_KEY = 'noroeste_agenda_installation_v1'
+const DEVICE_PAIRED_KEY = 'noroeste_agenda_device_paired_v1'
 const DAILY_SYNC_MS = 24 * 60 * 60 * 1000
 const identity = document.getElementById('agendaIdentity')!
 const shell = document.getElementById('agendaShell')!
@@ -38,6 +40,24 @@ function cachedPeople(): Record<string, MasterPessoa> {
   catch { return {} }
 }
 
+function installationId(): string {
+  const current = localStorage.getItem(INSTALLATION_KEY) ?? ''
+  if (/^[a-f0-9]{32,64}$/.test(current)) return current
+  const bytes = new Uint8Array(24); crypto.getRandomValues(bytes)
+  const created = Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('')
+  localStorage.setItem(INSTALLATION_KEY, created)
+  return created
+}
+
+function clearIdentityCache(): void {
+  for (let index = localStorage.length - 1; index >= 0; index -= 1) {
+    const key = localStorage.key(index)
+    const identityData = key?.startsWith('noroeste_agenda_offline_v2:') || key?.startsWith('noroeste_relatorio_rascunho_v1:') || (key?.startsWith('noroeste_agenda_ui_v1:') && key.endsWith(':standalone'))
+    if (key && identityData) localStorage.removeItem(key)
+  }
+  localStorage.removeItem('noroeste_agenda_subscriptions_v2')
+}
+
 function openAgenda(masterId: string): void {
   const person = people[masterId]
   if (!person || person.active === false) return
@@ -58,21 +78,30 @@ function openAgenda(masterId: string): void {
 async function init(): Promise<void> {
   people = cachedPeople()
   const saved = localStorage.getItem(PERSON_KEY) ?? ''
+  const locallyPaired = localStorage.getItem(DEVICE_PAIRED_KEY) === 'true'
   if (Object.keys(people).length) {
     renderPeople()
-    if (saved && people[saved]?.active !== false && shell.classList.contains('hidden')) openAgenda(saved)
+    if (locallyPaired && saved && people[saved]?.active !== false && shell.classList.contains('hidden')) openAgenda(saved)
   }
   const lastSync = Number(localStorage.getItem(PEOPLE_SYNC_KEY) ?? 0)
-  if (Object.keys(people).length && Date.now() - lastSync < DAILY_SYNC_MS) return
+  if (locallyPaired && saved && Object.keys(people).length && Date.now() - lastSync < DAILY_SYNC_MS) return
   if (syncingPeople) return
   syncingPeople = true
   try {
-    const snapshot = await get(pessoasRef)
-    people = snapshot.exists() ? snapshot.val() as Record<string, MasterPessoa> : {}
+    const response = await apiJson<{ people: Record<string, MasterPessoa>; masterId: string }>('agenda-device')
+    people = response.people
     localStorage.setItem(PEOPLE_KEY, JSON.stringify(sanitizeAgendaPeople(people)))
     localStorage.setItem(PEOPLE_SYNC_KEY, String(Date.now()))
     renderPeople()
-    if (saved && people[saved]?.active !== false) openAgenda(saved)
+    if (response.masterId && people[response.masterId]?.active !== false) {
+      localStorage.setItem(DEVICE_PAIRED_KEY, 'true')
+      openAgenda(response.masterId)
+    } else if (locallyPaired && saved) {
+      clearIdentityCache()
+      localStorage.removeItem(DEVICE_PAIRED_KEY)
+      localStorage.removeItem(PERSON_KEY)
+      location.reload()
+    }
   } catch {
     if (!Object.keys(people).length) error.textContent = 'Nao foi possivel carregar as pessoas. Verifique a conexao.'
   } finally {
@@ -80,7 +109,7 @@ async function init(): Promise<void> {
   }
 }
 
-continueButton.addEventListener('click', () => openAgenda(select.value))
+continueButton.addEventListener('click', () => openIdentityPair())
 bottomUser.addEventListener('click', () => {
   const result = advanceUnlockTap(unlockTaps, Date.now())
   unlockTaps = result.state
@@ -108,25 +137,49 @@ function openIdentityUnlock(): void {
     button.disabled = true
     button.textContent = 'Verificando...'
     try {
-      const snapshot = await get(usuariosRef)
-      const users = snapshot.exists() ? snapshot.val() as RawUsuarios : {}
-      if (!validAdminPassword(users, password.value)) {
-        failedUnlocks += 1
-        if (failedUnlocks >= 5) { unlockBlockedUntil = Date.now() + 30_000; failedUnlocks = 0; close(); alert('Muitas tentativas. Aguarde 30 segundos.'); return }
-        message.textContent = 'Senha Admin inválida.'
-        password.value = ''
-        password.focus()
-        return
-      }
+      await apiJson('agenda-device', { method:'DELETE', body:JSON.stringify({ adminPassword:password.value }) })
       failedUnlocks = 0
+      clearIdentityCache()
+      localStorage.removeItem(DEVICE_PAIRED_KEY)
       localStorage.removeItem(PERSON_KEY)
       location.reload()
     } catch {
-      message.textContent = 'É preciso estar conectado para desbloquear a pessoa.'
+      failedUnlocks += 1
+      if (failedUnlocks >= 5) { unlockBlockedUntil = Date.now() + 30_000; failedUnlocks = 0; close(); alert('Muitas tentativas. Aguarde 30 segundos.'); return }
+      message.textContent = 'Senha Admin inválida ou conexão indisponível.'
     } finally {
       button.disabled = false
       button.textContent = 'Desbloquear'
     }
+  })
+  password.focus()
+}
+
+function openIdentityPair(): void {
+  const masterId = select.value, person = people[masterId]
+  if (!person) return
+  const overlay = document.createElement('div')
+  overlay.className = 'modal-overlay'
+  overlay.innerHTML = `<form class="modal" id="agendaPairForm"><h2>Confirmar pessoa</h2><p class="form-help">Este aparelho ficará vinculado a ${person.name.replace(/[&<>"']/g, '')}. Informe a senha de um Admin para confirmar.</p><label class="form-field"><span>Senha Admin</span><input id="agendaPairPassword" class="form-input" type="password" autocomplete="current-password" required></label><p id="agendaPairError" class="login-error" role="alert"></p><div class="secretary-actions"><button id="agendaPairCancel" class="btn btn-ghost" type="button">Cancelar</button><button id="agendaPairConfirm" class="btn btn-primary" type="submit">Vincular aparelho</button></div></form>`
+  document.body.appendChild(overlay)
+  const form = document.getElementById('agendaPairForm') as HTMLFormElement
+  const password = document.getElementById('agendaPairPassword') as HTMLInputElement
+  const message = document.getElementById('agendaPairError')!
+  const button = document.getElementById('agendaPairConfirm') as HTMLButtonElement
+  const close = (): void => overlay.remove()
+  document.getElementById('agendaPairCancel')?.addEventListener('click', close)
+  overlay.addEventListener('click', event => { if (event.target === overlay) close() })
+  form.addEventListener('submit', async event => {
+    event.preventDefault(); button.disabled = true; button.textContent = 'Vinculando...'
+    try {
+      await apiJson('agenda-device', { method:'POST', body:JSON.stringify({ masterId, installationId:installationId(), adminPassword:password.value }) })
+      clearIdentityCache()
+      localStorage.setItem(DEVICE_PAIRED_KEY, 'true')
+      close(); openAgenda(masterId)
+    } catch (reason) {
+      message.textContent = reason instanceof Error ? reason.message : 'Não foi possível vincular o aparelho.'
+      password.value = ''; password.focus()
+    } finally { button.disabled = false; button.textContent = 'Vincular aparelho' }
   })
   password.focus()
 }

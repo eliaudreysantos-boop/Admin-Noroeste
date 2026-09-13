@@ -151,8 +151,14 @@ export async function createCleaningPdf(period: LimpezaPeriodoGerado, options: C
       drawCentered(page, bold, 'LIMPEZA APÓS REUNIÃO', innerX, top - effective * 3.65, innerWidth, effective * .72, rgb(.34, .34, .34))
       drawCentered(page, bold, `MEIO DE SEMANA ${formatCleaningDate(week.dataMeioSemana)}`, innerX, top - effective * 4.45, innerWidth, effective * .76)
       drawCentered(page, bold, `LIMPEZA SEMANAL ${formatCleaningDate(week.dataFimSemana)}`, innerX, top - effective * 5.25, innerWidth, effective * .76, rgb(.85, .04, .08))
+      if (rowIndex < rows.length - 1) {
+        const lineY = contentTop - 43 - (rowIndex + 1) * rowHeight + 5
+        page.drawLine({ start: { x: x + 8, y: lineY }, end: { x: x + columnWidth - 8, y: lineY }, thickness: .45, color: rgb(.68, .69, .7) })
+      }
     })
   })
+
+  page.drawText('Gerado pelo sistema Noroeste', { x:margin, y:20, size:7, font:regular, color:rgb(.42, .45, .49) })
 
   const bytes = await pdf.save()
   return { bytes, effectiveFontSize: Math.round(effective * 10) / 10, pages: 1 }
@@ -162,6 +168,5 @@ export async function downloadCleaningPdf(period: LimpezaPeriodoGerado, options:
   const result = await createCleaningPdf(period, options)
   const filename = `limpeza-${period.id}.pdf`
   previewPdf(result.bytes, filename, 'Previa da escala de limpeza')
-  void import('./agenda-documents.ts').then(({ archiveAgendaPdf }) => archiveAgendaPdf(result.bytes, { modulo:'limpeza', periodo:period.inicio.slice(0, 7), nome:filename })).catch(() => undefined)
   return result
 }

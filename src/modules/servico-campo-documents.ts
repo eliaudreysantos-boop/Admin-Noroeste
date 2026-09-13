@@ -60,5 +60,4 @@ export async function previewFieldServicePdf(input: Parameters<typeof createFiel
   const bytes = await createFieldServicePdf(input)
   const filename = `servico-de-campo-${input.month}.pdf`
   previewPdf(bytes, filename, 'Prévia da programação de Serviço de Campo')
-  void import('./agenda-documents.ts').then(({ archiveAgendaPdf }) => archiveAgendaPdf(bytes, { modulo:'servicoCampo', periodo:input.month, nome:filename })).catch(() => undefined)
 }

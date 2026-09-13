@@ -36,7 +36,7 @@ test('impede duas contas ativas para o mesmo masterId', () => {
 
 test('relatório remove credenciais e contatos inclusive em objetos aninhados', () => {
   const sanitized = sanitizeFailureReportValue({
-    nome: 'Teste', senha: '42754', whatsapp: '5585', nested: { password: 'x', telefonePai: '5585', masterId: 'm1' },
+    nome: 'Teste', senha: 'senha-teste', whatsapp: '5585', nested: { password: 'x', telefonePai: '5585', masterId: 'm1' },
   })
   assert.deepEqual(sanitized, { nome: 'Teste', nested: { masterId: 'm1' } })
 })

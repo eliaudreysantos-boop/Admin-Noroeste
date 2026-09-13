@@ -68,6 +68,24 @@ export interface EscalaGenerationInput {
   tables: EscalaTables
   blocks: EscalaBlocks
   exclusions: string[]
+  rules?: Partial<EscalaGenerationRules>
+}
+
+export interface EscalaGenerationRules {
+  prioridadePioneiroRegular: boolean
+  equilibrarDesignacoes: boolean
+}
+
+export const DEFAULT_ESCALA_GENERATION_RULES: EscalaGenerationRules = {
+  prioridadePioneiroRegular:true,
+  equilibrarDesignacoes:true,
+}
+
+export function normalizeEscalaGenerationRules(value?: Partial<EscalaGenerationRules>): EscalaGenerationRules {
+  return {
+    prioridadePioneiroRegular:value?.prioridadePioneiroRegular !== false,
+    equilibrarDesignacoes:value?.equilibrarDesignacoes !== false,
+  }
 }
 
 export interface EscalaPublishedSnapshot {
@@ -227,11 +245,12 @@ export function pairRule(aId: string, a: EscalaParticipant, bId: string, b: Esca
 
 interface Candidate { id: string; person: EscalaParticipant }
 
-export function choosePair(candidates: Candidate[], counts: Record<string, number>): [Candidate, Candidate] | null {
+export function choosePair(candidates: Candidate[], counts: Record<string, number>, options?: Partial<EscalaGenerationRules>): [Candidate, Candidate] | null {
+  const rules = normalizeEscalaGenerationRules(options)
   // Array.sort é estável: em empate, mantém a ordem do cadastro como o app legado.
-  const ordered = [...candidates].sort((a, b) => (counts[a.id] ?? 0) - (counts[b.id] ?? 0))
+  const ordered = rules.equilibrarDesignacoes ? [...candidates].sort((a, b) => (counts[a.id] ?? 0) - (counts[b.id] ?? 0)) : [...candidates]
 
-  for (const first of ordered.filter(candidate => candidate.person.pioneer)) {
+  for (const first of rules.prioridadePioneiroRegular ? ordered.filter(candidate => candidate.person.pioneer) : []) {
     for (const second of ordered) if (!pairRule(first.id, first.person, second.id, second.person)) return [first, second]
   }
   for (const first of candidates.filter(candidate => candidate.person.onlyWithId)) {
@@ -312,7 +331,7 @@ export function generateLocal(input: EscalaGenerationInput): GenerationResult {
       const candidates = Object.entries(input.participants)
         .filter(([id, person]) => personRule(id, person, context, input, counts, day) === null)
         .map(([id, person]) => ({ id, person }))
-      const pair = choosePair(candidates, counts)
+      const pair = choosePair(candidates, counts, input.rules)
       if (!pair) {
         rowSlots[time] = { p1: '', p2: '' }
         summary.empty += 1

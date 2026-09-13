@@ -1,10 +1,12 @@
 import type { AppContext, RawRoot } from '../types'
-import { agendaConfigRef, agendaDocumentsRef, escalaParticipantsRef, escalaPublishedMonthRef, escalaPublishedMonthsRef, escalaPubSnapshotsRef, escalaScalesRef, escalaTablesRef, get, limpezaPeriodosRef, pessoasRef, programacaoRef, runTransaction, secretarioRef, servicoCampoRef, tarefasCongregacoesRef, tarefasOradoresRef, tarefasPeopleRef, tarefasProgramacaoOradoresRef, tarefasScaleRef } from '../firebase'
+import { agendaConfigRef, agendaDocumentsRef, escalaParticipantsRef, escalaPublishedMonthRef, escalaPublishedMonthsRef, escalaPubSnapshotsRef, escalaScalesRef, escalaTablesRef, get, limpezaPeriodosRef, pessoasRef, programacaoRef, secretarioRef, servicoCampoRef, tarefasCongregacoesRef, tarefasOradoresRef, tarefasPeopleRef, tarefasProgramacaoOradoresRef, tarefasScaleRef } from '../firebase'
+import { apiJson, ApiError } from '../secure-api.ts'
 import { moduleTitle } from '../ui/module-header'
 import { agendaMessage, agendaToIcs, announcementMessage, boardMeetingDates, boardMeetingEvents, collectAgendaEvents, collectAnnouncementEvents, upcomingAgendaEvents, type AgendaEvent, type AgendaSource, type AgendaStatus, type AnnouncementEvent } from './individual-domain'
-import { canonicalReportId, CATEGORY_LABELS, isClosedMonth, matchingReports, normalizePersonalReport, preparePersonalReportCommit, records, reportCreatedBy, reportLastEditedBy, serviceYearStart, type SecretaryPublisher, type SecretaryReport } from './secretario-domain'
+import { CATEGORY_LABELS, isClosedMonth, matchingReports, records, reportCreatedBy, reportLastEditedBy, serviceYearStart, type SecretaryPublisher, type SecretaryReport } from './secretario-domain'
 import type { AgendaConfig, AgendaPublicDocument, AgendaSubscription, MasterPessoa } from '../types'
 import { agendaUiStorageKey, defaultAgendaUiPreferences, parseAgendaUiPreferences, type AgendaScreen, type BoardPanel, type PersonalPanel } from './individual-preferences.ts'
+import { groupPublicDocuments, publicDocumentMonths, PUBLIC_PDF_MODULES, type PublicPdfModule } from './agenda-documents-domain.ts'
 
 let ctx: AppContext | null = null
 let data: RawRoot = {}
@@ -48,10 +50,19 @@ interface OfflineAgendaCache {
   agenda: Record<string, unknown>
 }
 
+interface AgendaDataResponse {
+  masterId: string
+  person?: Pick<MasterPessoa, 'name' | 'active'>
+  events: AgendaEvent[]
+  announcements: AnnouncementEvent[]
+  secretary: Record<string, unknown>
+  agenda: Record<string, unknown>
+}
+
 const esc = (value: unknown): string => String(value ?? '').replace(/[&<>"']/g, char => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#039;' }[char] ?? char))
 const labelDate = (date: string): string => date.split('-').reverse().join('/')
 const sourceLabels: Record<AgendaSource, string> = { tarefas:'Tarefas', limpeza:'Limpeza', escala:'Escala TPL', oradores:'Oradores', programacao:'Vida e Ministério', servicoCampo:'Serviço de Campo' }
-const documentSourceLabels: Record<AgendaPublicDocument['modulo'], string> = { limpeza:'Limpeza', oradores:'Oradores', programacao:'Vida e Ministério', servicoCampo:'Serviço de Campo', admin:'Admin' }
+const documentSourceLabels: Record<AgendaPublicDocument['modulo'], string> = { tarefas:'Tarefas', limpeza:'Limpeza', escala:'Escala TPL', oradores:'Oradores', programacao:'Vida e Ministério', servicoCampo:'Serviço de Campo', admin:'Admin' }
 const fortalezaDate = (): string => new Intl.DateTimeFormat('en-CA', { timeZone:'America/Fortaleza', year:'numeric', month:'2-digit', day:'2-digit' }).format(new Date()).replace(/\//g, '-')
 
 export default function mount(context: AppContext): void {
@@ -147,7 +158,8 @@ function saveOfflineCache(): void {
   const safePerson = person ? { name:person.name, active:person.active, sex:person.sex, role:person.role, whatsapp:'', limpeza:{ grupo:null } } satisfies MasterPessoa : undefined
   const snapshot: OfflineAgendaCache = {
     masterId, savedAt:Date.now(), person:safePerson,
-    events:collectAgendaEvents(data, masterId), announcements:collectAnnouncementEvents(data),
+    events:offlinePersonalEvents ?? collectAgendaEvents(data, masterId),
+    announcements:offlineAnnouncementEvents ?? collectAnnouncementEvents(data),
     secretary:{ publicadores:ownPublishers, relatorios:ownReports, fechamentos:secretary['fechamentos'] ?? {} },
     agenda:publicAgenda,
   }
@@ -159,6 +171,24 @@ async function load(): Promise<void> {
   const previousData = data
   let synchronized = false
   try {
+    if (standaloneAgenda() || !isAdmin()) {
+      const response = await apiJson<AgendaDataResponse>('agenda-data')
+      if (!response.masterId || response.masterId !== selectedMasterId()) throw new Error('Identidade da agenda divergente')
+      if (!Array.isArray(response.events) || !Array.isArray(response.announcements)) throw new Error('Agenda inválida')
+      const person = response.person ? { name:response.person.name, active:response.person.active, whatsapp:'', sex:null, role:null, limpeza:{ grupo:null } } satisfies MasterPessoa : undefined
+      data = {
+        master:{ pessoas:person ? { [response.masterId]:person } : {} },
+        secretario:response.secretary,
+        agenda:response.agenda,
+      } as RawRoot
+      offlinePersonalEvents = response.events
+      offlineAnnouncementEvents = response.announcements
+      synchronized = true
+      loadingAssignments = false
+      saveOfflineCache()
+      render()
+      return
+    }
     const readValue = async (reference: typeof pessoasRef): Promise<unknown> => {
       try { const snapshot = await get(reference); return snapshot.exists() ? snapshot.val() as unknown : undefined }
       catch { return undefined }
@@ -336,7 +366,7 @@ function randomToken(): string {
 
 async function createSubscription(item: Omit<AgendaSubscription, 'token' | 'ativo' | 'criadoEm'>): Promise<void> {
   const response = await fetch('/.netlify/functions/calendar-subscriptions', {
-    method:'POST', headers:{ 'content-type':'application/json' },
+    method:'POST', headers:{ 'content-type':'application/json' }, credentials:'include',
     body:JSON.stringify({ ...item, installationId:installationId() }),
   })
   if (!response.ok) throw new Error('Não foi possível criar a assinatura.')
@@ -346,7 +376,7 @@ async function createSubscription(item: Omit<AgendaSubscription, 'token' | 'ativ
 
 async function revokeSubscription(token: string): Promise<void> {
   const response = await fetch('/.netlify/functions/calendar-subscriptions', {
-    method:'DELETE', headers:{ 'content-type':'application/json' },
+    method:'DELETE', headers:{ 'content-type':'application/json' }, credentials:'include',
     body:JSON.stringify({ token, installationId:installationId() }),
   })
   if (!response.ok) throw new Error('Não foi possível revogar a assinatura.')
@@ -355,7 +385,7 @@ async function revokeSubscription(token: string): Promise<void> {
 
 async function updateBoardSubscription(token: string, modulos: AgendaSource[]): Promise<AgendaSubscription> {
   const response = await fetch('/.netlify/functions/calendar-subscriptions', {
-    method:'PATCH', headers:{ 'content-type':'application/json' },
+    method:'PATCH', headers:{ 'content-type':'application/json' }, credentials:'include',
     body:JSON.stringify({ token, installationId:installationId(), modulos }),
   })
   if (!response.ok) throw new Error('Não foi possível atualizar a assinatura.')
@@ -419,14 +449,15 @@ function renderBoard(root: HTMLElement): void {
   if (!meetingDates.some(item => item.date === boardMeetingDate)) { boardMeetingDate = meetingDates[0]?.date ?? ''; persistUiPreferences() }
   const selectedMeeting = meetingDates.find(item => item.date === boardMeetingDate)
   const meetingEvents = boardMeetingEvents(allEvents, selectedMeeting)
-  const allDocuments = documents().sort((a, b) => b.criadoEm.localeCompare(a.criadoEm)), periods = [...new Set(allDocuments.map(item => item.periodo))].sort((a, b) => b.localeCompare(a))
+  const allDocuments = documents().sort((a, b) => b.criadoEm.localeCompare(a.criadoEm)), periods = publicDocumentMonths(allDocuments)
   if (!periods.includes(boardDocumentPeriod)) { boardDocumentPeriod = periods[0] ?? fortalezaDate().slice(0, 7); persistUiPreferences() }
-  const visibleDocuments = allDocuments.filter(item => item.periodo === boardDocumentPeriod)
+  const visibleDocuments = groupPublicDocuments(allDocuments, boardDocumentPeriod)
   const meetingSummary = selectedMeeting ? `${labelDate(selectedMeeting.date)} · ${selectedMeeting.kind === 'midweek' ? 'Meio de semana' : 'Fim de semana'}` : 'Nenhuma reunião futura'
   root.innerHTML = `${moduleTitle('Minha agenda')}${screenTabs()}${loadingAssignments ? '<div class="notice">Atualizando designações dos módulos...</div>' : ''}
     <div class="agenda-board-sections">
       <details class="form-panel agenda-board-card" data-agenda-panel="meetings" ${uiPreferences.board.openPanels.includes('meetings') ? 'open' : ''}><summary><strong>Dados das reuniões</strong><span>${esc(meetingSummary)}</span></summary><div class="agenda-board-body"><label class="form-field"><span>Reunião</span><select id="boardMeetingDate">${meetingDates.map(item => `<option value="${esc(item.date)}" ${item.date === boardMeetingDate ? 'selected' : ''}>${esc(labelDate(item.date))} · ${item.kind === 'midweek' ? 'Meio de semana' : 'Fim de semana'}</option>`).join('') || '<option value="">Nenhuma reunião futura</option>'}</select></label><textarea id="boardInlineDraft" class="form-input" rows="12" maxlength="4000">${esc(announcementMessage(meetingEvents))}</textarea><div class="agenda-actions"><button class="btn btn-ghost" id="boardInlineCopy" type="button">Copiar texto</button><button class="btn btn-primary" id="boardWhatsapp" type="button">Abrir WhatsApp</button></div><p class="form-help">${agendaConfig().quadroWhatsAppLink ? 'O texto será copiado e o grupo configurado no Admin será aberto.' : 'Nenhum grupo foi configurado no Admin; o seletor comum do WhatsApp será aberto.'}</p></div></details>
-      <details class="form-panel agenda-board-card" data-agenda-panel="documents" ${uiPreferences.board.openPanels.includes('documents') ? 'open' : ''}><summary><strong>Arquivos publicados</strong><span>${visibleDocuments.length} de ${allDocuments.length}</span></summary><div class="agenda-board-body"><label class="form-field"><span>Período</span><select id="boardDocumentPeriod">${periods.map(period => `<option value="${esc(period)}" ${period === boardDocumentPeriod ? 'selected' : ''}>${esc(period)}</option>`).join('') || `<option value="${esc(boardDocumentPeriod)}">${esc(boardDocumentPeriod)}</option>`}</select></label><div class="agenda-document-list">${visibleDocuments.map(item => `<a class="agenda-document" href="${esc(item.url)}" target="_blank" rel="noopener noreferrer"><span><strong>${esc(item.nome)}</strong><small>${esc(documentSourceLabels[item.modulo] ?? item.modulo)} · publicado em ${esc(labelDate(item.criadoEm.slice(0, 10)))}</small></span><b>Baixar PDF</b></a>`).join('') || '<p class="empty-state">Nenhum PDF publicado neste período.</p>'}</div></div></details>
+      <details class="form-panel agenda-board-card" data-agenda-panel="moduleDocuments" ${uiPreferences.board.openPanels.includes('moduleDocuments') ? 'open' : ''}><summary><strong>PDFs dos módulos</strong><span>${Object.keys(visibleDocuments.modules).length} de ${PUBLIC_PDF_MODULES.length}</span></summary><div class="agenda-board-body"><label class="form-field"><span>Período</span><select id="boardDocumentPeriod">${periods.map(period => `<option value="${esc(period)}" ${period === boardDocumentPeriod ? 'selected' : ''}>${esc(formatDocumentMonth(period))}</option>`).join('') || `<option value="${esc(boardDocumentPeriod)}">${esc(formatDocumentMonth(boardDocumentPeriod))}</option>`}</select></label><div class="agenda-module-downloads">${PUBLIC_PDF_MODULES.map(module => moduleDownloadRow(module, visibleDocuments.modules[module])).join('')}</div></div></details>
+      <details class="form-panel agenda-board-card" data-agenda-panel="adminDocuments" ${uiPreferences.board.openPanels.includes('adminDocuments') ? 'open' : ''}><summary><strong>Documentos do Admin</strong><span>${visibleDocuments.admin.length}</span></summary><div class="agenda-board-body"><div class="agenda-document-list">${visibleDocuments.admin.map(item => `<a class="agenda-document" href="${esc(item.url)}" target="_blank" rel="noopener noreferrer" download><span><strong>${esc(item.nome)}</strong><small>Publicado em ${esc(labelDate(item.criadoEm.slice(0, 10)))}</small></span><b>Baixar</b></a>`).join('') || '<p class="empty-state">Nenhum documento do Admin neste período.</p>'}</div></div></details>
       ${boardSubscriptionPanel()}
     </div>`
   bindScreenTabs()
@@ -434,8 +465,44 @@ function renderBoard(root: HTMLElement): void {
   document.getElementById('boardDocumentPeriod')?.addEventListener('change', event => { boardDocumentPeriod = (event.target as HTMLSelectElement).value; persistUiPreferences(); render() })
   document.getElementById('boardInlineCopy')?.addEventListener('click', () => void navigator.clipboard.writeText((document.getElementById('boardInlineDraft') as HTMLTextAreaElement).value))
   document.getElementById('boardWhatsapp')?.addEventListener('click', () => openBoardWhatsapp((document.getElementById('boardInlineDraft') as HTMLTextAreaElement).value))
+  document.querySelectorAll<HTMLButtonElement>('[data-board-document-whatsapp]').forEach(button => {
+    button.addEventListener('click', () => {
+      const module = button.dataset['boardDocumentWhatsapp'] as PublicPdfModule
+      const item = visibleDocuments.modules[module]
+      if (item) void openModuleDocumentWhatsapp(module, item)
+    })
+  })
   bindBoardSubscription()
   bindPersistentPanels()
+}
+
+function formatDocumentMonth(value: string): string {
+  if (!/^\d{4}-\d{2}$/.test(value)) return value
+  const label = new Intl.DateTimeFormat('pt-BR', { month:'long', year:'numeric', timeZone:'UTC' }).format(new Date(`${value}-15T12:00:00Z`))
+  return label.charAt(0).toUpperCase() + label.slice(1)
+}
+
+function moduleDownloadRow(module: PublicPdfModule, item?: AgendaPublicDocument): string {
+  const label = documentSourceLabels[module]
+  const hasWhatsapp = Boolean(item && agendaConfig().moduleWhatsApp?.[module]?.groupLink?.trim())
+  const actions = item
+    ? `<div class="agenda-module-download-actions"><a class="btn btn-primary" href="${esc(item.url)}" target="_blank" rel="noopener noreferrer" download="${esc(item.nome)}">Baixar PDF</a>${hasWhatsapp ? `<button class="btn btn-ghost" type="button" data-board-document-whatsapp="${module}">WhatsApp</button>` : ''}</div>`
+    : '<button class="btn btn-primary" type="button" disabled>Baixar PDF</button>'
+  return `<div class="agenda-module-download"><span><strong>${esc(label)}</strong><small>${item ? esc(item.periodo) : 'Ainda não publicado'}</small></span>${actions}</div>`
+}
+
+async function openModuleDocumentWhatsapp(module: PublicPdfModule, item: AgendaPublicDocument): Promise<void> {
+  const current = agendaConfig().moduleWhatsApp?.[module]
+  const groupLink = current?.groupLink?.trim()
+  if (!groupLink) return
+  const label = documentSourceLabels[module]
+  const template = current?.documentText?.trim() || 'Olá, irmãos. O arquivo de {modulo} referente a {periodo} está disponível para consulta:\n\n{link_ou_orientacao}\n\nObrigado.'
+  const message = template
+    .split('{modulo}').join(label)
+    .split('{periodo}').join(item.periodo)
+    .split('{link_ou_orientacao}').join(item.url)
+  try { await navigator.clipboard.writeText(message) } catch { /* O grupo ainda pode ser aberto sem a cópia automática. */ }
+  window.open(groupLink, '_blank', 'noopener,noreferrer')
 }
 
 function boardReminderOptions(): Partial<Record<AgendaSource, string[]>> {
@@ -492,7 +559,7 @@ function openShare(): void {
 }
 
 async function openBoardWhatsapp(message: string): Promise<void> {
-  const groupLink = agendaConfig().quadroWhatsAppLink?.trim()
+  const groupLink = agendaConfig().moduleWhatsApp?.quadro?.groupLink?.trim() || agendaConfig().quadroWhatsAppLink?.trim()
   if (groupLink) {
     try { await navigator.clipboard.writeText(message) } catch { /* O grupo ainda pode ser aberto sem a cópia automática. */ }
     window.open(groupLink, '_blank', 'noopener,noreferrer')
@@ -529,27 +596,26 @@ function openReport(): void {
       remaining -= 1; submit.textContent = remaining > 0 ? `Enviando em ${remaining}s` : 'Enviando...'
       if (remaining > 0) return
       if (timer) clearInterval(timer); timer = null
-      void submitPersonalReport(masterId, publisher, pendingDraft, overlay).catch(() => { setFormDisabled(false); cancel.textContent = 'Fechar'; submit.disabled = false; submit.textContent = 'Tentar novamente'; alert('Não foi possível enviar. O rascunho continua salvo neste aparelho.') })
+      void submitPersonalReport(masterId, pendingDraft, overlay).catch(() => { setFormDisabled(false); cancel.textContent = 'Fechar'; submit.disabled = false; submit.textContent = 'Tentar novamente'; alert('Não foi possível enviar. O rascunho continua salvo neste aparelho.') })
     }, 1000)
   })
 }
 
-async function submitPersonalReport(masterId: string, publisher: SecretaryPublisher, draft: PersonalReportDraft, overlay: HTMLElement): Promise<void> {
-  const freshSnapshot = await get(secretarioRef), fresh = freshSnapshot.exists() ? freshSnapshot.val() as Record<string, unknown> : {}
-  data.secretario = fresh
-  if (isClosedMonth(draft.competencia, fresh['fechamentos'])) { overlay.remove(); render(); alert('A competência foi fechada pelo Secretário antes do envio. O relatório não foi alterado.'); return }
-  const freshReports = (fresh['relatorios'] ?? {}) as Record<string, SecretaryReport>
-  if (matchingReports(freshReports, masterId, draft.competencia).length) { overlay.remove(); render(); alert('O Secretário já registrou este mês. A versão oficial foi carregada e o card está bloqueado.'); return }
-  const id = canonicalReportId(masterId, draft.competencia), now = new Date().toISOString(), submissionId = crypto.randomUUID?.() ?? randomToken()
-  const item = normalizePersonalReport({ id, masterId, competencia:draft.competencia, categoria:publisher.categoria, participou:draft.participou, estudos:draft.estudos, horasCampo:draft.horasCampo, observacoes:draft.observacoes, recebidoEm:now.slice(0, 10), atualizadoEm:now, submissionId })
-  const result = await runTransaction(secretarioRef, currentValue => {
-    const attempt = preparePersonalReportCommit(currentValue, item)
-    return attempt.ok ? attempt.value : undefined
-  }, { applyLocally:false })
-  if (!result.committed) {
-    const latest = result.snapshot.exists() ? records(result.snapshot.val()) : fresh; data.secretario = latest; overlay.remove(); render()
-    alert(isClosedMonth(draft.competencia, latest['fechamentos']) ? 'A competência foi fechada antes do envio. O relatório não foi alterado.' : 'Outro registro foi recebido antes deste envio. A versão oficial foi mantida.')
-    return
+async function submitPersonalReport(masterId: string, draft: PersonalReportDraft, overlay: HTMLElement): Promise<void> {
+  try {
+    const response = await apiJson<{ report: SecretaryReport }>('secretary-report', {
+      method:'POST',
+      body:JSON.stringify({ report:{ ...draft, submissionId:crypto.randomUUID?.() ?? randomToken() } }),
+    })
+    const secretary = records(data.secretario), nextReports = { ...records<SecretaryReport>(secretary['relatorios']), [response.report.id]:response.report }
+    data.secretario = { ...secretary, relatorios:nextReports }
+    removeReportDraft(masterId, draft.competencia); saveOfflineCache(); overlay.remove(); render(); alert('Relatório enviado. Este mês agora está bloqueado para edição pela pessoa.')
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 409) {
+      await load(); overlay.remove(); render()
+      alert('A competência foi fechada ou outro relatório já foi recebido. A versão oficial foi mantida.')
+      return
+    }
+    throw error
   }
-  data.secretario = records(result.snapshot.val()); removeReportDraft(masterId, draft.competencia); saveOfflineCache(); overlay.remove(); render(); alert('Relatório enviado. Este mês agora está bloqueado para edição pela pessoa.')
 }

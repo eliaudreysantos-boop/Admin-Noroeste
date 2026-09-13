@@ -1,23 +1,25 @@
-import { child } from 'firebase/database'
 import type { AppContext, RawPessoas } from '../types'
-import { escalaRef, get, pessoasRef, update } from '../firebase'
+import { child, escalaRef, get, pessoasRef, update } from '../firebase'
 import { renderMenuCards, type ItemMenu } from '../ui/menu-cards'
+import { moduleBackButton } from '../ui/module-header'
 import {
-  ESCALA_RULE_LABELS, activeDates, analyzeCell, availabilityKey, generateAll,
-  isBlocked, localSlots, participantName, validatePair,
+  DEFAULT_ESCALA_GENERATION_RULES, ESCALA_RULE_LABELS, activeDates, analyzeCell, availabilityKey, generateAll,
+  isBlocked, localSlots, normalizeEscalaGenerationRules, participantName, validatePair,
   participantDirectoryForHistory,
-  type EscalaAvailability, type EscalaBlocks, type EscalaGenerationInput,
+  type EscalaAvailability, type EscalaBlocks, type EscalaGenerationInput, type EscalaGenerationRules,
   type EscalaLocal, type EscalaParticipant, type EscalaPublishedSnapshot, type EscalaTable, type EscalaTables,
 } from './escala-domain'
 import {
   confirmationMessage, dayLabel, monthLabel,
 } from './escala-output'
-import { prepareScalePrint, printPreparedScale } from './escala-documents'
+import { createScaleSchedulePdf, previewScaleSchedulePdf } from './escala-documents'
+import { publishAgendaModulePdf, unpublishAgendaModulePdf } from './agenda-documents'
+import { PublicationPreviewGate } from './pdf-publication-preview'
 
 type Tab = 'indice' | 'locais' | 'participantes' | 'disponibilidade' | 'escalaAtual' | 'mensagens' | 'pendencias' | 'config'
 type Participants = Record<string, EscalaParticipant>
 type Locals = Record<string, EscalaLocal>
-interface Settings { groupWhatsAppLink?: string; printFontPt?: number }
+interface Settings { groupWhatsAppLink?: string; printFontPt?: number; engineRules?: Partial<EscalaGenerationRules> }
 interface Greetings { date?: string; participant?: string; confirm?: string }
 interface Data {
   participants?: Participants; scales?: Locals; availability?: EscalaAvailability
@@ -37,6 +39,11 @@ let publishedMonth = '', selectedMonth = monthNow(), selectedLocalId = '', selec
 let publishedMonths: Record<string, boolean> = {}
 let tab: Tab = 'indice'
 let pendingParticipantId = ''
+const scalePdfPreview = new PublicationPreviewGate()
+
+function scalePdfInput(): Parameters<typeof createScaleSchedulePdf>[0] {
+  return { month:selectedMonth, locals, tables, participants:participantDirectory(), exclusions:exclusions[selectedMonth] ?? [], requestedFontPt:Number(settings.printFontPt ?? 12) }
+}
 
 const ESCALA_MONTH_KEY = 'noroeste:escala:month'
 const ESCALA_LOCAL_KEY = 'noroeste:escala:local'
@@ -64,7 +71,7 @@ function toast(message: string): void {
   setTimeout(() => element.classList.remove('show'), 3200)
 }
 function input(localId = selectedLocalId): EscalaGenerationInput {
-  return { month: selectedMonth, localId, local: locals[localId], participants, availability, tables, blocks, exclusions: exclusions[selectedMonth] ?? [] }
+  return { month:selectedMonth, localId, local:locals[localId], participants, availability, tables, blocks, exclusions:exclusions[selectedMonth] ?? [], rules:settings.engineRules }
 }
 
 export default function mount(ctx: AppContext): void {
@@ -107,6 +114,7 @@ function render(): void {
   else if (tab === 'mensagens') renderMessages()
   else if (tab === 'pendencias') renderPending()
   else renderConfig()
+  if (tab !== 'indice' && !root().querySelector('[data-module-index-marker]')) root().insertAdjacentHTML('afterbegin', moduleBackButton())
 }
 function renderIndex(): void {
   root().innerHTML = '<div style="margin-bottom:14px"><h2 style="font-size:1.05rem;color:#1A6B3C">Escala TPL</h2></div><div id="escalaMenu"></div>'
@@ -313,7 +321,8 @@ function renderScale(): void {
   const local = locals[selectedLocalId]
   if (!local) { root().innerHTML = '<p class="empty-state">Nenhum local cadastrado.</p>'; return }
   const table = tables[selectedLocalId]?.[selectedMonth], published = publishedMonth === selectedMonth
-  root().innerHTML = `${periodControls()}${published ? '<div class="notice warning">Este mês está publicado e bloqueado para edição.</div>' : ''}<div class="scale-actions"><button id="sGenerateAll" class="btn btn-primary" ${published ? 'disabled' : ''}>${hasData(selectedMonth) ? 'Completar mês' : 'Gerar mês'}</button><button id="sPdf" class="btn btn-ghost" ${hasData(selectedMonth) ? '' : 'disabled'}>Gerar PDF</button>${published ? '<button id="sUnpublish" class="btn btn-ghost">Despublicar</button>' : `<button id="sPublish" class="btn btn-ghost" ${hasData(selectedMonth) ? '' : 'disabled'}>Publicar mês</button>${hasData(selectedMonth) ? '<button id="sDelete" class="btn btn-danger">Apagar mês</button>' : ''}`}</div><div class="scale-days">${activeDates(selectedMonth, local.daysActive ?? [], exclusions[selectedMonth] ?? []).map(date => `<section class="scale-day"><h3>${esc(dayLabel(date))}</h3>${localSlots(local).map(time => slotHtml(date, time, table)).join('')}</section>`).join('') || '<p class="empty-state">Este local não tem dias ativos neste mês.</p>'}</div>`
+  const activeRules = Object.values(normalizeEscalaGenerationRules(settings.engineRules)).filter(Boolean).length
+  root().innerHTML = `${periodControls()}${published ? '<div class="notice warning">Este mês está publicado e bloqueado para edição.</div>' : ''}<div class="scale-actions"><button id="sGenerateAll" class="btn btn-primary" ${published ? 'disabled' : ''}>${hasData(selectedMonth) ? 'Completar mês' : 'Gerar mês'} · ${activeRules} regras</button><button id="sPdf" class="btn btn-ghost" ${hasData(selectedMonth) ? '' : 'disabled'}>Gerar PDF</button>${published ? '<button id="sUnpublish" class="btn btn-ghost">Despublicar</button>' : `<button id="sPublish" class="btn btn-ghost" ${hasData(selectedMonth) ? '' : 'disabled'}>Publicar mês</button>${hasData(selectedMonth) ? '<button id="sDelete" class="btn btn-danger">Apagar mês</button>' : ''}`}</div><div class="scale-days">${activeDates(selectedMonth, local.daysActive ?? [], exclusions[selectedMonth] ?? []).map(date => `<section class="scale-day"><h3>${esc(dayLabel(date))}</h3>${localSlots(local).map(time => slotHtml(date, time, table)).join('')}</section>`).join('') || '<p class="empty-state">Este local não tem dias ativos neste mês.</p>'}</div>`
   bindPeriod(renderScale)
   document.getElementById('sGenerateAll')!.addEventListener('click', () => void generate())
   document.getElementById('sPdf')!.addEventListener('click', printPdf)
@@ -334,7 +343,7 @@ function slotHtml(date: string, time: string, table?: EscalaTable): string {
 }
 async function generate(): Promise<void> {
   if (publishedMonth === selectedMonth) { toast('Despublique o mês antes de gerar'); return }
-  const generated = generateAll({ month: selectedMonth, locals, participants, availability, tables, blocks, exclusions: exclusions[selectedMonth] ?? [] })
+  const generated = generateAll({ month:selectedMonth, locals, participants, availability, tables, blocks, exclusions:exclusions[selectedMonth] ?? [], rules:settings.engineRules })
   if (generated.errors.length) { toast(generated.errors.join('. ')); return }
   const patch: Record<string, unknown> = { editingMonth: selectedMonth, lastGeneratedAt: now() }
   Object.keys(generated.results).forEach(id => { patch[`tables/${id}/${selectedMonth}`] = generated.tables[id][selectedMonth] })
@@ -365,12 +374,20 @@ async function savePair(date: string, time: string, overlay: HTMLElement): Promi
 }
 async function publish(): Promise<void> {
   if (!hasData(selectedMonth)) { toast('Gere e revise a escala antes de publicar'); return }
-  const snapshot = { publicadoEm: now(), participants: Object.fromEntries(Object.keys(participants).map(id => [id, { name:name(id), masterId:centralId(id) || undefined, active:participants[id]?.active !== false }])), nomes: Object.fromEntries(Object.keys(participants).map(id => [id, name(id)])), locais: Object.fromEntries(orderedLocals().map(([id, local]) => [id, local.name ?? id])) }
-  try { await update(escalaRef, { publishedMonth: selectedMonth, [`publishedMonths/${selectedMonth}`]: true, [`publishedSnapshots/${selectedMonth}`]: snapshot }); publishedMonth = selectedMonth; publishedMonths[selectedMonth] = true; toast('Mês publicado e bloqueado'); renderScale() } catch { toast('Não foi possível publicar') }
+  if (!scalePdfPreview.matches(scalePdfInput())) { toast('Abra a prévia atual do PDF antes de publicar'); return }
+  const snapshot = { publicadoEm:now(), appliedRules:{ ...normalizeEscalaGenerationRules(settings.engineRules), version:1 }, participants:Object.fromEntries(Object.keys(participants).map(id => [id, { name:name(id), masterId:centralId(id) || undefined, active:participants[id]?.active !== false }])), nomes:Object.fromEntries(Object.keys(participants).map(id => [id, name(id)])), locais:Object.fromEntries(orderedLocals().map(([id, local]) => [id, local.name ?? id])) }
+  try {
+    const input = scalePdfInput()
+    const result = await createScaleSchedulePdf(input)
+    const lastDay = new Date(Number(selectedMonth.slice(0, 4)), Number(selectedMonth.slice(5, 7)), 0).getDate()
+    await publishAgendaModulePdf(result.bytes, { modulo:'escala', periodo:selectedMonth, inicio:`${selectedMonth}-01`, fim:`${selectedMonth}-${lastDay}`, origemPeriodoId:selectedMonth, nome:`escala-tpl-${selectedMonth}.pdf` })
+    await update(escalaRef, { publishedMonth:selectedMonth, [`publishedMonths/${selectedMonth}`]:true, [`publishedSnapshots/${selectedMonth}`]:snapshot })
+    publishedMonth = selectedMonth; publishedMonths[selectedMonth] = true; toast('Mês publicado e bloqueado'); renderScale()
+  } catch { toast('Não foi possível publicar') }
 }
 async function unpublish(): Promise<void> {
   if (!confirm(`Despublicar ${monthLabel(selectedMonth)}?`)) return
-  try { await update(escalaRef, { publishedMonth: '', [`publishedMonths/${selectedMonth}`]: null }); publishedMonth = ''; delete publishedMonths[selectedMonth]; toast('Mês aberto para edição'); renderScale() } catch { toast('Não foi possível despublicar') }
+  try { await unpublishAgendaModulePdf('escala', selectedMonth); await update(escalaRef, { publishedMonth:'', [`publishedMonths/${selectedMonth}`]:null }); publishedMonth = ''; delete publishedMonths[selectedMonth]; toast('Mês aberto para edição'); renderScale() } catch { toast('Não foi possível despublicar') }
 }
 
 async function deleteMonth(): Promise<void> {
@@ -454,9 +471,13 @@ function renderConfig(): void {
   const hasLocals = orderedLocals().length > 0
   const scope = '__persist__'
   root().innerHTML = `${periodControls()}<div class="form-group"><label class="form-label">Tamanho máximo no PDF: <strong id="cFontValue">${font}pt</strong></label><input id="cFont" type="range" min="8" max="18" value="${font}" style="width:100%"><p class="form-help">O app reduz a partir deste teto até encontrar a maior letra que caiba sem quebrar nomes.</p></div><div class="form-group"><label class="form-label">Confirmação de disponibilidade</label><textarea id="cConfirm" class="form-input">${esc(greetings.confirm ?? '')}</textarea></div><button id="cSave" class="btn btn-primary">Salvar confirmação e impressão</button><hr style="border:0;border-top:1px solid var(--border);margin:18px 0"><h3 style="font-size:.9rem;margin-bottom:8px">Exceções de ${esc(monthLabel(selectedMonth))}</h3><div style="display:flex;gap:8px;margin-bottom:8px"><input id="cExclusion" class="form-input" type="date" min="${selectedMonth}-01" max="${selectedMonth}-31"><button id="cAddExclusion" class="btn btn-ghost">Adicionar</button></div><div class="module-option-list">${(exclusions[selectedMonth] ?? []).map(date => `<div class="module-menu-btn" style="cursor:default"><div><div class="mod-label">${esc(dayLabel(date))}</div><div class="mod-desc">Sem carrinho em todos os locais</div></div><button class="btn btn-danger" data-remove-exclusion="${date}">Remover</button></div>`).join('') || '<p class="empty-state">Nenhuma data excluída neste mês.</p>'}</div>${hasLocals ? `<hr style="border:0;border-top:1px solid var(--border);margin:18px 0"><div class="module-form-grid" style="margin-bottom:8px"><div class="form-group"><label class="form-label">Bloqueios</label><select id="cBlockScope" class="form-select"><option value="__persist__">Todos os meses</option><option value="${selectedMonth}">Somente este mês</option></select></div><div class="form-group"><label class="form-label">Vale para</label><select id="cBlockTarget" class="form-select"><option value="__all__">Todos os locais</option>${orderedLocals().map(([id, local]) => `<option value="${esc(id)}" ${id === selectedLocalId ? 'selected' : ''}>${esc(local.name ?? id)}</option>`).join('')}</select></div></div><div id="cBlocks">${blockGrid(selectedLocalId, scope)}</div>` : ''}`
+  const rules = normalizeEscalaGenerationRules(settings.engineRules), canEditRules = isAdmin()
+  root().querySelector('hr')?.insertAdjacentHTML('beforebegin', `<div class="form-panel" style="margin-top:16px"><h3 style="margin-top:0">Regras do motor</h3><p class="form-help">As mudanças valem para a próxima geração. Disponibilidade, vínculos e regras de dupla continuam obrigatórios.</p><div class="engine-rule-list"><label><input id="scaleRulePioneer" type="checkbox" ${rules.prioridadePioneiroRegular ? 'checked' : ''} ${canEditRules ? '' : 'disabled'}> Dar prioridade ao pioneiro regular na formação da dupla</label><label><input id="scaleRuleBalance" type="checkbox" ${rules.equilibrarDesignacoes ? 'checked' : ''} ${canEditRules ? '' : 'disabled'}> Equilibrar o total de designações</label></div>${canEditRules ? '<div class="scale-actions" style="margin-top:12px"><button id="saveScaleRules" class="btn btn-primary">Salvar regras</button><button id="restoreScaleRules" class="btn btn-ghost">Restaurar padrões</button></div>' : '<div class="notice">Somente o Admin pode alterar estas regras.</div>'}</div>`)
   bindPeriod(renderConfig)
   document.getElementById('cFont')!.addEventListener('input', e => { document.getElementById('cFontValue')!.textContent = `${(e.target as HTMLInputElement).value}pt` })
   document.getElementById('cSave')!.addEventListener('click', () => void saveConfig())
+  document.getElementById('saveScaleRules')?.addEventListener('click', () => void saveScaleRules())
+  document.getElementById('restoreScaleRules')?.addEventListener('click', () => void saveScaleRules(DEFAULT_ESCALA_GENERATION_RULES))
   document.getElementById('cAddExclusion')!.addEventListener('click', () => void addExclusion())
   document.querySelectorAll<HTMLButtonElement>('[data-remove-exclusion]').forEach(button => button.addEventListener('click', () => void removeExclusion(button.dataset['removeExclusion']!)))
   const refreshBlocks = () => {
@@ -468,6 +489,12 @@ function renderConfig(): void {
   document.getElementById('cBlockScope')?.addEventListener('change', refreshBlocks)
   document.getElementById('cBlockTarget')?.addEventListener('change', refreshBlocks)
   bindBlockInputs()
+}
+async function saveScaleRules(value?: EscalaGenerationRules): Promise<void> {
+  if (!isAdmin()) { toast('Somente o Admin pode alterar as regras'); return }
+  const next = value ?? { prioridadePioneiroRegular:(document.getElementById('scaleRulePioneer') as HTMLInputElement).checked, equilibrarDesignacoes:(document.getElementById('scaleRuleBalance') as HTMLInputElement).checked }
+  try { await update(escalaRef, { 'settings/engineRules':{ ...next, version:1 } }); settings.engineRules = next; toast(value ? 'Padrões restaurados' : 'Regras salvas'); renderConfig() }
+  catch { toast('Não foi possível salvar as regras') }
 }
 function blockGrid(target: string, scope: string): string {
   const labels = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
@@ -502,11 +529,8 @@ async function saveConfig(): Promise<void> {
 }
 
 function printPdf(): void {
-  const prepared = prepareScalePrint({ month: selectedMonth, locals, tables, participants: participantDirectory(), exclusions: exclusions[selectedMonth] ?? [], requestedFontPt: Number(settings.printFontPt ?? 12) })
-  const overlay = document.createElement('div'); overlay.className = 'modal-overlay'
-  overlay.innerHTML = `<div class="modal escala-preview-modal"><h2>Prévia da Escala TPL</h2><p class="form-help">Fonte ajustada para ${prepared.fontPt} pt. Confira antes de imprimir.</p><div class="escala-print-preview" style="--escala-print-font:${prepared.fontPt}pt">${prepared.html}</div><div class="pdf-preview-actions"><button class="btn btn-ghost" id="closeScalePreview" type="button">Fechar</button><button class="btn btn-primary" id="printScalePreview" type="button">Imprimir</button></div></div>`
-  document.body.appendChild(overlay)
-  document.getElementById('closeScalePreview')?.addEventListener('click', () => overlay.remove())
-  document.getElementById('printScalePreview')?.addEventListener('click', () => { printPreparedScale(prepared, selectedMonth); toast(`Impressão preparada em ${prepared.fontPt} pt`) })
-  overlay.addEventListener('click', event => { if (event.target === overlay) overlay.remove() })
+  const input = scalePdfInput()
+  void previewScaleSchedulePdf(input)
+    .then(() => { scalePdfPreview.mark(input); toast('Prévia do PDF aberta e pronta para publicação') })
+    .catch(() => toast('Não foi possível gerar o PDF'))
 }

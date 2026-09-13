@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import JSZip from 'jszip'
-import * as XLSX from 'xlsx'
+import ExcelJS from 'exceljs'
 import { createS21BatchZip } from '../src/modules/secretario-spreadsheets.ts'
 
 test('exportação anual S-21 cria ZIP organizado com fichas e resumos', async () => {
@@ -24,6 +24,10 @@ test('exportação anual S-21 cria ZIP organizado com fichas e resumos', async (
   assert.ok(zip.file('Registros totais da congregação/Publicadores.xlsx'))
   assert.ok(zip.file('Contatos.xlsx')); assert.ok(zip.file('Grupos de serviço.xlsx'))
   const bytes = await zip.file('Publicadores ativos/Outros publicadores/Grupo 1/Ana.xlsx').async('uint8array')
-  const sheet = XLSX.read(bytes, { type:'array' }).Sheets['S-21']
-  assert.equal(sheet['F5'].v, 'Atividades aprovadas'); assert.equal(sheet['F6'].v, 3)
+  const book = new ExcelJS.Workbook()
+  await book.xlsx.load(bytes)
+  const sheet = book.getWorksheet('S-21')
+  assert.equal(sheet.getCell('F5').value, 'Atividades aprovadas'); assert.equal(sheet.getCell('F6').value, 3)
+  assert.equal(sheet.pageSetup.orientation, 'portrait')
+  assert.equal(sheet.getCell('A5').border.bottom.style, 'thin')
 })

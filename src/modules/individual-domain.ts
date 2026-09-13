@@ -60,13 +60,16 @@ export function collectAgendaEvents(rootValue: unknown, masterId: string, allowe
     })
   })
 
-  if (allowed.limpeza !== false) Object.entries(rows(rows(root['limpeza'])['periodos'])).forEach(([periodId, periodValue]) => values(rows(periodValue)['semanas']).forEach((weekValue, index) => {
+  if (allowed.limpeza !== false) Object.entries(rows(rows(root['limpeza'])['periodos'])).forEach(([periodId, periodValue]) => {
+    if (rows(periodValue)['publicado'] !== true) return
+    values(rows(periodValue)['semanas']).forEach((weekValue, index) => {
     const week = rows(weekValue), ids = [text(week['superintendenteMid']), ...values(week['ajudantesMid']).map(text), ...values(week['membrosMid']).map(text)]
     if (!ids.includes(masterId)) return
     const title = `Limpeza - ${text(week['grupoNome']) || `Grupo ${Number(week['grupo'])}`}`
     add({ id:`limpeza:${periodId}:${index}:midweek`, source:'limpeza', date:text(week['dataMeioSemana']) || text(week['referencia']), title, detail:'Limpeza após a reunião do meio de semana', status:'futuro' })
     if (text(week['dataFimSemana'])) add({ id:`limpeza:${periodId}:${index}:weekend`, source:'limpeza', date:text(week['dataFimSemana']), title, detail:'Limpeza semanal do Salão do Reino', status:'futuro' })
-  }))
+    })
+  })
 
   if (allowed.escala !== false) {
     const escala = rows(root['escala']), participantIds = new Set(Object.entries(rows(escala['participants'])).filter(([, person]) => text(rows(person)['masterId']) === masterId).map(([id]) => id))
@@ -200,7 +203,7 @@ export function agendaToIcs(events: AgendaEvent[], generatedAt: string, options:
   return `BEGIN:VCALENDAR\r\nVERSION:2.0\r\nCALSCALE:GREGORIAN\r\nMETHOD:PUBLISH\r\nPRODID:-//Noroeste//Minha agenda//PT-BR\r\nX-WR-CALNAME:${icsEscape(options.calendarName || 'Minha agenda Noroeste')}\r\nX-WR-TIMEZONE:America/Fortaleza\r\n${body}\r\nEND:VCALENDAR\r\n`
 }
 
-export function eventsInFeedWindow(events: AgendaEvent[], today: string): AgendaEvent[] {
+export function eventsInFeedWindow<T extends AgendaEvent>(events: T[], today: string): T[] {
   const anchor = new Date(`${today}T12:00:00Z`)
   const start = new Date(anchor); start.setUTCMonth(start.getUTCMonth() - 2)
   const end = new Date(anchor); end.setUTCMonth(end.getUTCMonth() + 12)

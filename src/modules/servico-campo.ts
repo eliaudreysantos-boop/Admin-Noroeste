@@ -3,6 +3,7 @@ import { configCongregacaoRef, get, pessoasRef, servicoCampoRef, update } from '
 import { renderMenuCards, type ItemMenu } from '../ui/menu-cards'
 import { moduleBackButton, moduleTitle } from '../ui/module-header'
 import { generateFieldServicePeriod, type FieldServiceAssignment, type FieldServicePeriod, type FieldServiceTemplate } from './servico-campo-domain'
+import { PublicationPreviewGate } from './pdf-publication-preview'
 
 interface ServiceRoot {
   templates?: Record<string, FieldServiceTemplate>
@@ -19,13 +20,18 @@ let people: RawPessoas = {}
 let congregation: ConfigCongregacao = { nome:'Noroeste', cidade:'', circuito:'', idioma:'pt-BR' }
 let selectedMonth = localStorage.getItem(MONTH_KEY) ?? new Date().toISOString().slice(0, 7)
 let editingTemplateId = ''
+const fieldServicePdfPreview = new PublicationPreviewGate()
+
+function fieldServicePdfInput(assignments = Object.values(currentPeriod()?.assignments ?? {})): Parameters<typeof import('./servico-campo-documents').createFieldServicePdf>[0] {
+  return { month:selectedMonth, assignments, people, congregation:congregation.nome }
+}
 
 const esc = (value: unknown): string => String(value ?? '').replace(/[&<>"']/g, char => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#039;' }[char] ?? char))
 const id = (prefix: string): string => `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`
 const templates = (): Record<string, FieldServiceTemplate> => data.templates ?? {}
 const periods = (): Record<string, FieldServicePeriod> => data.periods ?? {}
 const currentPeriod = (): FieldServicePeriod | undefined => periods()[selectedMonth]
-const leaderIds = (): string[] => Object.keys(data.leaders ?? {}).filter(masterId => data.leaders?.[masterId] && people[masterId]?.active !== false).sort((a, b) => people[a]!.name.localeCompare(people[b]!.name, 'pt-BR'))
+const leaderIds = (): string[] => Object.keys(data.leaders ?? {}).filter(masterId => data.leaders?.[masterId] && people[masterId]?.active !== false && people[masterId]?.sex === 'M').sort((a, b) => people[a]!.name.localeCompare(people[b]!.name, 'pt-BR'))
 const personName = (masterId: string): string => people[masterId]?.name ?? 'Cadastro não encontrado'
 const ROLE_LABELS: Record<string, string> = { anciao:'Ancião', 'servo-ministerial':'Servo ministerial', pioneiro:'Pioneiro', batizado:'Batizado', publicador:'Publicador' }
 const roleLabel = (person: MasterPessoa): string => ROLE_LABELS[person.role ?? ''] ?? 'Sem função'
@@ -135,25 +141,35 @@ async function deleteAssignment(assignmentId: string): Promise<void> {
 async function publishPeriod(): Promise<void> {
   const period = currentPeriod(), assignments = Object.values(period?.assignments ?? {})
   if (!period || !assignments.length || assignments.some(item => !item.leaderId)) { toast('Defina um dirigente para todas as saídas'); return }
+  if (!fieldServicePdfPreview.matches(fieldServicePdfInput(assignments))) { toast('Abra a prévia atual do PDF antes de publicar'); return }
   const publishedAt = new Date().toISOString()
-  try { await update(servicoCampoRef, { [`periods/${selectedMonth}/published`]:true, [`periods/${selectedMonth}/publishedAt`]:publishedAt }); period.published = true; period.publishedAt = publishedAt; toast('Mês publicado na Minha Agenda e no Quadro'); render() } catch { toast('Não foi possível publicar o mês') }
+  try {
+    const { createFieldServicePdf } = await import('./servico-campo-documents')
+    const { publishAgendaModulePdf } = await import('./agenda-documents')
+    const bytes = await createFieldServicePdf(fieldServicePdfInput(assignments))
+    const lastDay = new Date(Number(selectedMonth.slice(0, 4)), Number(selectedMonth.slice(5, 7)), 0).getDate()
+    await publishAgendaModulePdf(bytes, { modulo:'servicoCampo', periodo:selectedMonth, inicio:`${selectedMonth}-01`, fim:`${selectedMonth}-${lastDay}`, origemPeriodoId:selectedMonth, nome:`servico-de-campo-${selectedMonth}.pdf` })
+    await update(servicoCampoRef, { [`periods/${selectedMonth}/published`]:true, [`periods/${selectedMonth}/publishedAt`]:publishedAt }); period.published = true; period.publishedAt = publishedAt; toast('Mês publicado na Minha Agenda e no Quadro'); render()
+  } catch { toast('Não foi possível publicar o mês') }
 }
 
 async function reopenPeriod(): Promise<void> {
   const period = currentPeriod(); if (!period || !confirm(`Reabrir ${monthLabel(selectedMonth)} para edição?`)) return
-  try { await update(servicoCampoRef, { [`periods/${selectedMonth}/published`]:false, [`periods/${selectedMonth}/publishedAt`]:null }); period.published = false; delete period.publishedAt; toast('Mês reaberto'); render() } catch { toast('Não foi possível reabrir o mês') }
+  try { const { unpublishAgendaModulePdf } = await import('./agenda-documents'); await unpublishAgendaModulePdf('servicoCampo', selectedMonth); await update(servicoCampoRef, { [`periods/${selectedMonth}/published`]:false, [`periods/${selectedMonth}/publishedAt`]:null }); period.published = false; delete period.publishedAt; toast('Mês reaberto'); render() } catch { toast('Não foi possível reabrir o mês') }
 }
 
 async function openPdf(): Promise<void> {
   const assignments = Object.values(currentPeriod()?.assignments ?? {}); if (!assignments.length) return
-  try { const docs = await import('./servico-campo-documents'); await docs.previewFieldServicePdf({ month:selectedMonth, assignments, people, congregation:congregation.nome }); toast('Prévia do PDF gerada') } catch { toast('Não foi possível gerar o PDF') }
+  const input = fieldServicePdfInput(assignments)
+  try { const docs = await import('./servico-campo-documents'); await docs.previewFieldServicePdf(input); fieldServicePdfPreview.mark(input); toast('Prévia do PDF gerada e pronta para publicação') } catch { toast('Não foi possível gerar o PDF') }
 }
 
 function renderConfiguration(): void {
   const current = templates()[editingTemplateId]
-  const templateRows = Object.values(templates()).sort((a, b) => a.sortOrder - b.sortOrder || a.dow - b.dow || a.time.localeCompare(b.time)).map(item => `<div class="secretary-row"><div><strong>${DAYS[item.dow]} · ${esc(item.time)}</strong><small>${esc(item.location)} · ${esc(item.label)} · ${item.active ? 'Ativa' : 'Inativa'}</small></div><button class="btn btn-ghost" data-edit-service-template="${esc(item.id)}">Editar</button><button class="btn btn-danger" data-delete-service-template="${esc(item.id)}" title="Remover saída">✕</button></div>`).join('')
-  const leaderRows = Object.entries(people).filter(([, person]) => person.active !== false).sort((a, b) => a[1].name.localeCompare(b[1].name, 'pt-BR')).map(([masterId, person]) => `<label class="service-leader-option"><input type="checkbox" data-service-eligible="${esc(masterId)}" ${data.leaders?.[masterId] ? 'checked' : ''}><span><strong>${esc(person.name)}</strong><small>${esc(roleLabel(person))}</small></span></label>`).join('')
-  root().innerHTML = `${sectionTitle('Configuração do Serviço de Campo')}<form id="serviceTemplateForm" class="form-panel"><h3 style="margin-top:0">${current ? 'Editar saída recorrente' : 'Nova saída recorrente'}</h3><input name="templateId" type="hidden" value="${esc(current?.id)}"><div class="module-form-grid"><label class="form-field"><span>Dia</span><select name="dow">${DAYS.map((day, dow) => `<option value="${dow}" ${current?.dow === dow ? 'selected' : ''}>${day}</option>`).join('')}</select></label><label class="form-field"><span>Hora</span><input name="time" type="time" value="${esc(current?.time ?? '08:30')}" required></label><label class="form-field"><span>Local</span><input name="location" maxlength="80" value="${esc(current?.location)}" required></label><label class="form-field"><span>Descrição</span><input name="label" maxlength="60" value="${esc(current?.label ?? 'Saída de campo')}"></label><label class="form-field"><span>Ordem</span><input name="sortOrder" type="number" value="${current?.sortOrder ?? Object.keys(templates()).length}"></label><label><input name="active" type="checkbox" ${current?.active !== false ? 'checked' : ''}> Saída ativa</label></div><div class="service-actions"><button class="btn btn-primary" type="submit">Salvar saída</button>${current ? '<button id="cancelServiceTemplate" class="btn btn-ghost" type="button">Cancelar</button>' : ''}</div></form><div class="module-option-list">${templateRows || '<p class="empty-state">Nenhuma saída recorrente cadastrada.</p>'}</div><div class="form-panel"><h3 style="margin-top:0">Dirigentes do rodízio</h3><p class="form-help">O rodízio funciona com qualquer quantidade de pessoas. Em dias com várias saídas, evita repetir o dirigente enquanto houver outra pessoa disponível.</p><div class="service-leader-grid">${leaderRows || '<p class="empty-state">Nenhuma pessoa ativa no Admin.</p>'}</div><button id="saveServiceLeaders" class="btn btn-primary" type="button">Salvar dirigentes</button></div>`
+  const templateRows = Object.values(templates()).sort((a, b) => a.sortOrder - b.sortOrder || a.dow - b.dow || a.time.localeCompare(b.time)).map(item => `<div class="secretary-row"><div><strong>${DAYS[item.dow]} · ${esc(item.time)}</strong><small>${esc(item.location)} · ${esc(item.label)} · ${item.active ? 'Ativa' : 'Inativa'} · ${item.leaderIds?.length ? `${item.leaderIds.length} dirigente(s) próprio(s)` : 'rodízio geral'}</small></div><button class="btn btn-ghost" data-edit-service-template="${esc(item.id)}">Editar</button><button class="btn btn-danger" data-delete-service-template="${esc(item.id)}" title="Remover saída">✕</button></div>`).join('')
+  const leaderRows = Object.entries(people).filter(([, person]) => person.active !== false && person.sex === 'M').sort((a, b) => a[1].name.localeCompare(b[1].name, 'pt-BR')).map(([masterId, person]) => `<label class="service-leader-option"><input type="checkbox" data-service-eligible="${esc(masterId)}" ${data.leaders?.[masterId] ? 'checked' : ''}><span><strong>${esc(person.name)}</strong><small>${esc(roleLabel(person))}</small></span></label>`).join('')
+  const ownLeaderRows = Object.entries(people).filter(([, person]) => person.active !== false && person.sex === 'M').sort((a, b) => a[1].name.localeCompare(b[1].name, 'pt-BR')).map(([masterId, person]) => `<label class="service-leader-option"><input name="templateLeader" type="checkbox" value="${esc(masterId)}" ${current?.leaderIds?.includes(masterId) ? 'checked' : ''}><span><strong>${esc(person.name)}</strong><small>${esc(roleLabel(person))}</small></span></label>`).join('')
+  root().innerHTML = `${sectionTitle('Configuração do Serviço de Campo')}<form id="serviceTemplateForm" class="form-panel"><h3 style="margin-top:0">${current ? 'Editar saída recorrente' : 'Nova saída recorrente'}</h3><input name="templateId" type="hidden" value="${esc(current?.id)}"><div class="module-form-grid"><label class="form-field"><span>Dia</span><select name="dow">${DAYS.map((day, dow) => `<option value="${dow}" ${current?.dow === dow ? 'selected' : ''}>${day}</option>`).join('')}</select></label><label class="form-field"><span>Hora</span><input name="time" type="time" value="${esc(current?.time ?? '08:30')}" required></label><label class="form-field"><span>Local</span><input name="location" maxlength="80" value="${esc(current?.location)}" required></label><label class="form-field"><span>Descrição</span><input name="label" maxlength="60" value="${esc(current?.label ?? 'Saída de campo')}"></label><label class="form-field"><span>Ordem</span><input name="sortOrder" type="number" value="${current?.sortOrder ?? Object.keys(templates()).length}"></label><label><input name="active" type="checkbox" ${current?.active !== false ? 'checked' : ''}> Saída ativa</label></div><details style="margin-top:12px"><summary>Rodízio próprio deste dia e horário</summary><p class="form-help">Sem seleção, esta saída usa o rodízio geral. Selecione irmãos aqui para criar um revezamento específico.</p><div class="service-leader-grid">${ownLeaderRows || '<p class="empty-state">Nenhum irmão ativo disponível.</p>'}</div></details><div class="service-actions"><button class="btn btn-primary" type="submit">Salvar saída</button>${current ? '<button id="cancelServiceTemplate" class="btn btn-ghost" type="button">Cancelar</button>' : ''}</div></form><div class="module-option-list">${templateRows || '<p class="empty-state">Nenhuma saída recorrente cadastrada.</p>'}</div><div class="form-panel"><h3 style="margin-top:0">Dirigentes do rodízio geral</h3><p class="form-help">Somente irmãos ativos aparecem como dirigentes. O rodízio funciona com qualquer quantidade de pessoas e evita repetir o responsável no mesmo dia enquanto houver outra pessoa disponível.</p><div class="service-leader-grid">${leaderRows || '<p class="empty-state">Nenhum irmão ativo disponível no cadastro Admin.</p>'}</div><button id="saveServiceLeaders" class="btn btn-primary" type="button">Salvar dirigentes</button></div>`
   document.getElementById('serviceTemplateForm')?.addEventListener('submit', event => { event.preventDefault(); void saveTemplate(event.currentTarget as HTMLFormElement) })
   document.getElementById('cancelServiceTemplate')?.addEventListener('click', () => { editingTemplateId = ''; render() })
   document.querySelectorAll<HTMLButtonElement>('[data-edit-service-template]').forEach(button => button.addEventListener('click', () => { editingTemplateId = button.dataset.editServiceTemplate!; render() }))
@@ -164,7 +180,7 @@ function renderConfiguration(): void {
 async function saveTemplate(form: HTMLFormElement): Promise<void> {
   const values = new FormData(form), templateId = String(values.get('templateId') ?? '') || id('modelo'), time = String(values.get('time') ?? ''), location = String(values.get('location') ?? '').trim()
   if (!/^\d{2}:\d{2}$/.test(time) || !location) { toast('Preencha horário e local'); return }
-  const item: FieldServiceTemplate = { id:templateId, label:String(values.get('label') ?? '').trim() || 'Saída de campo', dow:Number(values.get('dow')), time, location, active:values.get('active') === 'on', sortOrder:Number(values.get('sortOrder')) || 0 }
+  const item: FieldServiceTemplate = { id:templateId, label:String(values.get('label') ?? '').trim() || 'Saída de campo', dow:Number(values.get('dow')), time, location, active:values.get('active') === 'on', sortOrder:Number(values.get('sortOrder')) || 0, leaderIds:values.getAll('templateLeader').map(String).filter(Boolean) }
   try { await update(servicoCampoRef, { [`templates/${templateId}`]:item }); data.templates = { ...templates(), [templateId]:item }; editingTemplateId = ''; toast('Saída recorrente salva'); render() } catch { toast('Não foi possível salvar a saída') }
 }
 

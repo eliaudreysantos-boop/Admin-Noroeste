@@ -51,6 +51,27 @@ export interface TaskPeriod {
   meetings?: Record<string, TaskMeeting>
   generatedAt?: string
   generatedCols?: Record<string, boolean>
+  appliedRules?: TaskGenerationRules & { version: number }
+}
+
+export interface TaskGenerationRules {
+  presidenteSegundaTarefa: boolean
+  equilibrarDesignacoes: boolean
+  evitarRepetirFuncao: boolean
+}
+
+export const DEFAULT_TASK_GENERATION_RULES: TaskGenerationRules = {
+  presidenteSegundaTarefa:true,
+  equilibrarDesignacoes:true,
+  evitarRepetirFuncao:true,
+}
+
+export function normalizeTaskGenerationRules(value?: Partial<TaskGenerationRules>): TaskGenerationRules {
+  return {
+    presidenteSegundaTarefa:value?.presidenteSegundaTarefa !== false,
+    equilibrarDesignacoes:value?.equilibrarDesignacoes !== false,
+    evitarRepetirFuncao:value?.evitarRepetirFuncao !== false,
+  }
 }
 
 export interface TaskMeetingEntry {
@@ -275,14 +296,13 @@ function emptyStats(): PersonStats {
   return { total: 0, byRole: { presidente: 0, operador: 0, leitor: 0, entrada: 0, auditorio: 0, microfone: 0 } }
 }
 
-function rankCandidates(ids: string[], role: TaskRole, stats: Record<string, PersonStats>, people: Record<string, TaskPerson>): string[] {
+function rankCandidates(ids: string[], role: TaskRole, stats: Record<string, PersonStats>, people: Record<string, TaskPerson>, rules: TaskGenerationRules): string[] {
   const base = TASK_ROLE_BASE[role]
   return [...ids].sort((a, b) => {
     const sa = stats[a] ?? emptyStats()
     const sb = stats[b] ?? emptyStats()
-    return Number(sa.total > 0) - Number(sb.total > 0) ||
-      Number(sa.byRole[base] > 0) - Number(sb.byRole[base] > 0) ||
-      sa.total - sb.total || sa.byRole[base] - sb.byRole[base] ||
+    return (rules.equilibrarDesignacoes ? Number(sa.total > 0) - Number(sb.total > 0) || sa.total - sb.total : 0) ||
+      (rules.evitarRepetirFuncao ? Number(sa.byRole[base] > 0) - Number(sb.byRole[base] > 0) || sa.byRole[base] - sb.byRole[base] : 0) ||
       personName(people[a], a).localeCompare(personName(people[b], b), 'pt-BR') || a.localeCompare(b)
   })
 }
@@ -292,6 +312,7 @@ function validateMeeting(
   finalAssignments: Partial<Record<TaskRole, string>>,
   context: TaskDomainContext,
   roleFilter: TaskRole | null,
+  rules: TaskGenerationRules,
 ): string[] {
   const errors: string[] = []
   const byPerson = new Map<string, TaskRole[]>()
@@ -315,7 +336,7 @@ function validateMeeting(
     if (!result.eligible) errors.push(`${entry.meeting.date} - ${TASK_ROLE_LABELS[role]}: ${personName(context.people[id], id)} (${result.reason}).`)
   })
   const president = finalAssignments.presidente
-  if (president && roleApplies('presidente', entry.meeting)) {
+  if (rules.presidenteSegundaTarefa && president && roleApplies('presidente', entry.meeting)) {
     const secondaries = PRESIDENT_SECONDARY.filter(role => finalAssignments[role] === president)
     if (secondaries.length !== 1) errors.push(`${entry.meeting.date}: o Presidente precisa ter exatamente uma segunda função mecânica.`)
   }
@@ -382,7 +403,9 @@ export function computeGeneration(
   targetPeriodId?: string,
   onlyPending = false,
   pendingFromDate = '',
+  options?: Partial<TaskGenerationRules>,
 ): GenerationResult {
+  const rules = normalizeTaskGenerationRules(options)
   const targets = meetingEntries(context.periods)
     .filter(entry => (!targetPeriodId || entry.periodId === targetPeriodId) && entry.meeting.date && entry.meeting.date >= startDate && canonicalMeetingType(entry.meeting.type) && !meetingIsBlocked(context, entry.meeting))
     .filter(entry => !onlyPending || Boolean(entry.meeting.date && entry.meeting.date >= pendingFromDate))
@@ -445,10 +468,11 @@ export function computeGeneration(
         return
       }
       let candidates = Object.keys(context.people).filter(id => eligibility(id, role, entry.meeting, finalAssignments, context).eligible)
+      if (!rules.presidenteSegundaTarefa) candidates = candidates.filter(id => !Object.values(finalAssignments).includes(id))
       if (role === 'presidente' && roleFilter === 'presidente') {
         candidates = candidates.filter(id => PRESIDENT_SECONDARY.some(secondary => finalAssignments[secondary] === id))
       }
-      const chosen = rankCandidates(candidates, role, stats, context.people)[0]
+      const chosen = rankCandidates(candidates, role, stats, context.people, rules)[0]
       if (!chosen) {
         errors.push(`${entry.meeting.date}: sem candidato para ${TASK_ROLE_LABELS[role]}.`)
         return
@@ -458,7 +482,7 @@ export function computeGeneration(
       addStat(chosen, role)
       generated += 1
 
-      if (role === 'presidente' && roleFilter === null) {
+      if (rules.presidenteSegundaTarefa && role === 'presidente' && roleFilter === null) {
         reservedSecondary = PRESIDENT_SECONDARY.find(secondary =>
           inScope(secondary) && roleApplies(secondary, entry.meeting) &&
           eligibility(chosen, secondary, entry.meeting, finalAssignments, context).eligible,
@@ -466,7 +490,7 @@ export function computeGeneration(
         if (reservedSecondary) finalAssignments[reservedSecondary] = chosen
       }
     })
-    errors.push(...validateMeeting(entry, finalAssignments, context, roleFilter))
+    errors.push(...validateMeeting(entry, finalAssignments, context, roleFilter, rules))
   })
 
   if (errors.length) return { aborted: true, patch: {}, generated: 0, errors: [...new Set(errors)] }
@@ -474,6 +498,7 @@ export function computeGeneration(
   const generatedRoles = roleFilter ? [roleFilter] : TASK_ROLES
   ;[...new Set(targets.map(entry => entry.periodId))].forEach(periodId => {
     generatedRoles.forEach(role => { patch[`${periodId}/generatedCols/${role}`] = true })
+    patch[`${periodId}/appliedRules`] = { ...rules, version:1 }
   })
   return { aborted: false, patch, generated, errors: [] }
 }

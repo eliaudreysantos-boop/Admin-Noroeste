@@ -1,153 +1,72 @@
-import { initializeApp }                        from 'firebase/app'
-import {
-  getDatabase,
-  ref,
-  get,
-  set,
-  update,
-  remove,
-  runTransaction,
-  type DatabaseReference,
-} from 'firebase/database'
-import { getStorage } from 'firebase/storage'
+import { apiJson } from './secure-api.ts'
 
-export { get, set, update, remove, runTransaction }
+export interface DatabaseReference { path: string }
 
-// ─── Config ────────────────────────────────────────────────────────────────
-
-const firebaseConfig = {
-  apiKey:            'AIzaSyCh7kQN-MyRuScl98PwAM71_9aC89ra8sM',
-  authDomain:        'oradoress2.firebaseapp.com',
-  databaseURL:       'https://oradoress2-default-rtdb.firebaseio.com',
-  projectId:         'oradoress2',
-  storageBucket:     'oradoress2.firebasestorage.app',
-  messagingSenderId: '772512696802',
-  appId:             '1:772512696802:web:96f718fa2ccbbaa65d91bb',
+export interface DataSnapshot<T = unknown> {
+  exists(): boolean
+  val(): T | null
 }
 
-const app = initializeApp(firebaseConfig)
-const db  = getDatabase(app)
-export const storage = getStorage(app)
+const reference = (path: string): DatabaseReference => ({ path:path.replace(/^\/+|\/+$/g, '') })
 
-// ─── Referências — master ──────────────────────────────────────────────────
-
-export const rootRef: DatabaseReference =
-  ref(db, '/')
-
-export const masterRef: DatabaseReference =
-  ref(db, 'master')
-
-export const pessoasRef: DatabaseReference =
-  ref(db, 'master/pessoas')
-
-export function pessoaRef(mid: string): DatabaseReference {
-  return ref(db, `master/pessoas/${mid}`)
+export function child(parent: DatabaseReference, path: string): DatabaseReference {
+  return reference(`${parent.path}/${path}`)
 }
 
-// ─── Referências — master/config ───────────────────────────────────────────
-
-export const configRef: DatabaseReference =
-  ref(db, 'master/config')
-
-export const configCongregacaoRef: DatabaseReference =
-  ref(db, 'master/config/congregacao')
-
-export const configReunioesRef: DatabaseReference =
-  ref(db, 'master/config/reunioes')
-
-export const configLimpezaRef: DatabaseReference =
-  ref(db, 'master/config/limpeza')
-
-export const limpezaPeriodosRef: DatabaseReference =
-  ref(db, 'limpeza/periodos')
-
-export const limpezaRef: DatabaseReference =
-  ref(db, 'limpeza')
-
-export const configDesignacoesRef: DatabaseReference =
-  ref(db, 'master/config/designacoes')
-
-// ─── Referências — usuarios ────────────────────────────────────────────────
-
-export const usuariosRef: DatabaseReference =
-  ref(db, 'usuarios')
-
-export function usuarioRef(uid: string): DatabaseReference {
-  return ref(db, `usuarios/${uid}`)
+export async function get<T = unknown>(target: DatabaseReference): Promise<DataSnapshot<T>> {
+  const response = await apiJson<{ value: T | null }>(`database?path=${encodeURIComponent(target.path)}`)
+  return { exists:() => response.value !== null && response.value !== undefined, val:() => response.value }
 }
 
-// ─── Referências — outros nós ──────────────────────────────────────────────
-
-export const tarefasPeopleRef: DatabaseReference =
-  ref(db, 'tarefas/people')
-
-export function tarefasPessoaRef(pid: string): DatabaseReference {
-  return ref(db, `tarefas/people/${pid}`)
+export async function set(target: DatabaseReference, value: unknown): Promise<void> {
+  await apiJson(`database?path=${encodeURIComponent(target.path)}`, { method:'PUT', body:JSON.stringify({ value }) })
 }
 
-export const tarefasScaleRef: DatabaseReference =
-  ref(db, 'tarefas/scale/periods')
-
-export const tarefasDiscursosRef: DatabaseReference =
-  ref(db, 'tarefas/discursos')
-
-export const tarefasOradoresRef: DatabaseReference =
-  ref(db, 'tarefas/discursos/oradores')
-
-export const tarefasProgramacaoOradoresRef: DatabaseReference =
-  ref(db, 'tarefas/discursos/programacao')
-
-export const tarefasCongregacoesRef: DatabaseReference =
-  ref(db, 'tarefas/discursos/congregacoes')
-
-export const tarefasPlanejamentoRef: DatabaseReference =
-  ref(db, 'tarefas/planning')
-
-export const tarefasRef: DatabaseReference =
-  ref(db, 'tarefas')
-
-export const tarefasEventosRef: DatabaseReference =
-  ref(db, 'tarefas/events')
-
-export const escalaParticipantsRef: DatabaseReference =
-  ref(db, 'escala/participants')
-
-export function escalaParticipantRef(eid: string): DatabaseReference {
-  return ref(db, `escala/participants/${eid}`)
+export async function update(target: DatabaseReference, value: Record<string, unknown>): Promise<void> {
+  await apiJson(`database?path=${encodeURIComponent(target.path)}`, { method:'PATCH', body:JSON.stringify({ value }) })
 }
 
-export const escalaPubSnapshotsRef: DatabaseReference =
-  ref(db, 'escala/publishedSnapshots')
+export async function remove(target: DatabaseReference): Promise<void> {
+  await apiJson(`database?path=${encodeURIComponent(target.path)}`, { method:'DELETE' })
+}
 
-export const escalaScalesRef: DatabaseReference =
-  ref(db, 'escala/scales')
-
-export const escalaTablesRef: DatabaseReference =
-  ref(db, 'escala/tables')
-
-export const escalaPublishedMonthRef: DatabaseReference =
-  ref(db, 'escala/publishedMonth')
-
-export const escalaPublishedMonthsRef: DatabaseReference =
-  ref(db, 'escala/publishedMonths')
-
-export const escalaSettingsRef: DatabaseReference =
-  ref(db, 'escala/settings')
-
-export const escalaRef: DatabaseReference =
-  ref(db, 'escala')
-
-export const programacaoRef: DatabaseReference =
-  ref(db, 'programacao')
-
-export const secretarioRef: DatabaseReference =
-  ref(db, 'secretario')
-
-export const servicoCampoRef: DatabaseReference =
-  ref(db, 'servicoCampo')
-
-export const agendaConfigRef: DatabaseReference =
-  ref(db, 'agenda/config')
-
-export const agendaDocumentsRef: DatabaseReference =
-  ref(db, 'agenda/documentos')
+export const rootRef = reference('')
+export const masterRef = reference('master')
+export const pessoasRef = reference('master/pessoas')
+export const pessoaRef = (mid: string): DatabaseReference => reference(`master/pessoas/${mid}`)
+export const configRef = reference('master/config')
+export const configCongregacaoRef = reference('master/config/congregacao')
+export const configReunioesRef = reference('master/config/reunioes')
+export const configLimpezaRef = reference('master/config/limpeza')
+export const limpezaPeriodosRef = reference('limpeza/periodos')
+export const limpezaRef = reference('limpeza')
+export const configDesignacoesRef = reference('master/config/designacoes')
+export const usuariosRef = reference('usuarios')
+export const usuarioRef = (uid: string): DatabaseReference => reference(`usuarios/${uid}`)
+export const tarefasPeopleRef = reference('tarefas/people')
+export const tarefasPessoaRef = (pid: string): DatabaseReference => reference(`tarefas/people/${pid}`)
+export const tarefasScaleRef = reference('tarefas/scale/periods')
+export const tarefasDiscursosRef = reference('tarefas/discursos')
+export const tarefasOradoresRef = reference('tarefas/discursos/oradores')
+export const tarefasProgramacaoOradoresRef = reference('tarefas/discursos/programacao')
+export const tarefasCongregacoesRef = reference('tarefas/discursos/congregacoes')
+export const tarefasPlanejamentoRef = reference('tarefas/planning')
+export const tarefasOradoresPublicacoesRef = reference('tarefas/planning/oradoresPublicacoes')
+export const tarefasRef = reference('tarefas')
+export const tarefasEventosRef = reference('tarefas/events')
+export const escalaParticipantsRef = reference('escala/participants')
+export const escalaParticipantRef = (eid: string): DatabaseReference => reference(`escala/participants/${eid}`)
+export const escalaPubSnapshotsRef = reference('escala/publishedSnapshots')
+export const escalaScalesRef = reference('escala/scales')
+export const escalaTablesRef = reference('escala/tables')
+export const escalaPublishedMonthRef = reference('escala/publishedMonth')
+export const escalaPublishedMonthsRef = reference('escala/publishedMonths')
+export const escalaSettingsRef = reference('escala/settings')
+export const escalaRef = reference('escala')
+export const programacaoRef = reference('programacao')
+export const secretarioRef = reference('secretario')
+export const secretarioPublicadoresRef = reference('secretario/publicadores')
+export const secretarioGruposRef = reference('secretario/grupos')
+export const servicoCampoRef = reference('servicoCampo')
+export const agendaConfigRef = reference('agenda/config')
+export const agendaDocumentsRef = reference('agenda/documentos')

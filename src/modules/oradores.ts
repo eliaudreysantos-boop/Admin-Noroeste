@@ -1,9 +1,10 @@
 import type { AppContext, RawPessoas } from '../types'
-import { get, pessoasRef, update, tarefasDiscursosRef, tarefasEventosRef, tarefasPlanejamentoRef, tarefasScaleRef } from '../firebase'
+import { get, pessoasRef, update, tarefasDiscursosRef, tarefasEventosRef, tarefasOradoresPublicacoesRef, tarefasPlanejamentoRef, tarefasScaleRef } from '../firebase'
 import { renderMenuCards, type ItemMenu } from '../ui/menu-cards'
 import { moduleBackButton, moduleTitle } from '../ui/module-header'
 import { allowedTheme, assignmentsForSpeaker, confirmationPatch, deriveStatus, eventBlocksLocal, meetingDatesForMonth, missingLocalTalkDates, needsReconfirmation, talkConflicts, themeHistory, watchtowerIssues, type Congregation, type Speaker, type Talk, type Theme } from './oradores-domain'
-import { availableSpeakerThemes, downloadSchedulePdf, downloadThemeCatalogPdf, type SchedulePdfRow, type ThemeCatalogRow } from './oradores-documents'
+import { availableSpeakerThemes, createSchedulePdf, downloadSchedulePdf, downloadThemeCatalogPdf, type SchedulePdfRow, type ThemeCatalogRow } from './oradores-documents'
+import { PublicationPreviewGate } from './pdf-publication-preview'
 
 interface LegacyOrador extends Speaker {}
 interface LegacyProgramacao extends Talk {}
@@ -22,9 +23,14 @@ interface LegacyDiscursos {
 let discursos: LegacyDiscursos = {}
 let pessoas: RawPessoas = {}
 let taskMeetings: { id: string; date?: string; type?: string; assignments?: Record<string, unknown> }[] = []
-let oradoresPlanning: { meetingDays?: { weekendDow?: number }; weekendDow?: number; excludedDates?: string[] | Record<string, unknown> } = {}
+let oradoresPlanning: { meetingDays?: { weekendDow?: number }; weekendDow?: number; excludedDates?: string[] | Record<string, unknown>; oradoresPublicacoes?: Record<string, { publicadoEm?: string }> } = {}
 type OradoresTab = 'indice' | 'resumo' | 'cadastro' | 'programacao' | 'designacoes' | 'emergencia' | 'temas' | 'congregacoes' | 'intercambios' | 'eventos' | 'pendencias'
 let activeTab: OradoresTab = 'indice'
+const speakerSchedulePreview = new PublicationPreviewGate()
+
+function speakerSchedulePreviewInput(rows: SchedulePdfRow[]): unknown {
+  return { congregation:localCongregationName(), period:selectedProgramacaoPeriod, rows }
+}
 const ORADORES_DESIGNATION_SPEAKER_KEY = 'noroeste:oradores:designation-speaker'
 const ORADORES_PERIOD_KEY = 'noroeste:oradores:period'
 const ORADORES_FUTURE_KEY = 'noroeste:oradores:only-future'
@@ -146,6 +152,7 @@ function render(): void {
   })
   el.querySelector<HTMLButtonElement>('[data-add-programacao]')?.addEventListener('click', () => openProgramacaoModal(null))
   el.querySelector<HTMLButtonElement>('[data-download-programacao]')?.addEventListener('click', () => void downloadProgramacaoPdf())
+  el.querySelector<HTMLButtonElement>('[data-publish-programacao]')?.addEventListener('click', () => void toggleProgramacaoPublication())
   el.querySelector<HTMLButtonElement>('[data-fill-programacao-dates]')?.addEventListener('click', () => void fillProgramacaoDates())
   el.querySelector<HTMLSelectElement>('[data-programacao-period]')?.addEventListener('change', event => {
     selectedProgramacaoPeriod = (event.target as HTMLSelectElement).value
@@ -560,7 +567,8 @@ function programacaoView(): string {
   const monthOptions = programacaoMonthOptions().map(month => `<option value="${month}" ${month === selectedProgramacaoPeriod ? 'selected' : ''}>${formatMonth(month)}</option>`).join('')
   const typeColor: Record<string, string> = { discurso_local:'#003F72', discurso_visitante:'#1A6B3C', saida_orador:'#7E3AF2' }
   const typeLabel: Record<string, string> = { discurso_local:'Local', discurso_visitante:'Visitante', saida_orador:'Saída' }
-  return `<div style="margin-top:14px"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:2px"><div><h3 style="font-size:.95rem;color:#5C6062">Programação</h3><p style="font-size:.75rem;color:var(--ink-3)">Compromissos, confirmações e datas de reunião.</p></div><button class="btn btn-primary" type="button" data-add-programacao style="padding:6px 10px;font-size:.78rem;white-space:nowrap">Adicionar</button></div><div class="module-form-grid" style="margin:12px 0 8px"><div class="form-group"><label class="form-label">Período</label><select class="form-select" data-programacao-period>${monthOptions}</select></div><div class="form-group"><label class="form-label">Tipo</label><select class="form-select" data-programacao-type><option value="todos">Todos</option>${Object.entries(typeLabel).map(([id, label]) => `<option value="${id}" ${programTypeFilter === id ? 'selected' : ''}>${label}</option>`).join('')}</select></div><div class="form-group"><label class="form-label">Status</label><select class="form-select" data-programacao-status><option value="todos">Todos</option><option value="confirmado" ${programStatusFilter === 'confirmado' ? 'selected' : ''}>Confirmado</option><option value="por_confirmar" ${programStatusFilter === 'por_confirmar' ? 'selected' : ''}>A confirmar</option><option value="por_definir" ${programStatusFilter === 'por_definir' ? 'selected' : ''}>Por definir</option></select></div><div class="form-group" style="display:flex;align-items:end"><button class="btn btn-ghost" type="button" data-fill-programacao-dates style="width:100%">Preencher datas</button></div></div><div style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin:8px 0"><label style="display:flex;align-items:center;gap:8px;font-size:.82rem"><input type="checkbox" data-programacao-only-future ${onlyFutureProgramacao ? 'checked' : ''}> Somente futuros</label><button class="btn btn-ghost" type="button" data-download-programacao>Abrir prévia do PDF</button></div><div class="module-option-list">${rows.length ? rows.map(([id, p]) => { const status = deriveStatus(p), type = canonicalTalkType(p.tipo), speaker = discursos.oradores?.[p.oradorId ?? ''], lastOpen = p.confirmacao?.whatsappAbertoEm; return `<article class="oradores-program-card" style="--talk-color:${typeColor[type]}"><div class="oradores-program-head"><div><strong>${escapeHtml(p.data ? formatDate(p.data) : 'Sem data')}${p.horarioLocal ? ` · ${escapeHtml(p.horarioLocal)}` : ''}</strong><small>${escapeHtml(typeLabel[type])} · ${escapeHtml(talkPlace(p))}</small></div><span class="agenda-status ${status === 'confirmado' ? 'realizado' : 'confirmacao-pendente'}">${status === 'confirmado' ? 'Confirmado' : status === 'por_definir' ? 'Por definir' : 'A confirmar'}</span></div><div class="oradores-program-body"><strong>${escapeHtml(p.oradorNome ?? oradorNome(p.oradorId ?? '', speaker) ?? 'Orador a definir')}</strong><span>${escapeHtml(p.temaNumero ? `${String(p.temaNumero).padStart(3, '0')} · ${p.temaTitulo ?? 'Tema a definir'}` : p.temaTitulo ?? 'Tema a definir')}</span><small>${p.reconfirmacao?.status ? `Reconfirmado em ${escapeHtml(formatDate(p.reconfirmacao.confirmadoEm?.slice(0, 10)))}` : status === 'confirmado' ? `Confirmado em ${escapeHtml(formatDate(p.confirmacao?.confirmadoEm?.slice(0, 10)))}` : 'Confirmação ainda não registrada'}${lastOpen ? ` · WhatsApp aberto em ${escapeHtml(formatDate(lastOpen.slice(0, 10)))}` : ''}</small></div><div class="oradores-card-actions">${status !== 'confirmado' ? `<button class="btn btn-ghost" type="button" data-programacao-request="${escapeHtml(id)}">Pedir confirmação</button><button class="btn btn-ghost" type="button" data-programacao-confirm="${escapeHtml(id)}">Confirmar</button>` : `<button class="btn btn-ghost" type="button" data-programacao-unconfirm="${escapeHtml(id)}">Desfazer confirmação</button>`}${status === 'confirmado' && needsReconfirmation(p, today) ? `<button class="btn btn-ghost" type="button" data-programacao-reconfirm="${escapeHtml(id)}">Reconfirmar</button>` : ''}<button class="btn btn-ghost" type="button" data-edit-programacao="${escapeHtml(id)}">Editar</button><button class="btn btn-danger" type="button" data-delete-programacao="${escapeHtml(id)}">Excluir</button></div></article>` }).join('') : '<p class="empty-state">Nenhum compromisso corresponde aos filtros.</p>'}</div></div>`
+  const published = Boolean(oradoresPlanning.oradoresPublicacoes?.[selectedProgramacaoPeriod])
+  return `<div style="margin-top:14px"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:2px"><div><h3 style="font-size:.95rem;color:#5C6062">Programação</h3><p style="font-size:.75rem;color:var(--ink-3)">Compromissos, confirmações e datas de reunião.</p></div><button class="btn btn-primary" type="button" data-add-programacao style="padding:6px 10px;font-size:.78rem;white-space:nowrap">Adicionar</button></div>${published ? '<div class="notice">Este período está publicado no Quadro. Edições exigem republicação para atualizar o PDF.</div>' : ''}<div class="module-form-grid" style="margin:12px 0 8px"><div class="form-group"><label class="form-label">Período</label><select class="form-select" data-programacao-period>${monthOptions}</select></div><div class="form-group"><label class="form-label">Tipo</label><select class="form-select" data-programacao-type><option value="todos">Todos</option>${Object.entries(typeLabel).map(([id, label]) => `<option value="${id}" ${programTypeFilter === id ? 'selected' : ''}>${label}</option>`).join('')}</select></div><div class="form-group"><label class="form-label">Status</label><select class="form-select" data-programacao-status><option value="todos">Todos</option><option value="confirmado" ${programStatusFilter === 'confirmado' ? 'selected' : ''}>Confirmado</option><option value="por_confirmar" ${programStatusFilter === 'por_confirmar' ? 'selected' : ''}>A confirmar</option><option value="por_definir" ${programStatusFilter === 'por_definir' ? 'selected' : ''}>Por definir</option></select></div><div class="form-group" style="display:flex;align-items:end"><button class="btn btn-ghost" type="button" data-fill-programacao-dates style="width:100%">Preencher datas</button></div></div><div style="display:flex;justify-content:flex-end;flex-wrap:wrap;gap:8px;align-items:center;margin:8px 0"><label style="margin-right:auto;display:flex;align-items:center;gap:8px;font-size:.82rem"><input type="checkbox" data-programacao-only-future ${onlyFutureProgramacao ? 'checked' : ''}> Somente futuros</label><button class="btn btn-ghost" type="button" data-download-programacao>Abrir prévia do PDF</button><button class="btn ${published ? 'btn-danger' : 'btn-primary'}" type="button" data-publish-programacao>${published ? 'Despublicar período' : 'Publicar período'}</button></div><div class="module-option-list">${rows.length ? rows.map(([id, p]) => { const status = deriveStatus(p), type = canonicalTalkType(p.tipo), speaker = discursos.oradores?.[p.oradorId ?? ''], lastOpen = p.confirmacao?.whatsappAbertoEm; return `<article class="oradores-program-card" style="--talk-color:${typeColor[type]}"><div class="oradores-program-head"><div><strong>${escapeHtml(p.data ? formatDate(p.data) : 'Sem data')}${p.horarioLocal ? ` · ${escapeHtml(p.horarioLocal)}` : ''}</strong><small>${escapeHtml(typeLabel[type])} · ${escapeHtml(talkPlace(p))}</small></div><span class="agenda-status ${status === 'confirmado' ? 'realizado' : 'confirmacao-pendente'}">${status === 'confirmado' ? 'Confirmado' : status === 'por_definir' ? 'Por definir' : 'A confirmar'}</span></div><div class="oradores-program-body"><strong>${escapeHtml(p.oradorNome ?? oradorNome(p.oradorId ?? '', speaker) ?? 'Orador a definir')}</strong><span>${escapeHtml(p.temaNumero ? `${String(p.temaNumero).padStart(3, '0')} · ${p.temaTitulo ?? 'Tema a definir'}` : p.temaTitulo ?? 'Tema a definir')}</span><small>${p.reconfirmacao?.status ? `Reconfirmado em ${escapeHtml(formatDate(p.reconfirmacao.confirmadoEm?.slice(0, 10)))}` : status === 'confirmado' ? `Confirmado em ${escapeHtml(formatDate(p.confirmacao?.confirmadoEm?.slice(0, 10)))}` : 'Confirmação ainda não registrada'}${lastOpen ? ` · WhatsApp aberto em ${escapeHtml(formatDate(lastOpen.slice(0, 10)))}` : ''}</small></div><div class="oradores-card-actions">${status !== 'confirmado' ? `<button class="btn btn-ghost" type="button" data-programacao-request="${escapeHtml(id)}">Pedir confirmação</button><button class="btn btn-ghost" type="button" data-programacao-confirm="${escapeHtml(id)}">Confirmar</button>` : `<button class="btn btn-ghost" type="button" data-programacao-unconfirm="${escapeHtml(id)}">Desfazer confirmação</button>`}${status === 'confirmado' && needsReconfirmation(p, today) ? `<button class="btn btn-ghost" type="button" data-programacao-reconfirm="${escapeHtml(id)}">Reconfirmar</button>` : ''}<button class="btn btn-ghost" type="button" data-edit-programacao="${escapeHtml(id)}">Editar</button><button class="btn btn-danger" type="button" data-delete-programacao="${escapeHtml(id)}">Excluir</button></div></article>` }).join('') : '<p class="empty-state">Nenhum compromisso corresponde aos filtros.</p>'}</div></div>`
 }
 
 function filteredProgramEntries(): Array<[string, LegacyProgramacao]> {
@@ -577,17 +585,49 @@ function localCongregationName(): string {
   return Object.values(discursos.congregacoes ?? {}).find(congregation => congregation.tipo === 'local')?.nome?.trim() || 'Noroeste'
 }
 
-async function downloadProgramacaoPdf(): Promise<void> {
-  const rows: SchedulePdfRow[] = filteredProgramEntries()
+function programacaoPdfRows(): SchedulePdfRow[] {
+  return Object.entries(discursos.programacao ?? {})
+    .filter(([, talk]) => !talk.data || talk.data.startsWith(selectedProgramacaoPeriod))
+    .sort(([, a], [, b]) => String(a.data ?? '').localeCompare(String(b.data ?? '')))
     .map(([, talk]) => {
-      const speaker = talk.oradorId ? discursos.oradores?.[talk.oradorId] : undefined
-      const congregation = discursos.congregacoes?.[talk.tipo === 'saida_orador' ? talk.congregacaoDestinoId ?? talk.congregacaoId ?? '' : talk.congregacaoOrigemId ?? talk.congregacaoId ?? '']
-      return { data: talk.data ?? '', tipo: talk.tipo ?? '', orador: talk.oradorNome ?? oradorNome(talk.oradorId ?? '', speaker), tema: talk.temaNumero ? `${talk.temaNumero} ${talk.temaTitulo ?? ''}`.trim() : talk.temaTitulo ?? '', congregacao: talk.tipo === 'discurso_local' ? localCongregationName() : congregation?.nome ?? (talk.tipo === 'saida_orador' ? talk.congregacaoDestinoNome ?? '' : talk.congregacaoOrigemNome ?? '') }
+    const speaker = talk.oradorId ? discursos.oradores?.[talk.oradorId] : undefined
+    const congregation = discursos.congregacoes?.[talk.tipo === 'saida_orador' ? talk.congregacaoDestinoId ?? talk.congregacaoId ?? '' : talk.congregacaoOrigemId ?? talk.congregacaoId ?? '']
+    return { data:talk.data ?? '', tipo:talk.tipo ?? '', orador:talk.oradorNome ?? oradorNome(talk.oradorId ?? '', speaker), tema:talk.temaNumero ? `${talk.temaNumero} ${talk.temaTitulo ?? ''}`.trim() : talk.temaTitulo ?? '', congregacao:talk.tipo === 'discurso_local' ? localCongregationName() : congregation?.nome ?? (talk.tipo === 'saida_orador' ? talk.congregacaoDestinoNome ?? '' : talk.congregacaoOrigemNome ?? '') }
     })
+}
+
+async function downloadProgramacaoPdf(): Promise<void> {
+  const rows = programacaoPdfRows()
   try {
     await downloadSchedulePdf({ congregation: localCongregationName(), periodLabel: selectedProgramacaoPeriod, rows })
-    toast('Prévia da programação gerada')
+    speakerSchedulePreview.mark(speakerSchedulePreviewInput(rows))
+    toast('Prévia da programação gerada e pronta para publicação')
   } catch { toast('Não foi possível gerar o PDF') }
+}
+
+async function toggleProgramacaoPublication(): Promise<void> {
+  const published = Boolean(oradoresPlanning.oradoresPublicacoes?.[selectedProgramacaoPeriod])
+  try {
+    const { publishAgendaModulePdf, unpublishAgendaModulePdf } = await import('./agenda-documents')
+    if (published) {
+      await unpublishAgendaModulePdf('oradores', selectedProgramacaoPeriod)
+      await update(tarefasOradoresPublicacoesRef, { [selectedProgramacaoPeriod]:null })
+      delete oradoresPlanning.oradoresPublicacoes?.[selectedProgramacaoPeriod]
+      toast('Programação retirada do Quadro')
+    } else {
+      const rows = programacaoPdfRows()
+      if (!rows.length) { toast('Nenhuma programação neste período'); return }
+      if (!speakerSchedulePreview.matches(speakerSchedulePreviewInput(rows))) { toast('Abra a prévia atual do PDF antes de publicar'); return }
+      const result = await createSchedulePdf({ congregation:localCongregationName(), periodLabel:selectedProgramacaoPeriod, rows })
+      const lastDay = new Date(Number(selectedProgramacaoPeriod.slice(0, 4)), Number(selectedProgramacaoPeriod.slice(5, 7)), 0).getDate()
+      await publishAgendaModulePdf(result.bytes, { modulo:'oradores', periodo:selectedProgramacaoPeriod, inicio:`${selectedProgramacaoPeriod}-01`, fim:`${selectedProgramacaoPeriod}-${lastDay}`, origemPeriodoId:selectedProgramacaoPeriod, nome:`programacao-oradores-${selectedProgramacaoPeriod}.pdf` })
+      const publicadoEm = new Date().toISOString()
+      await update(tarefasOradoresPublicacoesRef, { [selectedProgramacaoPeriod]:{ publicadoEm } })
+      oradoresPlanning.oradoresPublicacoes ??= {}; oradoresPlanning.oradoresPublicacoes[selectedProgramacaoPeriod] = { publicadoEm }
+      toast('Programação publicada no Quadro')
+    }
+    render()
+  } catch { toast('Não foi possível alterar a publicação') }
 }
 
 async function setProgramacaoConfirmation(id: string, reconfirmacao: boolean): Promise<void> {

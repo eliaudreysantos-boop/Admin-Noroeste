@@ -4,7 +4,7 @@ import { validateBackup, validateFirebaseValue } from '../src/modules/mestre-bac
 
 const validBackup = () => ({
   master: { pessoas: { m1: { name: 'Ana', whatsapp: '', active: true } } },
-  usuarios: { admin: { nome: 'Admin', senha: '42754', ativo: true, apps: { mestre: true } } },
+  usuarios: { admin: { nome: 'Admin', senha: 'senha-teste', ativo: true, apps: { mestre: true } } },
   tarefas: { people: {} },
 })
 

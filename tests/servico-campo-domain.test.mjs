@@ -31,3 +31,12 @@ test('adapter público retorna somente períodos publicados', () => {
   const values = publishedFieldServiceAssignments({ periods:{ a:{ month:'2026-09', published:false, assignments:{ a:assignment } }, b:{ month:'2026-10', published:true, assignments:{ b:{ ...assignment, id:'b', date:'2026-10-05' } } } } })
   assert.deepEqual(values.map(item => item.id), ['b'])
 })
+
+test('cada saída recorrente pode ter seu próprio rodízio', () => {
+  const period = generateFieldServicePeriod({
+    month:'2026-09',
+    templates:{ a:{ id:'a', label:'Segunda', dow:1, time:'18:00', location:'Salão', active:true, sortOrder:0, leaderIds:['m2'] } },
+    leaderIds:['m1', 'm2'],
+  })
+  assert.equal(Object.values(period.assignments).every(item => item.leaderId === 'm2'), true)
+})

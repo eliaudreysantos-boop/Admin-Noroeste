@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#003F72" />
   <title>Noroeste — Admin</title>
+  <link rel="icon" href="/icon-192.png" />
   <link rel="stylesheet" href="/src/style.css" />
   <link rel="manifest" href="/manifest.json" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -14,7 +15,7 @@
 
   <!-- ── Login overlay ──────────────────────────────────────────────────── -->
   <div id="loginOverlay">
-    <div id="loginBox">
+    <form id="loginBox">
       <h1>Noroeste</h1>
       <p class="subtitle">Sistema de gestão congregacional</p>
 
@@ -42,11 +43,11 @@
 
       <p id="loginError"></p>
 
-      <button id="btnEntrar" class="btn btn-primary btn-full">
+      <button id="btnEntrar" class="btn btn-primary btn-full" type="submit">
         Entrar
       </button>
       <a class="btn btn-ghost btn-full login-agenda-link" href="/agenda/">Abrir Minha Agenda</a>
-    </div>
+    </form>
   </div>
 
   <!-- ── App shell ──────────────────────────────────────────────────────── -->
@@ -60,7 +61,7 @@
         class="bottom-nav-btn hidden"
         type="button"
         title="Voltar"
-      >← Módulos</button>
+      >← Voltar</button>
       <button id="btnSair" class="bottom-nav-btn bottom-nav-exit" type="button" title="Sair">Sair</button>
       <span id="bottomBrand">NOROESTE</span>
       <span id="bottomUser"></span>

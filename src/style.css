@@ -580,8 +580,8 @@ textarea.form-input {
 }
 
 @keyframes screen-enter {
-  from { opacity: 0; transform: translateX(22px); }
-  to { opacity: 1; transform: translateX(0); }
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 @keyframes card-enter {
@@ -1080,6 +1080,14 @@ textarea.form-input {
 .agenda-board-body { padding: 0 16px 16px; border-top: 1px solid var(--border); }
 .agenda-board-body > :first-child { margin-top: 14px; }
 .agenda-document-list { display: grid; gap: 8px; margin-top: 12px; }
+.agenda-module-downloads { display: grid; gap: 8px; margin-top: 12px; }
+.agenda-module-download { min-height: 58px; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 9px 10px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); }
+.agenda-module-download span, .agenda-module-download strong, .agenda-module-download small { display: block; min-width: 0; }
+.agenda-module-download small { margin-top: 3px; color: var(--ink-3); font-size: .72rem; overflow-wrap: anywhere; }
+.agenda-module-download .btn { min-width: 112px; }
+.agenda-module-download-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 7px; }
+.engine-rule-list { display: grid; gap: 9px; margin-top: 12px; }
+.engine-rule-list label { min-height: 44px; display: flex; align-items: center; gap: 9px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 7px; color: var(--ink-2); font-size: .84rem; }
 .agenda-document { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 12px; border: 1px solid var(--border); border-radius: 6px; color: var(--ink); text-decoration: none; }
 .agenda-document:hover { border-color: var(--primary); background: var(--surface-2); }
 .agenda-document span, .agenda-document small { display: block; }

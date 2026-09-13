@@ -11,7 +11,7 @@ que essa pasta de referencias for apagada.
 - Repositorio principal: `admin-spa`.
 - Baseline auditada: commit `662a4fd`.
 - Build de producao concluido sem erros.
-- Suite completa com 127 testes aprovados.
+- Suite completa com 157 testes aprovados.
 - Admin/Mestre, Tarefas, Limpeza, Oradores, Escala TPL, Vida e Ministerio,
   Secretario, Servico de Campo e Minha Agenda ja possuem seus fluxos principais.
 - Os dados atuais sao exemplos para validar o aplicativo. A revisao e o
@@ -28,8 +28,78 @@ que essa pasta de referencias for apagada.
 - Telefones compartilhados entre pais, filhos ou familiares sao permitidos.
 - Os outros modulos selecionam pessoas existentes e guardam somente o
   `masterId`; nao criam cadastros paralelos.
+- Telas de adicionar usuario ou participante em qualquer modulo nao devem
+  permitir editar o nome manualmente. O nome exibido deve ser sempre puxado da
+  pessoa central vinculada ao `masterId`.
+- Quando um modulo precisar de uma pessoa, deve oferecer select da base central,
+  gravar `masterId` e exibir nome/telefone derivados do cadastro Admin.
+- Se o `masterId` nao existir mais, o modulo deve sinalizar vinculo quebrado em
+  relatorio de falhas, nao criar outro nome local para compensar.
 - Todo usuario administrativo deve ser vinculado a uma pessoa existente.
 - Senhas e permissoes de modulos continuam no cadastro administrativo atual.
+
+### Links e textos de WhatsApp
+
+- Cada modulo pode ter seu proprio link de grupo de WhatsApp.
+- O Admin pode repetir o mesmo link em varios modulos quando a congregacao usar
+  um grupo unico.
+- A interface nao deve assumir que todos os modulos compartilham o mesmo grupo.
+- Botoes `WhatsApp` devem usar o link configurado no modulo de origem.
+- Textos predefinidos devem ser educados, curtos e editaveis pelo Admin.
+- Quando nao houver link configurado, o botao deve ficar indisponivel ou oculto
+  conforme o padrao visual ja usado no modulo.
+
+### Padrao de layout e navegacao dos modulos
+
+- Todos os apps devem seguir o mesmo padrao visual de cabecalho, area de
+  conteudo, botoes principais, botoes secundarios, cards, formularios e barra
+  inferior.
+- A barra inferior deve concentrar a navegacao principal de retorno no mesmo
+  lugar em todos os modulos.
+- O botao inferior esquerdo deve substituir os botoes soltos de voltar no topo
+  quando a tela ja estiver dentro de um modulo ou subfluxo.
+- O comportamento deve seguir uma pilha simples:
+  - em telas internas, o botao mostra `Voltar` e retorna para a tela anterior;
+  - se ainda houver nivel anterior dentro do modulo, continua mostrando
+    `Voltar`;
+  - ao chegar na tela inicial do modulo, o botao passa a indicar saida do modulo,
+    usando `Sair` ou o rotulo equivalente definido para voltar ao indice;
+  - no indice de modulos, o botao deve representar a saida da sessao quando esse
+    for o fluxo atual do usuario.
+- O rotulo nao deve ficar preso em `Modulos` quando a acao real for voltar. O
+  texto do botao precisa explicar a proxima acao imediata.
+- Se o usuario entrar em uma tela profunda, como painel S-1, templates, previa
+  PDF ou configuracao, o primeiro toque deve voltar um nivel, nao sair direto do
+  modulo.
+- O botao superior de voltar so deve permanecer quando houver motivo especifico
+  de layout ou acessibilidade; nesse caso ele deve executar a mesma acao do
+  botao inferior e nao criar dois caminhos diferentes.
+- A regiao inferior direita deve continuar livre para a marca da Netlify ou para
+  areas protegidas do navegador/PWA, sem controles importantes sobrepostos.
+- Botoes destrutivos, publicar, salvar, gerar PDF e fechar competencia devem
+  ficar no conteudo da tela, nunca substituindo o botao de navegacao inferior.
+- A padronizacao deve ser aplicada gradualmente a todos os modulos antes da
+  homologacao visual final.
+
+### Padrao visual dos PDFs publicos
+
+- Tarefas, Oradores, Limpeza e Servico de Campo devem preferir PDF em A4
+  retrato.
+- O layout desses PDFs deve ser padronizado o maximo possivel entre modulos:
+  cabecalho, periodo, identificacao da congregacao, blocos de conteudo, rodape e
+  escala de fonte.
+- Mesmo quando o conteudo nao exigir colunas, o PDF deve manter linhas visiveis
+  para facilitar leitura, conferencia e impressao.
+- As linhas podem separar datas, reunioes, saidas, grupos, oradores ou blocos de
+  programacao conforme o modulo.
+- Evitar PDF com conteudo solto em texto corrido quando a informacao representa
+  uma escala ou programacao.
+- A previa deve mostrar o mesmo layout que sera baixado ou publicado.
+- A reducao de fonte deve preservar legibilidade antes de tentar comprimir
+  informacao demais em uma pagina.
+- Quando um PDF nao couber em uma folha, pode usar paginas adicionais mantendo o
+  mesmo padrao visual, mas a preferencia inicial e tentar organizar em uma folha
+  A4 retrato quando for razoavel.
 
 ### Minha Agenda
 
@@ -60,7 +130,7 @@ que essa pasta de referencias for apagada.
 
 ## Auditoria modulo a modulo
 
-Auditoria de codigo atualizada em 11/09/2026. A suite possui 126 testes e o
+Auditoria de codigo atualizada em 13/09/2026. A suite possui 157 testes e o
 build de producao esta aprovado. `Concluido no codigo` significa que nao foi
 encontrada lacuna funcional conhecida no dominio; ainda exige a homologacao de
 interface descrita ao final deste documento.
@@ -80,8 +150,10 @@ Confirmado:
   `usuario.masterId`;
 - usuarios ativos sem vinculo incluidos no relatorio de falhas;
 - Minha Agenda exibida no indice de modulos;
-- backup e auditoria leem apenas as raizes publicas, sem enumerar tokens ICS;
-- dez testes de dominio, backup e regras aprovados.
+- backup e auditoria passam pela sessao Admin e omitem todas as raizes privadas;
+- sessao de servidor, CSRF, pareamento de aparelho e matriz de permissao sem
+  Firebase Authentication;
+- vinte testes de dominio, backup, autorizacao, regras e cache aprovados.
 
 Falta:
 
@@ -99,7 +171,7 @@ Confirmado:
 - reabertura, limpeza controlada, pendencias e vinculo por `masterId`;
 - previa de impressao com ajuste de fonte e paginacao;
 - mensagens comuns de reuniao nao sao enviadas por este modulo;
-- quinze testes aprovados.
+- dezessete testes aprovados, incluindo o PDF real e as regras opcionais.
 
 Falta apenas na homologacao:
 
@@ -159,7 +231,7 @@ Confirmado:
 - separacao explicita do modulo Servico de Campo: pontos e horarios de carrinho
   nao podem ser importados como saidas de campo;
 - mensagens comuns nao sao enviadas por este modulo;
-- dezesseis testes aprovados.
+- dezoito testes aprovados, incluindo o PDF real e as regras opcionais.
 
 Falta apenas na homologacao:
 
@@ -224,7 +296,36 @@ Confirmado:
 - PDF A4 retrato com previa e publicacao no Quadro;
 - evento pessoal somente para o dirigente, com lembrete;
 - evento coletivo no Quadro sem lembrete;
-- quatro testes aprovados.
+- cinco testes aprovados, incluindo o rodizio proprio por dia e horario.
+
+Regras novas registradas durante a auditoria visual:
+
+- todos na congregacao podem participar do arranjo, mas cada saida possui apenas
+  um homem designado como dirigente responsavel;
+- a assinatura ICS individual deve gerar lembrete somente para o dirigente;
+- o Quadro e a assinatura coletiva podem mostrar a saida de campo, mas sem
+  lembrete para todos;
+- os irmaos consultam a programacao completa pelo PDF do Servico de Campo;
+- o PDF deve imprimir data, horario, local e somente o nome do responsavel;
+- a geracao deve aceitar dois modos:
+  - por data especifica, como nos outros modulos;
+  - recorrente semanal, onde o Admin configura responsaveis e rodizio por
+    dia/horario, por exemplo segunda, terca, quarta e assim por diante;
+- o modo recorrente deve resolver o rodizio para cada data real do periodo antes
+  de gerar PDF, agenda pessoal ou ICS;
+- mais de uma saida no mesmo dia continua permitido;
+- cada saida deve usar o link de WhatsApp configurado para o modulo Servico de
+  Campo.
+
+Texto predefinido inicial para o WhatsApp:
+
+```text
+Ola, irmaos. Segue a programacao do servico de campo:
+
+{programacao_servico_campo}
+
+Quem puder participar, sera muito bem-vindo. Obrigado.
+```
 
 Falta apenas depois do fechamento funcional:
 
@@ -256,7 +357,8 @@ Confirmado:
   toques, senha Admin online e limite de tentativas;
 - card Minha Agenda incluido para usuarios administrativos;
 - assinatura pessoal e do Quadro isolada por instalacao no cliente e na API;
-- vinte e oito testes aprovados, incluindo feed e assinatura de calendario.
+- trinta e sete testes aprovados, incluindo documentos publicos, feed e
+  assinatura de calendario.
 
 Falta:
 
@@ -429,18 +531,19 @@ Concluida no codigo em 11/09/2026.
 - Confirmar que nenhuma mensagem comum de reuniao voltou para Tarefas, Limpeza,
   Escala TPL ou Oradores; acoes de confirmacao e intercambio continuam no modulo
   dono.
-- Rodar novamente os 126 testes e o build.
+- Rodar novamente os 157 testes e o build.
 
 ## Fase 4 - Dependencias e documentacao
 
 Concluida no codigo em 11/09/2026:
 
-- Firebase atualizado de 10.14.1 para 12.19.0;
+- SDK Firebase removido do navegador; o acesso passou para Functions com
+  Firebase Admin 14.4.0;
 - Vite atualizado de 5.4.21 para 8.3.0;
-- Firebase Admin 14.4.0 adicionado apenas nas funcoes de servidor;
+- Firebase Admin 14.4.0 usado apenas nas funcoes de servidor;
 - vulnerabilidades corrigiveis removidas sem `--force`;
-- permanecem somente os alertas conhecidos do `xlsx`, sem correcao publicada;
-- build e os 126 testes aprovados depois da atualizacao.
+- `xlsx` substituido por `exceljs` e auditoria de dependencias sem vulnerabilidade;
+- build e os 157 testes aprovados na verificacao atual do conjunto.
 
 - Atualizar os documentos mantidos no repositorio para remover a regra antiga
   que permitia ao publicador editar relatorio ja enviado.
@@ -460,6 +563,10 @@ Concluida no codigo em 11/09/2026:
 
 ## Fase 5 - Homologacao funcional
 
+Implementacao automatizavel concluida em 12/09/2026. Permanecem somente os
+itens explicitamente dependentes de aparelhos, calendarios, publicacao ou dados
+reais.
+
 Passagem de leitura em desktop concluida em 11/09/2026: todos os nove modulos
 abriram com a conta Admin, o card Minha Agenda apareceu, o bloqueio por sete
 toques abriu a confirmacao esperada e o console permaneceu sem erros. Nenhuma
@@ -469,7 +576,7 @@ A concorrencia do envio de relatorio foi simulada localmente: o primeiro envio
 e aceito, enquanto repeticao, registro legado existente e competencia fechada
 sao recusados pela mesma decisao usada dentro da transacao do Firebase.
 
-O empacotamento local das duas Netlify Functions tambem foi validado. Os testes
+O empacotamento local das dez Netlify Functions tambem foi validado. Os testes
 que ainda exigem publicacao, celular, calendario externo ou alteracao dos dados
 foram mantidos abaixo para a homologacao final.
 
@@ -487,7 +594,7 @@ Executar com a conta Admin e dados de exemplo antes dos dados reais:
 - upload de PDF pelo Admin e exibicao no Quadro;
 - previa obrigatoria dos PDFs dos modulos;
 - console do navegador sem erros durante os fluxos principais;
-- build e suite completa aprovados novamente.
+- build e suite completa com 157 testes aprovados novamente.
 
 ## Fase 6 - Assinatura ICS, sempre por ultimo
 
@@ -505,10 +612,11 @@ em calendarios e aparelhos reais continua obrigatoriamente por ultimo.
   `calendar-subscriptions`.
 - O feed `calendar` consulta o token pelo Firebase Admin em
   `agendaAssinaturasPrivadas`.
-- `database.rules.json` nega leitura e escrita publica dos caminhos de tokens e
-  deixa explicitas as raizes publicas usadas pelo aplicativo.
-- Backup, restauracao e auditoria foram adaptados para as raizes publicas e nao
-  incluem segredos de assinatura.
+- `database.rules.json` nega toda leitura e escrita direta do navegador.
+- Backup, restauracao e auditoria passam pela Function autenticada e nao incluem
+  sessoes, pareamentos, tentativas de login ou segredos de assinatura.
+- Criacao e manutencao de assinatura exigem sessao do app ou aparelho pareado;
+  assinatura pessoal nao aceita `masterId` diferente da identidade autorizada.
 - A URL do banco e a conta de servico sairam da funcao e usam
   `FIREBASE_DATABASE_URL` e `FIREBASE_SERVICE_ACCOUNT_JSON`.
 - Tokens continuam opacos com 48 caracteres; revogados retornam `410`.
@@ -517,20 +625,27 @@ em calendarios e aparelhos reais continua obrigatoriamente por ultimo.
 - Testes automatizados cobrem instalacoes independentes, propriedade, alteracao,
   revogacao, validacao, isolamento pessoal e filtros do Quadro.
 
-### Publicacao concluida em 12/09/2026
+### Baseline publicada em 12/09/2026
 
 - `FIREBASE_DATABASE_URL` e `FIREBASE_SERVICE_ACCOUNT_JSON` configuradas na
   Netlify; a conta dedicada possui somente o papel de administrador do Realtime
   Database.
-- `database.rules.json` publicado no projeto `oradoress2`.
-- Leitura anonima da raiz e de `agendaAssinaturasPrivadas` retorna `401`, enquanto
-  as raizes publicas usadas pelo aplicativo continuam acessiveis.
+- A regra anterior protege somente `agendaAssinaturasPrivadas`; as demais raizes
+  continuam publicas ate o deploy da nova arquitetura.
 - Site e duas Netlify Functions publicados automaticamente pela `main` do GitHub.
 - Fluxo real validado no endereco publicado: criacao `201`, feed ICS `200`,
   revogacao `200`, token revogado `410` e token invalido `400`.
 - O token criado para a verificacao foi revogado ao final do teste.
 - Os handlers foram adaptados ao contexto da Netlify para impedir que o objeto
   de runtime seja confundido com as dependencias injetadas pelos testes.
+
+### Migracao segura pronta localmente
+
+- O novo site, as dez Functions e os 157 testes estao aprovados localmente.
+- Primeiro publicar o site pela `main` do GitHub e confirmar login, dados e
+  relatorios; somente depois publicar `database.rules.json`.
+- Inicializar o Storage e conceder permissao de objetos a conta de servico antes
+  de publicar `storage.rules`.
 
 ### Testes obrigatorios
 
@@ -555,7 +670,7 @@ em calendarios e aparelhos reais continua obrigatoriamente por ultimo.
 - regras Firebase publicadas e tokens nao enumeraveis pelo navegador;
 - assinaturas independentes por instalacao e revogacao validadas;
 - feed atualizado ainda precisa ser validado em calendario real;
-- 127 testes e build aprovados depois da publicacao.
+- 157 testes e build aprovados na verificacao local mais recente.
 
 ## Itens posteriores ao fechamento funcional
 
