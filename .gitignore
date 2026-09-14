@@ -7,6 +7,7 @@ NAO FAZER COMMIT DESSA PASTA/
 *.log
 *.zip
 *.rar
+deno.lock
 .DS_Store
 
 # Local Netlify folder

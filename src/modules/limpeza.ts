@@ -12,7 +12,8 @@ import {
   get,
   set,
   update,
-  masterRef,
+  pessoasRef,
+  configRef,
   configLimpezaRef,
   limpezaPeriodosRef,
   limpezaRef,
@@ -166,25 +167,25 @@ async function loadAll(): Promise<void> {
   }
 
   try {
-    const [masterSnap, limpezaSnap, gruposSnap, publicadoresSnap] = await Promise.all([
-      get(masterRef),
+    const [peopleSnap, configSnap, limpezaSnap, gruposSnap, publicadoresSnap] = await Promise.all([
+      get(pessoasRef),
+      get(configRef),
       get(limpezaRef),
       get(secretarioGruposRef),
       get(secretarioPublicadoresRef),
     ])
-    const master = masterSnap.exists() ? masterSnap.val() as {
-      pessoas?: RawPessoas
-      config?: { limpeza?: ConfigLimpeza; congregacao?: ConfigCongregacao; reunioes?: ConfigReunioes }
+    const config = configSnap.exists() ? configSnap.val() as {
+      limpeza?: ConfigLimpeza; congregacao?: ConfigCongregacao; reunioes?: ConfigReunioes
     } : {}
     const limpezaRoot = limpezaSnap.exists() ? limpezaSnap.val() as {
       periodos?: Record<string, LimpezaPeriodoGerado>
     } : {}
-    pessoas = master.pessoas ?? {}
-    limpeza = master.config?.limpeza ?? {}
+    pessoas = peopleSnap.exists() ? peopleSnap.val() as RawPessoas : {}
+    limpeza = config.limpeza ?? {}
     periodos = limpezaRoot.periodos ?? {}
-    const congregacao = master.config?.congregacao
+    const congregacao = config.congregacao
     congregationName = congregacao?.nome?.trim() || 'Noroeste'
-    reunioes = master.config?.reunioes ?? {}
+    reunioes = config.reunioes ?? {}
     const savedMode = localStorage.getItem(CLEANING_PERIOD_MODE_KEY)
     periodMode = savedMode === 'month' || savedMode === 'bimester'
       ? savedMode

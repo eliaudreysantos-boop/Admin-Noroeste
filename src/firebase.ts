@@ -1,4 +1,4 @@
-import { apiJson } from './secure-api.ts'
+import { apiJson, ApiError } from './secure-api.ts'
 
 export interface DatabaseReference { path: string }
 
@@ -13,9 +13,33 @@ export function child(parent: DatabaseReference, path: string): DatabaseReferenc
   return reference(`${parent.path}/${path}`)
 }
 
+type ReadResult = { value?: unknown; error?: string; status?: number }
+type PendingRead = { path: string; resolve(value: unknown): void; reject(reason: unknown): void }
+let pendingReads: PendingRead[] = []
+
+async function flushReads(): Promise<void> {
+  const batch = pendingReads.splice(0, 24)
+  if (pendingReads.length) queueMicrotask(() => { void flushReads() })
+  const paths = [...new Set(batch.map(item => item.path))]
+  try {
+    const response = await apiJson<{ results: ReadResult[] }>(`database?paths=${encodeURIComponent(JSON.stringify(paths))}`)
+    if (!Array.isArray(response.results) || response.results.length !== paths.length) throw new Error('Resposta de dados incompleta.')
+    for (const item of batch) {
+      const result = response.results[paths.indexOf(item.path)]!
+      if (result.error) item.reject(new ApiError(result.error, result.status ?? 503))
+      else if (!Object.prototype.hasOwnProperty.call(result, 'value')) item.reject(new Error('Resposta de dados incompleta.'))
+      else item.resolve(result.value)
+    }
+  } catch (error) { batch.forEach(item => item.reject(error)) }
+}
+
 export async function get<T = unknown>(target: DatabaseReference): Promise<DataSnapshot<T>> {
-  const response = await apiJson<{ value: T | null }>(`database?path=${encodeURIComponent(target.path)}`)
-  return { exists:() => response.value !== null && response.value !== undefined, val:() => response.value }
+  const value = await new Promise<unknown>((resolve, reject) => {
+    pendingReads.push({ path:target.path, resolve, reject })
+    // Reads issued together share one Function invocation, without retaining a data cache.
+    if (pendingReads.length === 1) queueMicrotask(() => { void flushReads() })
+  }) as T | null
+  return { exists:() => value !== null && value !== undefined, val:() => value }
 }
 
 export async function set(target: DatabaseReference, value: unknown): Promise<void> {

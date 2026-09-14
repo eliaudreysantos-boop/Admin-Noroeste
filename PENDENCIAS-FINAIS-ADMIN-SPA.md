@@ -7,6 +7,23 @@ a Minha Agenda. Os demais documentos continuam servindo como historico e
 especificacao detalhada, mas este arquivo e a referencia para a ordem de
 execucao final.
 
+## Leituras agrupadas - 14/09/2026
+
+- [x] Agrupar leituras simultaneas na camada compartilhada em lotes de ate 24
+  chamadas, deduplicando caminhos dentro do lote e sem cache entre cargas.
+- [x] Validar caminhos e permissoes individualmente na Function e preservar
+  erros por leitura, sem converter falha em dado vazio.
+- [x] Limpeza passou a ler pessoas e configuracao separadamente, permitindo
+  acesso com permissao exclusiva de Limpeza. Sao cinco caminhos em uma chamada.
+- [x] Suite completa aprovada com 163 testes, build de producao aprovado e
+  verificacao de whitespace sem erros depois da implementacao.
+- [ ] Repetir cargas no servidor local e em producao para confirmar o efeito
+  sobre o pico de conexoes. O agrupamento reduz invocacoes, mas nao garante por
+  si so a eliminacao de conexoes persistentes de outras Functions.
+
+Esta atualizacao substitui a pendencia de implementar o agrupamento abaixo;
+permanece pendente a comprovacao operacional da ausencia de timeout.
+
 ## Estado confirmado
 
 - Os nove modulos abrem e os motores principais estao implementados.
@@ -454,6 +471,38 @@ O Netlify CLI confirmou em 12/09/2026 que este repositorio esta vinculado ao
 projeto `admin-noroeste` (`https://admin-noroeste.netlify.app`) e autenticado na
 conta correta. A autorizacao para o commit foi recebida em 14/09/2026; o deploy
 via GitHub ainda aguarda o `push`.
+
+### Como usar o Netlify CLI neste projeto
+
+Em 14/09/2026, o CLI ficou resolvido no Windows com instalacao global:
+
+```powershell
+npm install -g netlify-cli
+netlify --version
+netlify status
+netlify dev --port 5174
+```
+
+O binario confirmado ficou em
+`C:\Users\eliau\AppData\Roaming\npm\netlify.cmd`. O repositorio ja esta
+autenticado e vinculado ao site `admin-noroeste`, entao `netlify status` deve
+mostrar a conta conectada e o projeto correto antes de qualquer teste local.
+
+Para desenvolvimento local, usar preferencialmente:
+
+```powershell
+netlify dev --port 5174
+```
+
+Quando o servidor subir, abrir `http://localhost:5174/` para os modulos e
+`http://localhost:5174/agenda/` para a Minha Agenda. Neste ambiente, `localhost`
+respondeu corretamente; `127.0.0.1` pode falhar dependendo de como o proxy do
+Netlify foi iniciado. A Function de usuarios tambem deve responder em
+`http://localhost:5174/.netlify/functions/auth-users`.
+
+Se aparecer `deno.lock` apos rodar o CLI, tratar como artefato local do runtime
+da Netlify neste projeto e nao incluir no commit, a menos que o app passe a usar
+Edge Functions de forma intencional.
 
 ## Criterio de encerramento
 

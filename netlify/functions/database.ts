@@ -1,5 +1,6 @@
 import { appSession, json, objectBody, validCsrf } from '../lib/secure-session.ts'
 import { adminDatabase } from '../lib/subscription-store.ts'
+import { readBatch } from '../lib/database-reads.ts'
 import { canAccessData, canMutateData, containsPrivateRoot, normalizeDataPath, withoutPrivateRoots } from '../lib/data-authorization.ts'
 
 export default async (request: Request): Promise<Response> => {
@@ -7,6 +8,14 @@ export default async (request: Request): Promise<Response> => {
   let session
   try { session = await appSession(request) } catch { return json(503, { error:'Sessão indisponível.' }) }
   if (!session) return json(401, { error:'Sessão expirada.' })
+  const batchPaths = new URL(request.url).searchParams.get('paths')
+  if (request.method === 'GET' && batchPaths !== null) {
+    const results = await readBatch(batchPaths, session.usuario.apps, async path => {
+      const snapshot = await adminDatabase().ref(path || '/').get()
+      return snapshot.exists() ? snapshot.val() as unknown : null
+    })
+    return results ? json(200, { results }) : json(400, { error:'Lote de leituras invalido.' })
+  }
   const rawPath = new URL(request.url).searchParams.get('path') ?? ''
   const path = normalizeDataPath(rawPath)
   if (path === null) return json(400, { error:'Caminho inválido.' })

@@ -130,6 +130,14 @@ evidencias detalhadas permanecem em `PENDENCIAS-FINAIS-ADMIN-SPA.md`.
   com seguranca o ciclo de reutilizacao e encerramento das conexoes do Realtime
   Database; depois repetir os testes locais e publicados.
 
+## Leituras agrupadas em 14/09/2026
+
+Implementado agrupamento automatico das leituras simultaneas, com deduplicacao
+por lote, erros independentes e sem cache adicional. Limpeza agora usa cinco
+caminhos permitidos em uma chamada, inclusive para conta exclusiva do modulo.
+A implementacao do agrupamento esta concluida; permanece necessario repetir
+cargas locais e publicadas para confirmar a reducao do pico de conexoes.
+
 ## Homologacao funcional
 
 - [ ] Conferir manualmente os seis modulos restantes e a Minha Agenda em celular

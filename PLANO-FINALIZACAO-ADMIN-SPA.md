@@ -627,6 +627,18 @@ Observacao de confiabilidade em 13/09/2026:
 - depois da correcao, repetir as cargas locais e publicadas ate comprovar que o
   aviso de pico e o timeout nao reaparecem.
 
+### Atualizacao de conexoes em 14/09/2026
+
+A camada compartilhada agrupa leituras simultaneas em uma Function, deduplica
+caminhos no lote e nao mantem cache entre cargas. A Function verifica cada
+caminho e devolve erros individuais. Leituras agrupadas nao sao uma transacao
+nem garantem um snapshot atomico entre caminhos diferentes.
+
+Limpeza usa cinco caminhos em uma chamada, com pessoas e configuracao separados
+para funcionar tambem com permissao exclusiva do modulo. Resta verificar o pico
+de conexoes em cargas repetidas locais e publicadas antes de encerrar essa
+pendencia global. Os registros anteriores de quatro leituras sao historicos.
+
 ## Fase 5 - Homologacao funcional
 
 Implementacao automatizavel concluida em 12/09/2026. Permanecem somente os
