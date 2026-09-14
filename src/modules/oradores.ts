@@ -5,6 +5,7 @@ import { moduleBackButton, moduleTitle } from '../ui/module-header'
 import { allowedTheme, assignmentsForSpeaker, confirmationPatch, deriveStatus, eventBlocksLocal, meetingDatesForMonth, missingLocalTalkDates, needsReconfirmation, talkConflicts, themeHistory, watchtowerIssues, type Congregation, type Speaker, type Talk, type Theme } from './oradores-domain'
 import { availableSpeakerThemes, createSchedulePdf, downloadSchedulePdf, downloadThemeCatalogPdf, type SchedulePdfRow, type ThemeCatalogRow } from './oradores-documents'
 import { PublicationPreviewGate } from './pdf-publication-preview'
+import { mountModuleMessageSettings } from './module-message-settings'
 
 interface LegacyOrador extends Speaker {}
 interface LegacyProgramacao extends Talk {}
@@ -24,7 +25,7 @@ let discursos: LegacyDiscursos = {}
 let pessoas: RawPessoas = {}
 let taskMeetings: { id: string; date?: string; type?: string; assignments?: Record<string, unknown> }[] = []
 let oradoresPlanning: { meetingDays?: { weekendDow?: number }; weekendDow?: number; excludedDates?: string[] | Record<string, unknown>; oradoresPublicacoes?: Record<string, { publicadoEm?: string }> } = {}
-type OradoresTab = 'indice' | 'resumo' | 'cadastro' | 'programacao' | 'designacoes' | 'emergencia' | 'temas' | 'congregacoes' | 'intercambios' | 'eventos' | 'pendencias'
+type OradoresTab = 'indice' | 'resumo' | 'cadastro' | 'programacao' | 'designacoes' | 'emergencia' | 'temas' | 'congregacoes' | 'intercambios' | 'eventos' | 'pendencias' | 'config'
 let activeTab: OradoresTab = 'indice'
 const speakerSchedulePreview = new PublicationPreviewGate()
 
@@ -129,6 +130,7 @@ function render(): void {
         { id: 'intercambios', titulo: 'Intercâmbios', subtitulo: 'Entradas, saídas e confirmações', icone: '⇄', corFundo: '#7E3AF2' },
         { id: 'eventos', titulo: 'Eventos', subtitulo: 'Datas sem discurso público local', icone: '◆', corFundo: '#8A5B00' },
         { id: 'pendencias', titulo: 'Pendências', subtitulo: `${aConfirmar} compromisso${aConfirmar === 1 ? '' : 's'} a confirmar`, icone: '!', corFundo: '#B3261E' },
+        { id: 'config', titulo: 'Configuração', subtitulo: 'WhatsApp e mensagens do módulo', icone: '⚙', corFundo: '#5C6062' },
       ]
       renderMenuCards(menu, items, id => { activeTab = id as OradoresTab; render() })
     }
@@ -224,6 +226,7 @@ function render(): void {
   el.querySelectorAll<HTMLButtonElement>('[data-edit-evento]').forEach(button => button.addEventListener('click', () => openEventoModal(button.dataset['editEvento'] ?? null)))
   el.querySelectorAll<HTMLButtonElement>('[data-delete-evento]').forEach(button => button.addEventListener('click', () => void deleteEvento(button.dataset['deleteEvento'] ?? '')))
   el.querySelector<HTMLSelectElement>('#designationSpeaker')?.addEventListener('change', event => { selectedSpeakerId = (event.target as HTMLSelectElement).value; localStorage.setItem(ORADORES_DESIGNATION_SPEAKER_KEY, selectedSpeakerId); render() })
+  if (activeTab === 'config') void mountModuleMessageSettings('speakerMessageSettings', 'oradores', toast)
 }
 
 function renderTabContent(tab: OradoresTab): string {
@@ -235,6 +238,7 @@ function renderTabContent(tab: OradoresTab): string {
   if (tab === 'congregacoes') return congregacoesView()
   if (tab === 'intercambios') return intercambiosView()
   if (tab === 'eventos') return eventosView()
+  if (tab === 'config') return '<div id="speakerMessageSettings"></div>'
   return pendenciasView()
 }
 

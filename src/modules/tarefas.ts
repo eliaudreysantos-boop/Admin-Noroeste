@@ -6,8 +6,6 @@ import {
   tarefasPeopleRef,
   tarefasPlanejamentoRef,
   tarefasScaleRef,
-  tarefasDiscursosRef,
-  tarefasEventosRef,
   configCongregacaoRef,
   pessoasRef,
 } from '../firebase'
@@ -44,6 +42,7 @@ import { formatTaskDate } from './tarefas-output'
 import { createTaskSchedulePdf, previewTaskSchedulePdf } from './tarefas-documents'
 import { publishAgendaModulePdf, unpublishAgendaModulePdf } from './agenda-documents'
 import { PublicationPreviewGate } from './pdf-publication-preview'
+import { mountModuleMessageSettings } from './module-message-settings'
 
 type TarefasTab = 'indice' | 'resumo' | 'escala' | 'participantes' | 'pendencias' | 'config'
 
@@ -211,29 +210,31 @@ export default function mount(ctx: AppContext): void {
 
 async function loadTarefas(): Promise<void> {
   try {
-    const [peopleSnap, scaleSnap, planningSnap, eventsSnap, discursosSnap, congregacaoSnap, masterPeopleSnap] = await Promise.all([
-      get(tarefasPeopleRef),
-      get(tarefasScaleRef),
-      get(tarefasPlanejamentoRef),
-      get(tarefasEventosRef),
-      get(tarefasDiscursosRef),
+    const [tarefasSnap, congregacaoSnap, masterPeopleSnap] = await Promise.all([
+      get(tarefasRef),
       get(configCongregacaoRef),
       get(pessoasRef),
     ])
 
-    pessoas = peopleSnap.exists() ? (peopleSnap.val() as Record<string, TarefasPessoa>) : {}
-    periods = scaleSnap.exists() ? (scaleSnap.val() as Record<string, TarefasPeriod>) : {}
-    planning = planningSnap.exists() ? (planningSnap.val() as TarefasPlanning) : {}
+    const tarefas = tarefasSnap.exists() ? tarefasSnap.val() as {
+      people?: Record<string, TarefasPessoa>
+      scale?: { periods?: Record<string, TarefasPeriod> }
+      planning?: TarefasPlanning
+      events?: Record<string, TaskEvent>
+      discursos?: { oradores?: Record<string, TaskSpeaker>; programacao?: Record<string, TaskTalk> }
+    } : {}
+    pessoas = tarefas.people ?? {}
+    periods = tarefas.scale?.periods ?? {}
+    planning = tarefas.planning ?? {}
     const savedPeriod = localStorage.getItem(TAREFAS_PERIOD_KEY) ?? planning.editingPeriod ?? planning.scaleStartDate?.slice(0, 7)
     selectedPeriodMonth = /^\d{4}-\d{2}$/.test(savedPeriod ?? '') ? savedPeriod! : monthNow()
     const savedPeriodMode = localStorage.getItem(TAREFAS_PERIOD_MODE_KEY)
     selectedPeriodMode = savedPeriodMode === 'month' || savedPeriodMode === 'bimester'
       ? savedPeriodMode
       : planning.periodMode === 'month' ? 'month' : 'bimester'
-    events = eventsSnap.exists() ? (eventsSnap.val() as Record<string, TaskEvent>) : {}
-    const discursos = discursosSnap.exists() ? (discursosSnap.val() as Record<string, unknown>) : {}
-    speakers = (discursos['oradores'] ?? {}) as Record<string, TaskSpeaker>
-    talks = (discursos['programacao'] ?? {}) as Record<string, TaskTalk>
+    events = tarefas.events ?? {}
+    speakers = tarefas.discursos?.oradores ?? {}
+    talks = tarefas.discursos?.programacao ?? {}
     const congregacao = congregacaoSnap.exists() ? (congregacaoSnap.val() as { nome?: string }) : {}
     congregationName = congregacao.nome?.trim() || 'Noroeste'
     masterPeople = masterPeopleSnap.exists() ? (masterPeopleSnap.val() as Record<string, { name?: string; whatsapp?: string; active?: boolean }>) : {}
@@ -268,7 +269,7 @@ function renderIndex(): void {
     { id: 'escala', titulo: 'Escala', subtitulo: 'Escolha o período, gere e revise a escala', icone: '▣', corFundo: '#003F72' },
     { id: 'participantes', titulo: 'Pessoas', subtitulo: 'Participantes e vínculos com Admin', icone: '♙', corFundo: '#006EB6' },
     { id: 'pendencias', titulo: 'Pendências', subtitulo: 'Funções vazias e vínculos incompletos', icone: '!', corFundo: '#B3261E' },
-    { id: 'config', titulo: 'Configuração', subtitulo: 'Período, datas excluídas e impressão', icone: '⚙', corFundo: '#5C6062' },
+    { id: 'config', titulo: 'Configuração', subtitulo: 'Período, regras, datas e mensagens', icone: '⚙', corFundo: '#5C6062' },
   ]
   renderMenuCards(content.querySelector<HTMLElement>('#tarefasMenu')!, items, id => { activeTab = id as TarefasTab; renderContent() })
 }
@@ -396,7 +397,13 @@ async function toggleTaskLock(periodId: string): Promise<void> {
       const last = meetings[meetings.length - 1]?.date ?? first
       const result = await createTaskSchedulePdf(meetings, congregationName, pessoas, font)
       await publishAgendaModulePdf(result.bytes, { modulo:'tarefas', periodo:periodId, inicio:first, fim:last, origemPeriodoId:periodId, nome:`tarefas-${periodId}.pdf` })
-      await update(tarefasScaleRef, { [`${periodId}/locked`]:true })
+      try {
+        await update(tarefasScaleRef, { [`${periodId}/locked`]:true })
+      } catch (error) {
+        try { await unpublishAgendaModulePdf('tarefas', periodId) }
+        catch { console.warn('Não foi possível desfazer a publicação incompleta de Tarefas') }
+        throw error
+      }
     } else {
       await unpublishAgendaModulePdf('tarefas', periodId)
       await update(tarefasScaleRef, { [`${periodId}/locked`]:false })
@@ -565,7 +572,7 @@ function renderTaskConfig(): void {
   content.innerHTML = `${sectionTitle('Configuração', 'Preferências próprias de Tarefas. Dias e horários das reuniões continuam vindo do Admin.')}
     <div class="form-panel"><div class="module-form-grid"><label class="form-field"><span>Formato padrão</span><select id="taskConfigMode"><option value="month" ${selectedPeriodMode === 'month' ? 'selected' : ''}>Mensal</option><option value="bimester" ${selectedPeriodMode === 'bimester' ? 'selected' : ''}>Bimestral</option></select></label><label class="form-field"><span>Fonte preferida do PDF: <strong id="taskConfigFontValue">${printFont()} pt</strong></span><input id="taskConfigFont" type="range" min="${PRINT_MIN_PT}" max="${PRINT_MAX_PT}" value="${printFont()}"></label></div><button id="saveTaskConfig" class="btn btn-primary" type="button">Salvar preferências</button></div>
     <div class="form-panel"><h3 style="margin-top:0">Regras do motor</h3><p class="form-help">Estas opções valem apenas para as próximas gerações. Regras de integridade continuam obrigatórias.</p><div class="engine-rule-list"><label><input id="taskRulePresident" type="checkbox" ${rules.presidenteSegundaTarefa ? 'checked' : ''} ${canEditRules ? '' : 'disabled'}> Aproveitar o presidente em uma segunda tarefa mecânica</label><label><input id="taskRuleBalance" type="checkbox" ${rules.equilibrarDesignacoes ? 'checked' : ''} ${canEditRules ? '' : 'disabled'}> Equilibrar o total de designações</label><label><input id="taskRuleRepeat" type="checkbox" ${rules.evitarRepetirFuncao ? 'checked' : ''} ${canEditRules ? '' : 'disabled'}> Evitar repetir a mesma função</label></div>${canEditRules ? '<div class="scale-actions" style="margin-top:12px"><button id="saveTaskRules" class="btn btn-primary" type="button">Salvar regras</button><button id="restoreTaskRules" class="btn btn-ghost" type="button">Restaurar padrões</button></div>' : '<div class="notice">Somente o Admin pode alterar estas regras.</div>'}</div>
-    <div class="form-panel"><h3 style="margin-top:0">Datas sem reunião</h3><div style="display:flex;gap:8px"><input id="taskExcludedDate" class="form-input" type="date"><button id="addTaskExcludedDate" class="btn btn-ghost" type="button">Adicionar</button></div><div class="module-option-list" style="margin-top:10px">${dates.map(date => `<div class="secretary-row"><strong>${escapeHtml(formatDate(date))}</strong><button class="btn btn-danger" data-remove-task-date="${escapeHtml(date)}" type="button">Remover</button></div>`).join('') || '<p class="empty-state">Nenhuma data excluída.</p>'}</div></div>`
+    <div class="form-panel"><h3 style="margin-top:0">Datas sem reunião</h3><div style="display:flex;gap:8px"><input id="taskExcludedDate" class="form-input" type="date"><button id="addTaskExcludedDate" class="btn btn-ghost" type="button">Adicionar</button></div><div class="module-option-list" style="margin-top:10px">${dates.map(date => `<div class="secretary-row"><strong>${escapeHtml(formatDate(date))}</strong><button class="btn btn-danger" data-remove-task-date="${escapeHtml(date)}" type="button">Remover</button></div>`).join('') || '<p class="empty-state">Nenhuma data excluída.</p>'}</div></div><div id="taskMessageSettings"></div>`
   document.getElementById('taskConfigFont')?.addEventListener('input', event => { const value = (event.target as HTMLInputElement).value; document.getElementById('taskConfigFontValue')!.textContent = `${value} pt` })
   document.getElementById('saveTaskConfig')?.addEventListener('click', async () => {
     const mode = (document.getElementById('taskConfigMode') as HTMLSelectElement).value === 'month' ? 'month' : 'bimester'
@@ -584,6 +591,7 @@ function renderTaskConfig(): void {
     const next = dates.filter(date => date !== button.dataset['removeTaskDate'])
     try { await update(tarefasPlanejamentoRef, { excludedDates:next.length ? next : null }); planning.excludedDates = next; renderTaskConfig() } catch { toast('Não foi possível remover a data') }
   }))
+  void mountModuleMessageSettings('taskMessageSettings', 'tarefas', toast)
 }
 
 async function saveTaskRules(value?: TaskGenerationRules): Promise<void> {
@@ -888,6 +896,8 @@ async function saveTaskPerson(id: string | null, overlay: HTMLElement): Promise<
   const selectedMasterId = (document.getElementById('taskPersonMaster') as HTMLSelectElement).value || person?.masterId || ''
   const central = masterPeople[selectedMasterId]
   if (!selectedMasterId || !central) { toast('Selecione uma pessoa do cadastro Admin'); return }
+  const duplicate = Object.entries(pessoas).some(([personId, candidate]) => personId !== id && candidate.masterId === selectedMasterId)
+  if (duplicate) { toast('Esta pessoa já está vinculada em Tarefas'); return }
   const finalId = id ?? `tar_${selectedMasterId}`
   const patch: Record<string, unknown> = {
     [`${finalId}/masterId`]: selectedMasterId,

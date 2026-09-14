@@ -1,9 +1,9 @@
-import { getStorage } from 'firebase-admin/storage'
+import { getStore } from '@netlify/blobs'
 import type { AppPermissions } from '../../src/types.ts'
-import { adminApp } from '../lib/subscription-store.ts'
 import { appSession, json, objectBody, validCsrf } from '../lib/secure-session.ts'
 
 const MAX_PDF_BYTES = 4 * 1024 * 1024
+const PDF_STORE = 'admin-noroeste-pdfs'
 const MODULES: Record<string, keyof AppPermissions> = {
   tarefas:'tarefas', limpeza:'limpeza', oradores:'oradores', escala:'escala',
   servicoCampo:'servicoCampo',
@@ -21,6 +21,10 @@ export function canManageStoragePath(path: string, apps: AppPermissions): boolea
   return Boolean(permission && (apps.mestre || apps[permission] === true))
 }
 
+export function canReadPublicStoragePath(path: string): boolean {
+  return /^agenda\/documentos\/(admin|modulos\/(tarefas|limpeza|oradores|escala|servicoCampo))\/[A-Za-z0-9/_.-]+\.pdf$/.test(path)
+}
+
 function decodePdf(value: unknown): Uint8Array | null {
   if (typeof value !== 'string' || value.length > Math.ceil(MAX_PDF_BYTES * 4 / 3) + 8) return null
   try {
@@ -31,7 +35,31 @@ function decodePdf(value: unknown): Uint8Array | null {
 }
 
 export default async (request: Request): Promise<Response> => {
-  if (!['POST', 'DELETE'].includes(request.method)) return json(405, { error:'Método não permitido.' })
+  if (!['GET', 'POST', 'DELETE'].includes(request.method)) return json(405, { error:'Método não permitido.' })
+  const store = getStore(PDF_STORE, { consistency:'strong' })
+  if (request.method === 'GET') {
+    const path = new URL(request.url).searchParams.get('path') ?? ''
+    if (!validStoragePath(path) || !canReadPublicStoragePath(path)) return json(404, { error:'PDF não encontrado.' })
+    try {
+      const item = await store.getWithMetadata(path, { type:'arrayBuffer', consistency:'strong' })
+      if (!item) return json(404, { error:'PDF não encontrado.' })
+      const filename = path.slice(path.lastIndexOf('/') + 1) || 'documento.pdf'
+      return new Response(item.data, {
+        status:200,
+        headers:{
+          'content-type':'application/pdf',
+          'content-disposition':`inline; filename="${filename}"`,
+          'content-length':String(item.data.byteLength),
+          'cache-control':'public, max-age=300',
+          'x-content-type-options':'nosniff',
+        },
+      })
+    } catch (error) {
+      console.error('PDF read failed:', error instanceof Error ? error.message : 'Unknown error')
+      return json(503, { error:'Armazenamento de PDF indisponível.' })
+    }
+  }
+
   let session
   try { session = await appSession(request) } catch { return json(503, { error:'Sessão indisponível.' }) }
   if (!session) return json(401, { error:'Sessão expirada.' })
@@ -40,20 +68,20 @@ export default async (request: Request): Promise<Response> => {
   if (!validStoragePath(path) || !canManageStoragePath(path, session.usuario.apps)) return json(403, { error:'Arquivo não autorizado.' })
 
   try {
-    const bucket = getStorage(adminApp()).bucket(), file = bucket.file(path)
     if (request.method === 'DELETE') {
-      await file.delete({ ignoreNotFound:true })
+      await store.delete(path)
       return json(200, { ok:true })
     }
     const bytes = decodePdf(body['base64'])
     if (!bytes) return json(400, { error:'PDF inválido ou maior que 4 MB.' })
-    const token = crypto.randomUUID()
-    await file.save(bytes, {
-      resumable:false,
-      contentType:'application/pdf',
-      metadata:{ cacheControl:'public,max-age=3600', metadata:{ firebaseStorageDownloadTokens:token } },
-    })
-    const url = `https://firebasestorage.googleapis.com/v0/b/${encodeURIComponent(bucket.name)}/o/${encodeURIComponent(path)}?alt=media&token=${encodeURIComponent(token)}`
+    const payload = new ArrayBuffer(bytes.byteLength)
+    new Uint8Array(payload).set(bytes)
+    await store.set(path, payload, { metadata:{ contentType:'application/pdf' } })
+    const requestUrl = new URL(request.url)
+    const url = `${requestUrl.origin}/.netlify/functions/storage-file?path=${encodeURIComponent(path)}`
     return json(200, { url })
-  } catch { return json(503, { error:'Armazenamento de PDF indisponível.' }) }
+  } catch (error) {
+    console.error('PDF write failed:', error instanceof Error ? error.message : 'Unknown error')
+    return json(503, { error:'Armazenamento de PDF indisponível.' })
+  }
 }

@@ -48,7 +48,7 @@ export async function publishAgendaModulePdf(bytes: Uint8Array, metadata: Module
     await update(agendaDocumentsRef, { [id]:item })
     if (previous?.storagePath && previous.storagePath !== storagePath) {
       try { await deleteStoredFile(previous.storagePath) }
-      catch (error) { console.warn('PDF anterior preservado no Storage', error) }
+      catch (error) { console.warn('PDF anterior preservado no armazenamento', error) }
     }
     return item
   } catch (error) {
@@ -64,7 +64,7 @@ export async function unpublishAgendaModulePdf(module: PublicPdfModule, originPe
   await update(agendaDocumentsRef, { [id]:null })
   if (item?.storagePath) {
     try { await deleteStoredFile(item.storagePath) }
-    catch (error) { console.warn('Metadado removido; arquivo antigo permaneceu no Storage', error) }
+    catch (error) { console.warn('Metadado removido; arquivo antigo permaneceu no armazenamento', error) }
   }
 }
 
@@ -79,6 +79,6 @@ export async function removeAgendaDocument(item: AgendaPublicDocument): Promise<
   await update(agendaDocumentsRef, { [item.id]:null })
   if (item.storagePath) {
     try { await deleteStoredFile(item.storagePath) }
-    catch (error) { console.warn('Metadado removido; arquivo antigo permaneceu no Storage', error) }
+    catch (error) { console.warn('Metadado removido; arquivo antigo permaneceu no armazenamento', error) }
   }
 }

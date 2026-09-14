@@ -31,6 +31,36 @@ export function personalUserConflict(
   ))
 }
 
+export function stableUserMasterId(
+  currentUser: RawUsuarios[string] | undefined,
+  requestedMasterId: string,
+  people: RawPessoas,
+): string {
+  const currentMasterId = currentUser?.masterId?.trim() ?? ''
+  return currentMasterId && people[currentMasterId] ? currentMasterId : requestedMasterId
+}
+
+export function masterIdReferencePaths(value: unknown, masterId: string): string[] {
+  const paths: string[] = []
+  const visited = new WeakSet<object>()
+
+  const visit = (current: unknown, path: string): void => {
+    if (current === masterId) {
+      paths.push(path)
+      return
+    }
+    if (!current || typeof current !== 'object') return
+    if (visited.has(current)) return
+    visited.add(current)
+    Object.entries(current as Record<string, unknown>).forEach(([key, child]) => {
+      visit(child, path ? `${path}/${key}` : key)
+    })
+  }
+
+  visit(value, '')
+  return paths
+}
+
 export function sanitizeFailureReportValue(value: unknown, depth = 0): unknown {
   if (depth > 6) return '[omitido: profundidade maxima]'
   if (Array.isArray(value)) {

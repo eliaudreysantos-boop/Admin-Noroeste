@@ -20,6 +20,13 @@ test('Limpeza lê somente os dados auxiliares necessários do Secretário', () =
   assert.equal(canAccessData('tarefas/planning', cleaning, false), true)
 })
 
+test('cada módulo altera somente as próprias mensagens da Agenda', () => {
+  const tasks = apps({ tarefas:true })
+  assert.equal(canAccessData('agenda/config/moduleWhatsApp/tarefas', tasks, true), true)
+  assert.equal(canAccessData('agenda/config/moduleWhatsApp/limpeza', tasks, true), false)
+  assert.equal(canAccessData('agenda/config/icsReminders/tarefas', tasks, true), false)
+})
+
 test('Oradores acessa somente sua área compartilhada dentro de Tarefas', () => {
   const speakers = apps({ oradores:true })
   assert.equal(canAccessData('tarefas/discursos', speakers, true), true)

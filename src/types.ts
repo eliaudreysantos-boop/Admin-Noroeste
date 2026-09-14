@@ -112,6 +112,7 @@ export interface LimpezaPeriodoGerado {
 export interface ConfigLimpeza {
   ativa:                 boolean
   aproveitarGruposServicoCampo?: boolean
+  periodMode?:           'month' | 'bimester'
   grupos:                number       // qtd de grupos
   inicioRotacao:         string       // 'YYYY-MM-DD'
   gruposConfig:          Record<string, ConfigLimpezaGrupo>

@@ -18,7 +18,7 @@ descritas devem orientar a implementacao sem alterar os contratos de identidade,
 - Assinaturas pessoais e do Quadro usam tokens independentes por instalacao.
 - O Quadro possui texto por data, PDFs dos modulos separados dos documentos do
   Admin e assinatura atualizavel.
-- Suite completa com 157 testes e build aprovados.
+- Suite completa com 160 testes e build aprovados.
 
 ## Regra obrigatoria de persistencia da interface
 
@@ -244,10 +244,11 @@ O card atual `Arquivos publicados` deve ser substituido por duas areas distintas
 
 ### WhatsApp por modulo
 
-Cada modulo que publica texto, PDF ou compromisso no Quadro deve possuir um
-campo proprio de link do grupo de WhatsApp. O link pode ser igual em todos os
-modulos, mas a decisao fica com o Admin, que podera copiar e colar o mesmo link
-quando a congregacao usar um grupo unico.
+Cada modulo que publica texto, PDF ou compromisso no Quadro deve possuir, em sua
+propria tela de configuracao, um campo de link do grupo de WhatsApp. O link pode
+ser igual em todos os modulos, mas o operador copia e cola o mesmo valor quando
+a congregacao usar um grupo unico. O Admin nao deve concentrar os textos dos
+outros modulos; conserva apenas as preferencias do Quadro.
 
 Regras:
 
@@ -257,7 +258,8 @@ Regras:
   Servico de Campo usam o mesmo grupo;
 - quando o link estiver vazio, manter o botao indisponivel ou oculto conforme o
   padrao visual do modulo;
-- preencher textos predefinidos educados, curtos e editaveis pelo Admin.
+- preencher textos predefinidos educados, curtos e editaveis no modulo de
+  origem.
 
 Texto predefinido sugerido para mensagens de reuniao:
 
@@ -460,6 +462,11 @@ Se a homologacao real encontrar um defeito, a correcao devera ser concluida e
 validada antes de um envio corretivo excepcional. Nao criar commits apenas para
 registrar progresso, documentacao parcial ou conclusao isolada de uma fase.
 
+Em 14/09/2026, o Admin autorizou expressamente um commit de consolidacao depois
+da auditoria de Limpeza. Essa excecao registra o conjunto acumulado de correcoes
+e nao autoriza `push` nem deploy; as auditorias restantes continuam seguindo a
+politica acima.
+
 ## Fases de implementacao
 
 Situacao em 12/09/2026:
@@ -550,7 +557,7 @@ link estiver configurado. Tarefas e Escala TPL possuem regras opcionais salvas
 no Firebase e registram a versao aplicada no periodo. A navegacao inferior
 segue `Voltar`, `Voltar` e `Sair` conforme o nivel.
 
-Validacao automatizada: build de producao aprovado e 157 testes aprovados.
+Validacao automatizada: build de producao aprovado e 160 testes aprovados.
 
 ### Fase 8 - Homologacao real
 

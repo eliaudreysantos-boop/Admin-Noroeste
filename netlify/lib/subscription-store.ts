@@ -18,13 +18,12 @@ export function adminApp(): App {
   const databaseURL = env['FIREBASE_DATABASE_URL']?.trim()
   const credentials = env['FIREBASE_SERVICE_ACCOUNT_JSON']?.trim()
   if (!databaseURL || !credentials) throw new Error('Credenciais privadas do calendário não configuradas.')
-  const serviceAccount = JSON.parse(credentials) as ServiceAccount & { project_id?: string }
+  const serviceAccount = JSON.parse(credentials) as ServiceAccount
   const name = 'calendar-subscriptions'
   const existing = getApps().find(app => app.name === name)
   return existing ?? initializeApp({
     credential:cert(serviceAccount),
     databaseURL,
-    storageBucket:env['FIREBASE_STORAGE_BUCKET']?.trim() || (serviceAccount.project_id ? `${serviceAccount.project_id}.firebasestorage.app` : undefined),
   }, name)
 }
 

@@ -100,18 +100,7 @@ export async function createCleaningPdf(period: LimpezaPeriodoGerado, options: C
   const rowHeight = (contentTop - contentBottom - 36) / maxRows
   const requested = Math.max(8, Math.min(22, options.requestedFontSize))
   const verticalLimit = Math.max(8, (rowHeight - 13) / 5.25)
-  const innerWidth = columnWidth - 20
-  const horizontalLimit = period.semanas.reduce((limit, week) => {
-    const lines: Array<[string, number]> = [
-      [`GRUPO ${week.grupo}`, 1.7],
-      [upper(week.grupoNome), 1.08],
-      ['LIMPEZA APÓS REUNIÃO', .72],
-      [`MEIO DE SEMANA ${formatCleaningDate(week.dataMeioSemana)}`, .76],
-      [`LIMPEZA SEMANAL ${formatCleaningDate(week.dataFimSemana)}`, .76],
-    ]
-    return Math.min(limit, ...lines.map(([text, ratio]) => innerWidth / (bold.widthOfTextAtSize(text, 1) * ratio)))
-  }, Number.POSITIVE_INFINITY)
-  const effective = Math.max(8, Math.min(requested, verticalLimit, horizontalLimit))
+  const effective = Math.max(8, Math.min(requested, verticalLimit))
   const blueBlack = rgb(.06, .07, .16)
   const accent = rgb(.73, .22, .08)
 
@@ -126,13 +115,13 @@ export async function createCleaningPdf(period: LimpezaPeriodoGerado, options: C
   page.drawLine({ start: { x: sideX, y: sideTop - 2 }, end: { x: sideX + 132, y: sideTop - 2 }, thickness: .6, color: accent })
   page.drawLine({ start: { x: sideX, y: sideTop - 15 }, end: { x: sideX + 72, y: sideTop - 15 }, thickness: .6, color: accent })
   const paragraph = [
-    'A organizacao de Jeova tem crescido muito nestes ultimos dias, e predios usados para adoracao precisam de manutencao.',
+    'A organização de Jeová tem crescido muito nestes últimos dias, e prédios usados para adoração precisam de manutenção.',
     '',
-    'Quando nosso grupo for responsavel, podemos contribuir mantendo o Salao do Reino limpo, organizado e acolhedor.',
+    'Quando nosso grupo for responsável, podemos contribuir mantendo o Salão do Reino limpo, organizado e acolhedor.',
   ].join('\n')
   let cursor = drawWrapped(page, regular, paragraph, sideX, sideTop - 50, sidebarWidth - 4, 10.5, 13, rgb(.08, .08, .08))
-  cursor = drawWrapped(page, bold, 'Que todas as coisas ocorram com decencia e ordem.', sideX, cursor - 14, sidebarWidth - 4, 10, 12, rgb(.08, .08, .08))
-  page.drawText('1 Corintios 14:40', { x: sideX, y: cursor - 8, size: 9.5, font: italic, color: rgb(.08, .08, .08) })
+  cursor = drawWrapped(page, bold, 'Que todas as coisas ocorram com decência e ordem.', sideX, cursor - 14, sidebarWidth - 4, 10, 12, rgb(.08, .08, .08))
+  page.drawText('1 Coríntios 14:40', { x: sideX, y: cursor - 8, size: 9.5, font: italic, color: rgb(.08, .08, .08) })
 
   columns.forEach((rows, columnIndex) => {
     const x = scheduleX + columnIndex * (columnWidth + gap)
@@ -146,7 +135,7 @@ export async function createCleaningPdf(period: LimpezaPeriodoGerado, options: C
       const top = contentTop - 43 - rowIndex * rowHeight
       const innerX = x + 10
       const innerWidth = columnWidth - 20
-      drawCentered(page, bold, `GRUPO ${week.grupo}`, innerX, top - effective * 1.5, innerWidth, effective * 1.7, accent)
+      drawCentered(page, bold, `GRUPO ${week.grupo}`, innerX, top - effective * 1.5, innerWidth, effective * 1.45, accent)
       drawCentered(page, bold, upper(week.grupoNome), innerX, top - effective * 2.65, innerWidth, effective * 1.08, accent)
       drawCentered(page, bold, 'LIMPEZA APÓS REUNIÃO', innerX, top - effective * 3.65, innerWidth, effective * .72, rgb(.34, .34, .34))
       drawCentered(page, bold, `MEIO DE SEMANA ${formatCleaningDate(week.dataMeioSemana)}`, innerX, top - effective * 4.45, innerWidth, effective * .76)

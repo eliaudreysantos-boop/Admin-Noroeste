@@ -10,7 +10,7 @@ export function normalizeDataPath(value: string): string | null {
 }
 
 export function canAccessData(path: string, apps: AppPermissions, write: boolean): boolean {
-  const [root, second, third] = path.split('/')
+  const [root, second, third, fourth] = path.split('/')
   if (PRIVATE_ROOTS.has(root ?? '')) return false
   if (apps.mestre) return true
   if (!root) return false
@@ -31,7 +31,15 @@ export function canAccessData(path: string, apps: AppPermissions, write: boolean
   if (root === 'secretario') return apps.secretario === true || (!write && apps.limpeza === true && (second === 'publicadores' || second === 'grupos'))
   if (root === 'servicoCampo') return apps.servicoCampo === true
   if (root === 'agenda') {
-    if (second === 'config') return !write
+    if (second === 'config') {
+      if (!write) return true
+      const messagePermissions: Record<string, keyof AppPermissions> = {
+        tarefas:'tarefas', limpeza:'limpeza', escala:'escala', oradores:'oradores',
+        programacao:'programacao', servicoCampo:'servicoCampo',
+      }
+      const permission = fourth ? messagePermissions[fourth] : undefined
+      return third === 'moduleWhatsApp' && Boolean(permission && apps[permission])
+    }
     if (second === 'documentos') return !write || Boolean(apps.tarefas || apps.limpeza || apps.oradores || apps.escala || apps.servicoCampo)
   }
   return false

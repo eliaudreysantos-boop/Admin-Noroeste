@@ -19,6 +19,7 @@
     "test:mestre": "node --test tests/auth-domain.test.mjs tests/pdf-publication-preview.test.mjs tests/mestre-backup-domain.test.mjs tests/mestre-domain.test.mjs tests/firebase-rules.test.mjs tests/data-authorization.test.mjs tests/storage-authorization.test.mjs tests/agenda-public-security.test.mjs tests/service-worker-security.test.mjs"
   },
   "dependencies": {
+    "@netlify/blobs": "^11.0.3",
     "docx": "^9.7.1",
     "exceljs": "^4.4.0",
     "firebase-admin": "^14.4.0",

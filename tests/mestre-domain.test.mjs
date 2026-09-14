@@ -3,10 +3,12 @@ import assert from 'node:assert/strict'
 import {
   createMasterId,
   linkIssueSource,
+  masterIdReferencePaths,
   normalizeWhatsapp,
   personalUserConflict,
   sanitizeFailureReportValue,
   sharedWhatsappPeople,
+  stableUserMasterId,
 } from '../src/modules/mestre-domain.ts'
 
 const person = (name, whatsapp) => ({
@@ -32,6 +34,26 @@ test('impede duas contas ativas para o mesmo masterId', () => {
   assert.equal(personalUserConflict(users, 'm1', null), true)
   assert.equal(personalUserConflict(users, 'm1', 'u1'), false)
   assert.equal(personalUserConflict(users, 'm2', null), false)
+})
+
+test('mantém a identidade de uma conta já vinculada e permite reparar vínculo inválido', () => {
+  const people = { m1: person('Pessoa 1', ''), m2: person('Pessoa 2', '') }
+  assert.equal(stableUserMasterId({ masterId:'m1' }, 'm2', people), 'm1')
+  assert.equal(stableUserMasterId({ masterId:'inexistente' }, 'm2', people), 'm2')
+  assert.equal(stableUserMasterId(undefined, 'm2', people), 'm2')
+})
+
+test('localiza referências diretas de masterId em históricos e configurações aninhados', () => {
+  const data = {
+    tarefas:{ people:{ p1:{ masterId:'m1' } } },
+    historico:[{ responsavel:{ masterId:'m1' } }, { masterId:'m2' }],
+    config:{ ajudantes:['m1', 'm3'] },
+  }
+  assert.deepEqual(masterIdReferencePaths(data, 'm1'), [
+    'tarefas/people/p1/masterId',
+    'historico/0/responsavel/masterId',
+    'config/ajudantes/0',
+  ])
 })
 
 test('relatório remove credenciais e contatos inclusive em objetos aninhados', () => {

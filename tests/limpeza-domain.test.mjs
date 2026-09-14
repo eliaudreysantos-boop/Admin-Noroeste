@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  assertCleaningPeriodEditable,
   cleaningGroupFor,
   generateCleaningPeriod,
   periodBounds,
@@ -49,6 +50,8 @@ test('geração guarda membros ativos sem textos de publicação', () => {
   const period = generateCleaningPeriod('2026-09-01', 'month', config, meetings, people, 'Noroeste', '2026-09-01T12:00:00Z')
   assert.deepEqual(period.semanas[0].membrosMid, ['m1', 'm2'])
   assert.equal('textoAprovado' in period.semanas[0], false)
+  assert.doesNotThrow(() => assertCleaningPeriodEditable(period))
+  assert.throws(() => assertCleaningPeriodEditable({ ...period, publicado:true }), /Reabra/)
 })
 
 test('geração exige configuração ativa e dias de reunião', () => {

@@ -1,6 +1,6 @@
 # Plano final de conclusao do Admin SPA
 
-Atualizado em 12/09/2026.
+Atualizado em 13/09/2026.
 
 Este documento substitui, para as etapas que ainda faltam, os planos espalhados
 na antiga pasta de arquivos Markdown. Ele deve continuar utilizavel mesmo depois
@@ -11,7 +11,7 @@ que essa pasta de referencias for apagada.
 - Repositorio principal: `admin-spa`.
 - Baseline auditada: commit `662a4fd`.
 - Build de producao concluido sem erros.
-- Suite completa com 157 testes aprovados.
+- Suite completa com 160 testes aprovados.
 - Admin/Mestre, Tarefas, Limpeza, Oradores, Escala TPL, Vida e Ministerio,
   Secretario, Servico de Campo e Minha Agenda ja possuem seus fluxos principais.
 - Os dados atuais sao exemplos para validar o aplicativo. A revisao e o
@@ -41,11 +41,21 @@ que essa pasta de referencias for apagada.
 ### Links e textos de WhatsApp
 
 - Cada modulo pode ter seu proprio link de grupo de WhatsApp.
+- O link e os textos de cada modulo devem ser configurados dentro do proprio
+  modulo, nunca em uma tela central de textos do Admin.
+- O Admin conserva somente a mensagem e o link do Quadro, porque o Quadro nao
+  possui um modulo administrativo separado.
+- A localizacao da interface muda, mas os valores continuam no contrato
+  `agenda/config/moduleWhatsApp/{modulo}` para preservar compatibilidade com a
+  Minha Agenda e com os dados ja existentes.
+- O salvamento do Quadro e dos lembretes usa atualizacao parcial e nao pode
+  sobrescrever mensagens salvas por outro modulo ou por outra aba.
 - O Admin pode repetir o mesmo link em varios modulos quando a congregacao usar
   um grupo unico.
 - A interface nao deve assumir que todos os modulos compartilham o mesmo grupo.
 - Botoes `WhatsApp` devem usar o link configurado no modulo de origem.
-- Textos predefinidos devem ser educados, curtos e editaveis pelo Admin.
+- Textos predefinidos devem ser educados, curtos e editaveis dentro do proprio
+  modulo por quem administra aquele modulo.
 - Quando nao houver link configurado, o botao deve ficar indisponivel ou oculto
   conforme o padrao visual ja usado no modulo.
 
@@ -130,7 +140,7 @@ que essa pasta de referencias for apagada.
 
 ## Auditoria modulo a modulo
 
-Auditoria de codigo atualizada em 13/09/2026. A suite possui 157 testes e o
+Auditoria de codigo atualizada em 13/09/2026. A suite possui 160 testes e o
 build de producao esta aprovado. `Concluido no codigo` significa que nao foi
 encontrada lacuna funcional conhecida no dominio; ainda exige a homologacao de
 interface descrita ao final deste documento.
@@ -142,18 +152,43 @@ Confirmado:
 - cadastro central de pessoas, nome, telefone e `masterId` permanente;
 - telefone compartilhado permitido sem fundir pessoas;
 - criacao e edicao de usuarios e permissoes por modulo;
+- identidade de conta existente travada no `masterId` valido; somente contas
+  legadas com vinculo ausente ou invalido podem selecionar uma pessoa para
+  reparo;
 - backup completo, validacao antes de restaurar e relatorio sanitizado de
   falhas de vinculo;
 - configuracao de congregacao, reunioes, lembretes ICS e WhatsApp do Quadro;
+- antiga tela central de textos de designacoes removida; mensagens de Tarefas,
+  Limpeza, Escala TPL, Oradores, Vida e Ministerio e Servico de Campo passaram
+  para a configuracao do proprio modulo, com texto educado predefinido;
 - upload de PDF para o Quadro com previa obrigatoria;
 - select de pessoa obrigatorio no cadastro de usuario e preservacao de
   `usuario.masterId`;
 - usuarios ativos sem vinculo incluidos no relatorio de falhas;
 - Minha Agenda exibida no indice de modulos;
 - backup e auditoria passam pela sessao Admin e omitem todas as raizes privadas;
+- exclusao de pessoa verifica tambem referencias aninhadas em historicos e
+  configuracoes antes de permitir a remocao;
 - sessao de servidor, CSRF, pareamento de aparelho e matriz de permissao sem
   Firebase Authentication;
-- vinte testes de dominio, backup, autorizacao, regras e cache aprovados.
+- vinte e nove testes do conjunto Admin, backup, autorizacao, regras e cache
+  aprovados.
+
+Auditoria visual e de confiabilidade em 13/09/2026:
+
+- login e sessao da conta Eliaudrey confirmados no servidor local da Netlify;
+- 160 pessoas no cadastro, sendo 129 ativas, sem alteracao dos registros;
+- uma conta Admin vinculada a `m_3fa99d9d`, com o select da pessoa bloqueado na
+  edicao;
+- relatorio de vinculos abriu com 30 itens: 25 sem `masterId`, cinco IDs orfaos
+  e nenhum duplicado; o arquivo omite senha, telefone e WhatsApp;
+- Configuracao ficou limitada a `Congregacao` e `Agenda`; `Dados` mostrou
+  download de backup e restauracao protegida por arquivo valido, frase e
+  confirmacao;
+- fluxo inferior `Voltar`, `Voltar`, `Sair` e layout em 390 x 844 foram
+  conferidos sem rolagem horizontal;
+- nenhuma gravacao, exclusao, restauracao ou download de dados reais foi
+  executado durante a auditoria.
 
 Falta:
 
@@ -171,28 +206,49 @@ Confirmado:
 - reabertura, limpeza controlada, pendencias e vinculo por `masterId`;
 - previa de impressao com ajuste de fonte e paginacao;
 - mensagens comuns de reuniao nao sao enviadas por este modulo;
+- carga inicial consolidada em tres leituras coerentes: `tarefas`, configuracao
+  da congregacao e cadastro mestre;
+- bloqueio de vinculo duplicado pelo `masterId` exato;
+- reversao do documento do Quadro quando o bloqueio do periodo falhar durante
+  a publicacao;
+- tabela desktop sem rolagem horizontal e cartoes da escala visiveis em
+  390 x 844;
+- navegacao inferior `Voltar` ate o painel de modulos, onde aparece `Sair`;
+- PDF real renderizado em A4 retrato, com linhas, duas paginas e sem cortes;
 - dezessete testes aprovados, incluindo o PDF real e as regras opcionais.
 
 Falta apenas na homologacao:
 
-- conferir a previa e a impressao em A4 no navegador usado em producao;
-- testar publicar, reabrir e editar manualmente em tela pequena.
+- depois do deploy final com Netlify Blobs, publicar um periodo representativo,
+  confirmar o arquivo na Minha Agenda e reabrir o periodo. Essa operacao nao foi
+  executada durante a auditoria para nao alterar os dados atuais.
 
 ### Limpeza - concluido no codigo
 
 Confirmado:
 
 - escala mensal ou bimestral e rodizio estavel;
+- preferencia de periodo pertencente ao proprio modulo, sem depender de Tarefas;
 - grupos proprios ou aproveitamento opcional dos grupos do Secretario;
+- carga inicial consolidada em quatro leituras e sem carregar relatorios do
+  Secretario;
 - configuracao de superintendente, ajudantes e dias de reuniao;
-- PDF A4 com reducao de fonte, previa obrigatoria e publicacao no Quadro;
+- nomes completos dos ajudantes, em duas colunas no desktop e uma no celular;
+- periodos publicados protegidos contra nova geracao ate a reabertura;
+- compensacao entre documento e estado do periodo se a publicacao ou reabertura
+  falhar pela metade;
+- PDF real em uma folha A4 retrato, com linhas, acentos, ajuste individual para
+  nomes longos, previa obrigatoria e sem cortes;
 - ausencia de textos, aprovacoes e mensagens por reuniao;
 - descricao do menu corrigida para `Grupos, rodizio e PDF`;
+- interface conferida em 390 x 844 e 1440 x 900, sem rolagem horizontal;
 - cinco testes aprovados.
 
 Falta apenas na homologacao:
 
-- homologar a previa com grupos reais e semanas na virada de mes.
+- depois do deploy final, publicar um periodo representativo, confirmar o arquivo
+  na Minha Agenda e reabrir o periodo. Essa operacao nao foi executada durante a
+  auditoria para nao alterar os dados atuais.
 
 ### Oradores - concluido com reforco de teste documental
 
@@ -279,8 +335,7 @@ Confirmado:
 Falta:
 
 - homologar concorrencia real entre Minha Agenda e Secretario em dois clientes;
-- sanear as duplicidades legadas somente na etapa futura de dados reais;
-- manter `xlsx` restrito aos templates internos confiaveis.
+- sanear as duplicidades legadas somente na etapa futura de dados reais.
 
 ### Servico de Campo - concluido no codigo
 
@@ -531,7 +586,7 @@ Concluida no codigo em 11/09/2026.
 - Confirmar que nenhuma mensagem comum de reuniao voltou para Tarefas, Limpeza,
   Escala TPL ou Oradores; acoes de confirmacao e intercambio continuam no modulo
   dono.
-- Rodar novamente os 157 testes e o build.
+- Rodar novamente os 160 testes e o build.
 
 ## Fase 4 - Dependencias e documentacao
 
@@ -543,23 +598,34 @@ Concluida no codigo em 11/09/2026:
 - Firebase Admin 14.4.0 usado apenas nas funcoes de servidor;
 - vulnerabilidades corrigiveis removidas sem `--force`;
 - `xlsx` substituido por `exceljs` e auditoria de dependencias sem vulnerabilidade;
-- build e os 157 testes aprovados na verificacao atual do conjunto.
+- build e os 160 testes aprovados na verificacao atual do conjunto.
 
-- Atualizar os documentos mantidos no repositorio para remover a regra antiga
+- [x] Atualizar os documentos mantidos no repositorio para remover a regra antiga
   que permitia ao publicador editar relatorio ja enviado.
-- Manter neste documento o contrato canonico de relatorio e as decisoes que
+- [x] Manter neste documento o contrato canonico de relatorio e as decisoes que
   antes estavam espalhadas pelos MDs removidos.
-- Manter a regra obrigatoria de previa para todo PDF gerado pelo aplicativo.
-- Atualizar Firebase de forma controlada, sem `npm audit fix --force`, e executar
+- [x] Manter a regra obrigatoria de previa para todo PDF gerado pelo aplicativo.
+- [x] Atualizar Firebase de forma controlada, sem `npm audit fix --force`, e executar
   novamente build e todos os testes.
-- O pacote `xlsx` possui alertas sem correcao disponivel. Enquanto ele for
-  mantido, deve processar apenas modelos internos e confiaveis; nao aceitar
-  planilhas arbitrarias enviadas por usuarios.
-- Avaliar substituicao futura de `xlsx` sem bloquear a geracao atual do lote
-  S-21, desde que a restricao de entrada confiavel seja preservada.
-- O aviso de bundle acima de 500 KB e uma melhoria de desempenho, nao um
+- [x] A dependencia `xlsx` ja foi substituida por `exceljs`; o lote S-21, os estilos
+  e a orientacao retrato foram preservados e a auditoria de producao ficou sem
+  vulnerabilidades conhecidas.
+- [ ] O aviso de bundle acima de 500 KB e uma melhoria de desempenho, nao um
   bloqueio funcional. Aplicar divisao adicional somente se a medicao em celular
   mostrar necessidade.
+
+Observacao de confiabilidade em 13/09/2026:
+
+- recargas sucessivas durante a auditoria coincidiram com processos duplicados
+  de Netlify/Vite e com o aviso de pico de conexoes do Realtime Database;
+- depois de encerrar os processos duplicados e iniciar um unico `netlify dev`,
+  `/`, `/agenda/` e `auth-users` responderam novamente com HTTP 200;
+- a recorrencia foi confirmada durante a auditoria de Limpeza mesmo com um unico
+  servidor local. Antes do deploy final, as leituras dos modulos devem ser
+  agrupadas em uma requisicao de Function ou o ciclo das conexoes do Realtime
+  Database deve ser reutilizado e encerrado com seguranca;
+- depois da correcao, repetir as cargas locais e publicadas ate comprovar que o
+  aviso de pico e o timeout nao reaparecem.
 
 ## Fase 5 - Homologacao funcional
 
@@ -594,7 +660,7 @@ Executar com a conta Admin e dados de exemplo antes dos dados reais:
 - upload de PDF pelo Admin e exibicao no Quadro;
 - previa obrigatoria dos PDFs dos modulos;
 - console do navegador sem erros durante os fluxos principais;
-- build e suite completa com 157 testes aprovados novamente.
+- build e suite completa com 160 testes aprovados novamente.
 
 ## Fase 6 - Assinatura ICS, sempre por ultimo
 
@@ -641,11 +707,12 @@ em calendarios e aparelhos reais continua obrigatoriamente por ultimo.
 
 ### Migracao segura pronta localmente
 
-- O novo site, as dez Functions e os 157 testes estao aprovados localmente.
+- O novo site, as dez Functions e os 160 testes estao aprovados localmente.
 - Primeiro publicar o site pela `main` do GitHub e confirmar login, dados e
   relatorios; somente depois publicar `database.rules.json`.
-- Inicializar o Storage e conceder permissao de objetos a conta de servico antes
-  de publicar `storage.rules`.
+- Os PDFs passam por Netlify Blobs porque o Firebase Storage exigiria upgrade do
+  plano. Publicar a migracao no commit final e repetir em producao o ciclo de
+  upload, download, substituicao e remocao.
 
 ### Testes obrigatorios
 
@@ -670,7 +737,7 @@ em calendarios e aparelhos reais continua obrigatoriamente por ultimo.
 - regras Firebase publicadas e tokens nao enumeraveis pelo navegador;
 - assinaturas independentes por instalacao e revogacao validadas;
 - feed atualizado ainda precisa ser validado em calendario real;
-- 157 testes e build aprovados na verificacao local mais recente.
+- 160 testes e build aprovados na verificacao local mais recente.
 
 ## Itens posteriores ao fechamento funcional
 

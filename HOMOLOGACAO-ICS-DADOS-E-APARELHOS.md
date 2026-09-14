@@ -12,7 +12,7 @@ reais, atualizacao do feed, isolamento por pessoa e concorrencia dos relatorios.
 - Minha Agenda publicada em `https://admin-noroeste.netlify.app/agenda/`.
 - Criacao, leitura e revogacao de assinatura ja validadas no servidor.
 - Regras do Firebase publicadas; tokens nao podem ser enumerados pelo navegador.
-- Suite automatizada com 157 testes e build aprovados.
+- Suite automatizada com 160 testes e build aprovados.
 - Cada instalacao possui identificador proprio e controla apenas seus tokens.
 
 ## Cuidados com os links

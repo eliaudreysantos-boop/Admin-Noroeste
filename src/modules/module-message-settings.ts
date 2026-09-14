@@ -1,0 +1,104 @@
+import type { AgendaConfig, AgendaReminderModule } from '../types'
+import { agendaConfigRef, child, get, set } from '../firebase'
+
+export type MessageSettingsModule = Exclude<AgendaReminderModule, 'quadro'>
+
+interface ModuleMessageSettings {
+  groupLink?: string
+  meetingText?: string
+  documentText?: string
+}
+
+const MODULE_LABELS: Record<MessageSettingsModule, string> = {
+  tarefas:'Tarefas',
+  limpeza:'Limpeza',
+  escala:'Escala TPL',
+  oradores:'Oradores',
+  programacao:'Vida e Ministério',
+  servicoCampo:'Serviço de Campo',
+}
+
+const MEETING_DEFAULTS: Record<MessageSettingsModule, string> = {
+  tarefas:'Olá, irmãos. Seguem as designações de tarefas da reunião:\n\n{dados_da_reuniao}\n\nObrigado.',
+  limpeza:'Olá, irmãos. Segue a programação de limpeza:\n\n{dados_da_reuniao}\n\nObrigado pela colaboração.',
+  escala:'Olá, irmãos. Segue a programação da Escala TPL:\n\n{dados_da_reuniao}\n\nObrigado.',
+  oradores:'Olá, irmãos. Segue a programação de discursos públicos:\n\n{dados_da_reuniao}\n\nObrigado.',
+  programacao:'Olá, irmãos. Segue a programação da reunião Vida e Ministério:\n\n{dados_da_reuniao}\n\nObrigado.',
+  servicoCampo:'Olá, irmãos. Segue a programação do serviço de campo:\n\n{programacao_servico_campo}\n\nQuem puder participar, será muito bem-vindo. Obrigado.',
+}
+
+const DOCUMENT_DEFAULT = 'Olá, irmãos. O arquivo de {modulo} referente a {periodo} está disponível para consulta:\n\n{link_ou_orientacao}\n\nObrigado.'
+
+function esc(value: unknown): string {
+  return String(value ?? '').replace(/[&<>"']/g, char => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#039;' })[char] ?? char)
+}
+
+export function defaultModuleMessageSettings(module: MessageSettingsModule): Required<ModuleMessageSettings> {
+  return { groupLink:'', meetingText:MEETING_DEFAULTS[module], documentText:DOCUMENT_DEFAULT }
+}
+
+export async function mountModuleMessageSettings(
+  containerId: string,
+  module: MessageSettingsModule,
+  notify: (message: string) => void,
+): Promise<void> {
+  const container = document.getElementById(containerId)
+  if (!container) return
+  container.innerHTML = '<p class="empty-state">Carregando mensagens...</p>'
+
+  const defaults = defaultModuleMessageSettings(module)
+  let current: ModuleMessageSettings = {}
+  try {
+    const snapshot = await get<ModuleMessageSettings>(child(agendaConfigRef, `moduleWhatsApp/${module}`))
+    current = snapshot.exists() ? snapshot.val() ?? {} : {}
+  } catch {
+    container.innerHTML = '<div class="notice warning">Não foi possível carregar as mensagens deste módulo.</div>'
+    return
+  }
+
+  if (!document.getElementById(containerId)) return
+  const prefix = `moduleMessage_${module}`
+  container.innerHTML = `
+    <details class="form-panel">
+      <summary><strong>WhatsApp e mensagens de ${esc(MODULE_LABELS[module])}</strong></summary>
+      <p class="form-help" style="margin-top:12px">Estas preferências pertencem somente a este módulo. Os textos são sugestões educadas e podem ser editados.</p>
+      <div class="form-group">
+        <label class="form-label" for="${prefix}_link">Link do grupo</label>
+        <input id="${prefix}_link" class="form-input" type="url" value="${esc(current.groupLink ?? defaults.groupLink)}" placeholder="https://chat.whatsapp.com/...">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="${prefix}_meeting">Mensagem de reunião ou programação</label>
+        <textarea id="${prefix}_meeting" class="form-input" rows="5" maxlength="2000">${esc(current.meetingText ?? defaults.meetingText)}</textarea>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="${prefix}_document">Mensagem de PDF publicado</label>
+        <textarea id="${prefix}_document" class="form-input" rows="4" maxlength="2000">${esc(current.documentText ?? defaults.documentText)}</textarea>
+      </div>
+      <button id="${prefix}_save" class="btn btn-primary" type="button">Salvar mensagens</button>
+    </details>`
+
+  document.getElementById(`${prefix}_save`)?.addEventListener('click', async () => {
+    const groupLink = (document.getElementById(`${prefix}_link`) as HTMLInputElement).value.trim()
+    if (groupLink && !/^https:\/\/(chat\.)?whatsapp\.com\//i.test(groupLink)) {
+      notify('Use um link válido do WhatsApp')
+      return
+    }
+    const next: NonNullable<AgendaConfig['moduleWhatsApp']>[MessageSettingsModule] = {
+      groupLink,
+      meetingText:(document.getElementById(`${prefix}_meeting`) as HTMLTextAreaElement).value.trim(),
+      documentText:(document.getElementById(`${prefix}_document`) as HTMLTextAreaElement).value.trim(),
+    }
+    const button = document.getElementById(`${prefix}_save`) as HTMLButtonElement
+    button.disabled = true
+    button.textContent = 'Salvando...'
+    try {
+      await set(child(agendaConfigRef, `moduleWhatsApp/${module}`), next)
+      notify('Mensagens do módulo salvas')
+    } catch {
+      notify('Não foi possível salvar as mensagens')
+    } finally {
+      button.disabled = false
+      button.textContent = 'Salvar mensagens'
+    }
+  })
+}

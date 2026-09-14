@@ -2,6 +2,7 @@ import type { AppContext, RawPessoas } from '../types'
 import { configCongregacaoRef, configReunioesRef, get, pessoasRef, programacaoRef, update } from '../firebase'
 import { renderMenuCards, type ItemMenu } from '../ui/menu-cards'
 import { moduleBackButton } from '../ui/module-header'
+import { mountModuleMessageSettings } from './module-message-settings'
 import {
   ASSIGNMENT_PERMISSIONS, assignmentConflicts, assistantNeedsSameSex, bimesters, candidates,
   eligible, filterPrograms, isOfficialJwUrl, mergeImportedProgram, parseOfficialProgram,
@@ -496,11 +497,12 @@ function renderPending(): void {
 }
 
 function renderSettings(): void {
-  root().innerHTML = `${title('Configuração')}<div class="form-panel"><div class="form-group"><label class="form-label">Horário da reunião</label><input id="settingTime" class="form-input" type="time" value="${esc(meetingTime())}"></div><div class="form-group"><label class="form-label">Salas</label><textarea id="settingRooms" class="form-input" rows="3">${esc(rooms().map(room => room.name).join('\n'))}</textarea><div class="form-help">Uma sala por linha. A primeira é o salão principal.</div></div><div class="form-group"><label class="form-label">Modelo de lembrete</label><textarea id="settingTemplate" class="form-input" rows="7">${esc(settings.reminderTemplate || 'Olá, {nome}!\n\nLembrando sua designação na reunião de {data}, às {horario}:\n\nParte: {parte}\n\nPor favor, confirme o recebimento.')}</textarea><div class="form-help">Marcadores: {nome}, {data}, {horario} e {parte}.</div></div><button id="saveProgramSettings" class="btn btn-primary btn-full">Salvar configuração</button></div>`
+  root().innerHTML = `${title('Configuração')}<div class="form-panel"><div class="form-group"><label class="form-label">Horário da reunião</label><input id="settingTime" class="form-input" type="time" value="${esc(meetingTime())}"></div><div class="form-group"><label class="form-label">Salas</label><textarea id="settingRooms" class="form-input" rows="3">${esc(rooms().map(room => room.name).join('\n'))}</textarea><div class="form-help">Uma sala por linha. A primeira é o salão principal.</div></div><div class="form-group"><label class="form-label">Modelo de lembrete individual</label><textarea id="settingTemplate" class="form-input" rows="7">${esc(settings.reminderTemplate || 'Olá, {nome}!\n\nLembrando sua designação na reunião de {data}, às {horario}:\n\nParte: {parte}\n\nPor favor, confirme o recebimento.')}</textarea><div class="form-help">Marcadores: {nome}, {data}, {horario} e {parte}.</div></div><button id="saveProgramSettings" class="btn btn-primary btn-full">Salvar configuração</button></div><div id="programMessageSettings"></div>`
   document.getElementById('saveProgramSettings')!.addEventListener('click', async () => {
     const names = (document.getElementById('settingRooms') as HTMLTextAreaElement).value.split('\n').map(value => value.trim()).filter(Boolean)
     if (!names.length) { toast('Informe ao menos uma sala'); return }
     const next: Settings = { meetingTime: (document.getElementById('settingTime') as HTMLInputElement).value || '19:00', rooms: names.map((name, index) => ({ id: index ? `room-${index + 1}` : 'main', name })), reminderTemplate: (document.getElementById('settingTemplate') as HTMLTextAreaElement).value.trim() }
     try { await update(programacaoRef, { settings: next }); settings = next; toast('Configuração salva') } catch { toast('Não foi possível salvar a configuração') }
   })
+  void mountModuleMessageSettings('programMessageSettings', 'programacao', toast)
 }

@@ -1,6 +1,6 @@
 # Pendencias finais do Admin SPA
 
-Atualizado em 13/09/2026.
+Atualizado em 14/09/2026.
 
 Este documento concentra somente o que ainda falta para encerrar o Admin SPA e
 a Minha Agenda. Os demais documentos continuam servindo como historico e
@@ -17,11 +17,26 @@ execucao final.
   semanal silencioso para atualizar a versao da Netlify.
 - O snapshot da Minha Agenda respeita o ciclo automatico de 24 horas do
   Firebase, salvo comandos explicitos que exigem dados atuais.
-- A suite completa possui 157 testes aprovados.
+- A suite completa possui 160 testes aprovados.
 - O build de producao foi concluido sem erros.
 - O JSON final para importacao na raiz foi gerado e validado.
-- Nenhum commit deve ser feito durante estas fases. Deve existir somente o
-  commit final, depois da autorizacao expressa do Admin.
+- Commits intermediarios devem ser evitados. Em 14/09/2026, o Admin autorizou
+  expressamente o commit de consolidacao deste conjunto de correcoes e
+  auditorias; essa autorizacao nao inclui `push` nem deploy.
+
+## Andamento consolidado das fases
+
+| Fase | Estado em 14/09/2026 |
+| --- | --- |
+| 1 - Login administrativo | Concluida no codigo e nos testes |
+| 2 - Previa obrigatoria de PDF | Concluida nos cinco modulos publicos |
+| 3 - Contrato Firebase e PDFs | Codigo concluido e incluido no commit autorizado; push e deploy pendentes |
+| 4 - Migracao de dados | Estrutura validada; vinculos incertos ficam para a revisao dos dados reais |
+| 5 - Importacao e auditoria | Concluida sem alterar os historicos pendentes |
+| 6 - Homologacao dos modulos | Admin, Tarefas e Limpeza concluidos; seis modulos e Minha Agenda ainda precisam da passagem manual |
+| 7 - PDFs publicos | Homologacao com periodos representativos pendente |
+| 8 - Aparelhos e ICS | Pendente e mantida obrigatoriamente por ultimo |
+| 9 - Documentacao e publicacao | MDs atualizados e commit autorizado; push e deploy ainda pendentes |
 
 ## Auditoria de encerramento - 13/09/2026
 
@@ -51,7 +66,7 @@ execucao final.
   antecipado por caractere.
 - [x] Fazer a Minha Agenda receber eventos ja montados pelo servidor, somente a
   pessoa vinculada e metadados sanitizados. O payload real nao contem raiz
-  administrativa, senha, telefone nem caminho interno do Storage.
+  administrativa, senha, telefone nem caminho interno de armazenamento.
 - [x] Restringir a conta de Oradores aos discursos, eventos, leitura da escala e
   publicacoes proprias dentro de Tarefas; regras e escalas de Tarefas nao podem
   ser alteradas por essa permissao.
@@ -60,37 +75,39 @@ execucao final.
 
 ### Infraestrutura e publicacao
 
-- [ ] Inicializar o Firebase Storage no Console. Enquanto isso, upload de PDF,
-  publicacao dos cinco modulos e templates remotos nao funcionam no ambiente
-  real.
-- [ ] Conceder a conta de servico usada pela Netlify permissao de objetos no
-  bucket do Firebase Storage.
+- [x] Confirmar que o Firebase Storage exigiria upgrade do plano e nao autorizar
+  cobranca apenas para armazenar os PDFs.
+- [x] Migrar os bytes dos PDFs para Netlify Blobs, mantendo os metadados no
+  Realtime Database e os mesmos fluxos nos modulos.
 - [x] Transferir upload, substituicao e remocao de PDFs para uma Function com
   sessao, CSRF, limite de 4 MB, validacao de PDF, caminho e permissao do modulo.
-- [x] Alterar `storage.rules` para negar toda leitura e escrita direta. Os links
-  publicos usam tokens individuais gerados pelo servidor.
+- [x] Fazer a mesma Function servir previa e download dos PDFs publicos por URL
+  propria, sem depender de bucket do Firebase.
 - [x] As Functions publicadas de calendario responderam corretamente: uma
   assinatura revogada retornou `410` e o endpoint de manutencao rejeitou `GET`
   com `405`, comprovando acesso ao armazenamento privado.
-- [ ] Fazer o unico commit, push e deploy. A versao atualmente publicada na
-  Netlify ainda nao contem este conjunto de alteracoes locais.
-- [ ] Depois que a nova versao estiver ativa na Netlify, publicar
-  `database.rules.json`; nunca inverter essa ordem.
-- [ ] Inicializar o Storage, conceder a permissao da conta de servico e publicar
-  `storage.rules`.
+- [x] Publicar o site e as dez Functions pelo GitHub e, depois da validacao,
+  publicar `database.rules.json` no projeto `oradoress2`.
+- [x] Incluir a migracao para Netlify Blobs no commit de consolidacao autorizado
+  em 14/09/2026.
+- [ ] Enviar o commit ao GitHub e aguardar o deploy pelo GitHub.
+- [ ] Repetir em producao o ciclo de enviar, baixar, substituir e remover um PDF
+  temporario.
 
 ### Qualidade confirmada
 
 - [x] Auditoria ao vivo preservou 160 pessoas, uma conta Admin, 4.208
   relatorios, 274 assistencias, 90 programas e os mesmos vinculos incertos ja
   documentados.
-- [x] Os 157 testes passaram na auditoria final.
+- [x] Os 160 testes passaram na auditoria final.
 - [x] `npm run build` passou e o pacote `dist` abriu Admin e Minha Agenda em
   viewport de celular, sem erros de execucao ou rolagem horizontal.
 - [x] `npm audit --omit=dev` retornou zero vulnerabilidades conhecidas.
 - [x] `git diff --check` nao encontrou erro de whitespace; exibiu apenas os
   avisos esperados de conversao LF/CRLF no Windows.
 - [x] O build completo da Netlify empacotou as dez Functions sem erro.
+- [x] O sandbox real do Netlify Blobs confirmou upload, hash identico no
+  download, substituicao, novo hash identico, remocao e HTTP 404 depois dela.
 - [x] O fluxo local real confirmou lista de usuarios sem senha, login por cookie
   `HttpOnly`, CSRF, bloqueio das raizes privadas, agenda sem telefones, somente
   relatorios da pessoa e logout com invalidacao da sessao.
@@ -99,6 +116,16 @@ execucao final.
   `root`, senha, telefone e `storagePath`.
 - [x] Smoke test em 390 x 844 confirmou login, menu, sair e modal de pareamento
   da Minha Agenda sem erro de console.
+- [x] O ambiente local foi reiniciado de forma limpa depois que processos
+  duplicados de Netlify/Vite e recargas sucessivas coincidiram com o limite de
+  conexoes do Realtime Database. Depois da reinicializacao, `/`, `/agenda/` e
+  `auth-users` voltaram a responder com HTTP 200.
+- [x] A recorrencia do pico de conexoes foi confirmada durante a auditoria de
+  Limpeza, com apenas um servidor local e cargas repetidas de modulos.
+- [ ] Agrupar as leituras de cada modulo em uma requisicao de Function ou
+  implementar um ciclo seguro de reutilizacao e encerramento das conexoes do
+  Realtime Database. Depois, comprovar que o aviso e o timeout nao reaparecem no
+  ambiente local nem na versao publicada.
 - [ ] O bundle de exportacao S-21 possui cerca de 1 MB minificado. Como ele e
   carregado por importacao dinamica apenas ao exportar, nao bloqueia o uso, mas
   pode ser otimizado depois da homologacao funcional.
@@ -167,28 +194,28 @@ Functions com Firebase Admin. A regra versionada nega todo acesso direto.
   Secretario e documentos administrativos.
 - [x] Criar testes para a nova matriz de permissoes e para o cache do service
   worker.
-- [ ] Publicar as regras somente depois de validar Admin, Minha Agenda,
-  relatorios e assinaturas em ambiente de teste.
+- [x] Publicar as regras somente depois de validar Admin, Minha Agenda,
+  relatorios e assinaturas em ambiente publicado.
 
-### Firebase Storage
+### Armazenamento de PDFs com Netlify Blobs
 
-O projeto agora versiona as regras do Storage para PDFs e templates. A tentativa
-de publicacao em 12/09/2026 foi interrompida pelo Firebase CLI porque o Storage
-ainda nao foi inicializado no projeto `oradoress2`; nenhum dado ou regra foi
-alterado nessa tentativa.
+O Console do Firebase confirmou em 13/09/2026 que a ativacao do Storage no
+projeto `oradoress2` exigiria upgrade do plano. Nenhum upgrade foi feito. Para
+evitar essa dependencia, os bytes dos PDFs passam a usar Netlify Blobs; os
+metadados publicos continuam em `agenda/documentos` no Realtime Database.
 
-- [x] Registrar no projeto regras do Firebase Storage restritas aos caminhos
-  usados pelo app.
-- [x] Adicionar o arquivo de regras do Storage ao projeto e ao `firebase.json`.
-- [x] Garantir leitura dos PDFs publicos pela Minha Agenda por URL com token do
-  arquivo, sem liberar o bucket para enumeracao.
-- [ ] No Console do Firebase, abrir Storage e concluir uma vez `Get Started`.
-- [x] Fechar a escrita administrativa por Function antes de publicar as regras
-  finais.
+- [x] Remover `storage.rules` e a configuracao de Storage de `firebase.json`,
+  pois nao fazem mais parte da arquitetura.
+- [x] Adicionar `@netlify/blobs` e usar um armazenamento persistente do proprio
+  site.
+- [x] Garantir leitura dos PDFs publicos pela Minha Agenda por URL da Function.
 - [x] Garantir no codigo que somente o fluxo administrativo autorizado publique,
   substitua ou remova documentos.
 - [x] Tratar falha entre upload e gravacao dos metadados para nao deixar arquivo
   orfao ou registro apontando para arquivo removido.
+- [x] Validar localmente um ciclo completo com dois PDFs reais e comparacao de
+  hash dos downloads.
+- [ ] Repetir o ciclo na versao publicada depois do commit final.
 
 ## Fase 4 - Ajustar a migracao antes da importacao
 
@@ -252,7 +279,7 @@ Esta fase exige operacao manual do Admin no Console do Firebase.
 
 Verificacao automatizada concluida em 12/09/2026:
 
-- [x] Os 157 testes automatizados passaram depois das correcoes finais.
+- [x] Os 160 testes automatizados passaram depois das correcoes finais.
 - [x] O build de producao foi gerado sem erro.
 - [x] O smoke test mobile abriu os nove modulos com a conta Admin real, sem
   erro de execucao e sem rolagem horizontal da pagina.
@@ -268,11 +295,24 @@ Verificacao automatizada concluida em 12/09/2026:
 Os itens abaixo permanecem como homologacao humana das operacoes destrutivas,
 dos dados de exemplo e da aparencia detalhada de cada documento.
 
-- [ ] Admin: login, sessao, sair, voltar, usuarios, vinculos, backup e
-  restauracao controlada.
-- [ ] Tarefas: previa A4 retrato, publicacao, reabertura, regras opcionais e tela
-  pequena.
-- [ ] Limpeza: grupos reais, virada de mes, previa A4 retrato e publicacao.
+- [x] Admin: login, sessao, sair, voltar, pessoas, usuarios, vinculos, tela de
+  backup e fluxo protegido de restauracao.
+- [x] Remover a tela central de textos de designacoes do Admin e colocar link e
+  mensagens na configuracao de Tarefas, Limpeza, Escala TPL, Oradores, Vida e
+  Ministerio e Servico de Campo. O Admin conserva somente o Quadro.
+- [x] Salvar Quadro e lembretes por atualizacao parcial, preservando mensagens
+  gravadas por outros modulos em outra aba.
+- [ ] Restaurar um backup descartavel em ambiente separado. A operacao nao foi
+  executada sobre os dados atuais para evitar uma alteracao desnecessaria.
+- [x] Tarefas: motor, regras opcionais, vinculos, mensagens, previa A4 retrato,
+  desktop, tela pequena e navegacao.
+- [ ] Tarefas: publicar um periodo representativo e reabri-lo na versao com
+  Netlify Blobs; a operacao nao foi executada sobre os dados atuais.
+- [x] Limpeza: motor, periodo mensal ou bimestral, virada de mes, vinculos exatos,
+  grupos proprios ou do Secretario, mensagens, previa A4 retrato, desktop, tela
+  pequena e navegacao.
+- [ ] Limpeza: publicar um periodo representativo e reabri-lo depois do deploy
+  final; a operacao nao foi executada sobre os dados atuais.
 - [ ] Oradores: lista unica, programacao, saida, copiar texto, WhatsApp, previa
   A4 retrato e publicacao.
 - [ ] Escala TPL: maior quantidade esperada de horarios, snapshot, publicacao e
@@ -287,6 +327,76 @@ dos dados de exemplo e da aparencia detalhada de cada documento.
 - [ ] Conferir o fluxo `Voltar`, `Voltar`, `Sair` em todos os niveis.
 - [ ] Confirmar que a marca da Netlify nao impede nenhum clique.
 - [ ] Preencher os links reais de WhatsApp de cada modulo.
+
+### Auditoria Admin/Mestre em 13/09/2026
+
+- [x] Cadastro exibiu 160 pessoas, 129 ativas, e permitiu telefone compartilhado
+  sem fundir identidades.
+- [x] Conta Eliaudrey permaneceu vinculada ao `masterId` `m_3fa99d9d`; o select
+  da pessoa fica bloqueado depois de um vinculo valido.
+- [x] O salvamento tambem preserva o `masterId` atual, mesmo se a interface for
+  manipulada; contas legadas com vinculo quebrado continuam reparaveis.
+- [x] A exclusao de pessoa passou a procurar o `masterId` em colecoes,
+  historicos e configuracoes aninhadas antes de permitir a remocao.
+- [x] O relatorio mostrou 30 itens: 25 sem vinculo, cinco IDs orfaos e zero
+  duplicados, alem de duas configuracoes ainda nao salvas.
+- [x] O relatorio abriu completo, com caminho e registro sanitizado, e oferece
+  `Copiar` e `Baixar .md` sem senha, telefone ou WhatsApp.
+- [x] Congregacao, Agenda, PDFs do Quadro, backup e entrada de restauracao foram
+  revisados sem salvar, baixar ou restaurar dados reais.
+- [x] Desktop e 390 x 844 ficaram sem rolagem horizontal ou sobreposicao de
+  controles; a navegacao inferior retornou ao indice e depois aos modulos.
+- [x] Suite completa com 160 testes e build de producao aprovados depois das
+  correcoes.
+
+### Auditoria de Tarefas em 13/09/2026
+
+- [x] A carga inicial passou a usar um unico snapshot de `tarefas`, junto com
+  configuracao da congregacao e cadastro mestre: tres leituras coerentes em vez
+  de varias leituras independentes do mesmo modulo.
+- [x] O cadastro impede dois participantes de Tarefas com o mesmo `masterId`,
+  sem tentar aproximar pessoas pelo nome.
+- [x] A publicacao desfaz o documento do Quadro se o bloqueio do periodo falhar,
+  evitando uma publicacao incompleta.
+- [x] O menu deixa claro que a configuracao reune periodo, regras, datas e
+  mensagens do proprio modulo.
+- [x] Em 1440 x 900, a tabela coube na largura disponivel sem rolagem horizontal.
+  Em 390 x 844, os cartoes da escala voltaram a aparecer e a pagina permaneceu
+  sem sobreposicao ou rolagem horizontal.
+- [x] A navegacao inferior mostrou `Voltar` no indice de Tarefas e `Sair` ao
+  retornar ao painel de modulos.
+- [x] O PDF real abriu na previa, foi renderizado externamente em A4 retrato
+  (595,28 x 841,89 pontos), manteve linhas visiveis e nao apresentou cortes ou
+  sobreposicoes nas duas paginas verificadas.
+- [x] Os 17 testes de Tarefas e o build de producao passaram depois das
+  correcoes. Nenhum cadastro, escala, publicacao ou reabertura foi salvo nos
+  dados atuais durante a auditoria.
+
+### Auditoria de Limpeza em 13/09/2026
+
+- [x] A preferencia mensal ou bimestral passou a pertencer ao proprio modulo de
+  Limpeza, sem depender da configuracao ou do planejamento de Tarefas.
+- [x] A carga inicial caiu de oito leituras para quatro snapshots coerentes e
+  deixou de carregar a raiz de relatorios do Secretario.
+- [x] Periodos publicados nao podem ser gerados novamente ate serem reabertos.
+  Publicacao e reabertura possuem compensacao para desfazer o documento quando
+  a atualizacao do estado do periodo falhar, e vice-versa.
+- [x] Grupos proprios e grupos do Secretario usam somente `masterId` exato; a
+  integracao com os grupos do Secretario e somente de leitura.
+- [x] Alterar a opcao de reutilizar grupos sem salvar nao modifica a configuracao
+  efetiva em memoria.
+- [x] A selecao de ajudantes mostra nomes completos em duas colunas no desktop e
+  uma coluna em celular.
+- [x] O PDF real foi renderizado em uma unica folha A4 retrato, com linhas
+  visiveis, acentos corretos e sem cortes. Nomes longos reduzem somente a sua
+  propria linha, sem encolher todo o documento.
+- [x] As larguras 390 x 844 e 1440 x 900 ficaram sem rolagem horizontal ou
+  sobreposicao de controles.
+- [x] Os cinco testes de Limpeza e o build de producao passaram depois das
+  correcoes. Nenhuma configuracao, escala, publicacao ou reabertura foi salva nos
+  dados atuais durante a auditoria.
+- [x] A recorrencia do pico de conexoes do Realtime Database observada durante
+  esta auditoria foi promovida para a pendencia global de confiabilidade.
 
 ## Fase 7 - Homologar PDFs publicos
 
@@ -330,20 +440,20 @@ Executar integralmente `HOMOLOGACAO-ICS-DADOS-E-APARELHOS.md` por ultimo.
 - [x] Registrar o resultado real da importacao e da auditoria pos-importacao.
 - [x] Substituir `xlsx` por `exceljs` e executar `npm audit --omit=dev` com zero
   vulnerabilidades conhecidas.
-- [x] Executar novamente `npm run test:all` com 157 testes.
+- [x] Executar novamente `npm run test:all` com 160 testes.
 - [x] Executar novamente `npm run build`.
 - [x] Revisar `git diff` e confirmar que nenhum backup, telefone, chave privada
   ou senha operacional entrou nos arquivos preparados para o Git. As senhas de
   exemplo dos testes foram substituidas por `senha-teste`.
-- [ ] Solicitar autorizacao expressa do Admin para o commit.
-- [ ] Fazer um unico commit final.
+- [x] Receber autorizacao expressa do Admin para o commit em 14/09/2026.
+- [x] Preparar e registrar o commit de consolidacao autorizado.
 - [ ] Enviar ao GitHub e aguardar o deploy via Netlify.
 - [ ] Conferir a versao publicada e os endpoints de calendario.
 
 O Netlify CLI confirmou em 12/09/2026 que este repositorio esta vinculado ao
 projeto `admin-noroeste` (`https://admin-noroeste.netlify.app`) e autenticado na
-conta correta. O deploy via GitHub aguarda somente a autorizacao expressa para o
-commit final e o push.
+conta correta. A autorizacao para o commit foi recebida em 14/09/2026; o deploy
+via GitHub ainda aguarda o `push`.
 
 ## Criterio de encerramento
 
@@ -356,6 +466,6 @@ O projeto somente pode ser declarado finalizado quando:
 4. Os nove modulos e os cinco PDFs publicos forem homologados.
 5. PWA, concorrencia de relatorio e assinaturas ICS forem aprovadas em aparelhos
    reais.
-6. Os 157 testes e o build continuarem aprovados.
+6. Os 160 testes e o build continuarem aprovados.
 7. O commit final tiver sido autorizado, enviado ao GitHub e publicado pela
    Netlify.

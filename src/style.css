@@ -979,6 +979,9 @@ textarea.form-input {
 
 .scale-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
 .cleaning-period-row { display: grid; grid-template-columns: minmax(78px, .55fr) minmax(130px, 1fr) minmax(120px, 1fr); gap: 10px; align-items: center; }
+.cleaning-helper-grid { display:grid; grid-template-columns:minmax(0, 1fr) minmax(0, 1fr); gap:4px 10px; max-height:150px; overflow-y:auto; border:1px solid var(--border); border-radius:6px; padding:8px; background:var(--surface-2); }
+.cleaning-helper-grid label { min-width:0; display:flex; align-items:flex-start; gap:5px; cursor:pointer; padding:2px 0; font-size:.8rem; }
+.cleaning-helper-grid span { min-width:0; overflow-wrap:anywhere; }
 .secretary-row { display: flex; justify-content: space-between; gap: 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); }
 .secretary-row > div:first-child { min-width: 0; }
 .secretary-row strong, .secretary-row small { display: block; overflow-wrap: anywhere; }
@@ -1128,12 +1131,12 @@ textarea.form-input {
 .oradores-card-actions .btn { padding:5px 8px; font-size:.72rem; }
 .task-mobile-scale { display:none !important; }
 .task-scale-table-wrap { overflow:auto; border:1px solid var(--border); border-radius:8px; background:var(--surface); }
-.task-scale-table { width:100%; min-width:1180px; border-collapse:collapse; font-size:.75rem; }
+.task-scale-table { width:100%; min-width:1080px; table-layout:fixed; border-collapse:collapse; font-size:.75rem; }
 .task-scale-table th, .task-scale-table td { padding:7px; border-right:1px solid var(--border); border-bottom:1px solid var(--border); vertical-align:top; }
 .task-scale-table thead th { position:sticky; top:0; z-index:1; background:var(--surface-2); color:var(--ink-2); text-align:left; }
-.task-scale-table tbody th { min-width:92px; text-align:left; }
+.task-scale-table thead th:first-child, .task-scale-table tbody th { width:92px; text-align:left; }
 .task-scale-table tbody th small { display:block; margin-top:3px; color:var(--ink-3); }
-.task-scale-table .tarefas-assignment-select { min-width:125px; }
+.task-scale-table .tarefas-assignment-select { width:100%; min-width:0; }
 .task-scale-table .tarefas-assignment-select + span, .task-scale-table label > span { display:none; }
 .task-not-applicable { color:var(--ink-3); }
 
@@ -1150,8 +1153,11 @@ textarea.form-input {
 }
 
 @media (max-width: 560px) {
+  .task-desktop-scale { display: none !important; }
+  .task-mobile-scale { display: flex !important; }
   .cleaning-period-row { grid-template-columns: 72px minmax(0, 1fr); gap: 4px 8px; }
   .cleaning-period-dates { grid-column: 1 / -1; }
+  .cleaning-helper-grid { grid-template-columns:minmax(0, 1fr); }
   .secretary-row { align-items: flex-start; }
   .secretary-row .secretary-actions { flex-direction: column; }
   .pdf-preview-modal iframe { height: 62vh; }

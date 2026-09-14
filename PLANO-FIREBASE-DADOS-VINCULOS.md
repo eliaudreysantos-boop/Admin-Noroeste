@@ -1,20 +1,21 @@
 # Plano de Firebase, dados reais e vinculos
 
-Atualizado em 12/09/2026.
+Atualizado em 14/09/2026.
 
 Este documento registra a revisao dos dados reais, o saneamento de vinculos por
 `masterId`, a preparacao de historicos e o eventual ajuste das regras do
 Firebase. A preparacao local foi autorizada; a escrita no Firebase continua
 dependendo de ordem explicita.
 
-## Ordem atual: preparar localmente, sem publicar
+## Ordem aplicada em 12/09/2026: preparar localmente, sem publicar
 
 - Os arquivos recebidos devem permanecer inalterados.
 - Correcoes seguras podem ser feitas somente em uma copia proposta.
 - Casos incertos devem permanecer em `pendenciasMigracao` e em relatorio.
 - Nao escrever no Firebase.
 - Nao publicar regras pelo Firebase CLI.
-- Nao fazer commit ate nova autorizacao do Admin.
+- Nao fazer commit nessa etapa sem nova autorizacao do Admin. A autorizacao
+  expressa para o commit de consolidacao foi recebida em 14/09/2026.
 - Toda proposta deve ser gerada em arquivo novo, preservando as fontes
   originais e seus hashes.
 
@@ -628,7 +629,7 @@ Validacoes executadas:
   emergencia, nascimento, batismo ou dado pastoral;
 - os cinco hashes permaneceram iguais antes e depois da geracao;
 - a ferramenta passou por compilacao Python.
-- os 157 testes automatizados dos modulos passaram;
+- os 160 testes automatizados dos modulos passaram;
 - `npm run build` concluiu sem erros.
 - a dependencia vulneravel `xlsx` foi substituida por `exceljs`, preservando a
   exportacao S-21 em lote com formatacao, linhas e orientacao retrato;
@@ -749,23 +750,21 @@ operacao passa por uma matriz de permissao no servidor. A Minha Agenda usa um
 cookie de aparelho pareado pelo Admin; o endpoint devolve pessoas sanitizadas,
 programacao publica e somente os relatorios do `masterId` autorizado.
 
-`database.rules.json` e `storage.rules` negam todo acesso direto do cliente. A
-conta de servico da Netlify usa Firebase Admin e ignora essas regras somente
-depois que a Function valida sessao, CSRF, modulo e caminho. A regra do banco
-deve ser publicada apenas depois que o novo site estiver ativo na Netlify.
+`database.rules.json` nega o acesso direto do cliente. A conta de servico da
+Netlify usa Firebase Admin depois que a Function valida sessao, CSRF, modulo e
+caminho. A regra do banco foi publicada somente depois que o novo site entrou
+em producao e passou pelo teste de continuidade.
 
-O Firebase Storage ainda nao foi inicializado em `oradoress2`. O Admin deve
-abrir Storage no Console, executar uma vez `Get Started`, conceder a conta de
-servico da Netlify permissao para gerenciar objetos do bucket e entao executar:
+O Console confirmou em 13/09/2026 que o Firebase Storage exigiria upgrade do
+plano de `oradoress2`; nenhum upgrade foi feito. Os bytes dos PDFs foram
+migrados localmente para Netlify Blobs, enquanto os metadados permanecem em
+`agenda/documentos` no Realtime Database.
 
-```text
-firebase deploy --only storage --project oradoress2
-```
-
-Uploads e exclusoes passam por `storage-file`: a Function exige sessao, CSRF,
-permissao do modulo, caminho permitido, conteudo PDF e limite de 4 MB. A Minha
-Agenda recebe somente a URL com token do arquivo; nao pode listar nem gravar no
-bucket.
+Uploads, downloads e exclusoes passam por `storage-file`: a Function preserva
+o limite de 4 MB, valida PDF e caminho e devolve uma URL propria para previa e
+download. O teste local enviou, comparou por hash, substituiu e removeu dois
+PDFs reais. A publicacao e o mesmo teste em producao aguardam o envio do commit
+autorizado em 14/09/2026.
 
 ### Ferramenta de montagem da raiz
 
@@ -781,10 +780,8 @@ conecta ao Firebase e nao altera o backup recebido.
 
 ## Decisoes em aberto
 
-- Quando inicializar o Firebase Storage e conceder a permissao de objetos a
-  conta de servico da Netlify.
-- Quando autorizar o commit final para publicar primeiro as Functions e depois
-  fechar as regras do Realtime Database.
+- [x] O commit de consolidacao da migracao de PDFs para Netlify Blobs e das
+  melhorias posteriores foi autorizado em 14/09/2026.
 - Se historicos antigos de Tarefas e Escala TPL serao importados integralmente
   ou descartados apos confirmar que nao sao necessarios.
 - Se contatos externos de Oradores terao cadastro proprio definitivo ou uma

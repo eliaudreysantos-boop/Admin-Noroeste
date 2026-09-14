@@ -58,6 +58,10 @@ export function monthLabel(value: string): string {
   return MONTHS[date.getUTCMonth()] ?? value
 }
 
+export function assertCleaningPeriodEditable(period: LimpezaPeriodoGerado | undefined): void {
+  if (period?.publicado) throw new Error('Reabra o período publicado antes de gerar outra escala.')
+}
+
 function memberIds(group: number, people: RawPessoas): string[] {
   return Object.entries(people)
     .filter(([, person]) => person.active && person.limpeza?.grupo === group)

@@ -12,18 +12,17 @@ import {
   get,
   set,
   update,
-  pessoasRef,
+  masterRef,
   configLimpezaRef,
-  configCongregacaoRef,
-  configReunioesRef,
   limpezaPeriodosRef,
-  tarefasPlanejamentoRef,
+  limpezaRef,
   secretarioGruposRef,
   secretarioPublicadoresRef,
 } from '../firebase'
 import { renderMenuCards, type ItemMenu } from '../ui/menu-cards'
 import { moduleBackButton } from '../ui/module-header'
 import {
+  assertCleaningPeriodEditable,
   generateCleaningPeriod,
   monthLabel,
   periodBounds,
@@ -31,6 +30,7 @@ import {
 } from './limpeza-domain'
 import { PublicationPreviewGate } from './pdf-publication-preview'
 import { apiJson } from '../secure-api.ts'
+import { mountModuleMessageSettings } from './module-message-settings'
 
 type LimpezaTab = 'indice' | 'escala' | 'grupos' | 'config' | 'pdf'
 
@@ -49,6 +49,7 @@ interface PublicadorServico { masterId?: string; grupoId?: string; ativo?: boole
 let gruposServico: Record<string, GrupoServico> = {}
 let publicadoresServico: Record<string, PublicadorServico> = {}
 const cleaningPdfPreview = new PublicationPreviewGate()
+const CLEANING_PERIOD_MODE_KEY = 'noroeste_limpeza_period_mode'
 
 function cleaningPdfPreviewInput(period: LimpezaPeriodoGerado, fontSize: number): unknown {
   return { period, fontSize }
@@ -109,15 +110,6 @@ function serviceGroupEntries(): [string, GrupoServico][] {
     .sort((a, b) => String(a[1].nome ?? a[0]).localeCompare(String(b[1].nome ?? b[0]), 'pt-BR') || a[0].localeCompare(b[0]))
 }
 
-function groupSourceId(position: number): string {
-  return usingServiceGroups() ? (serviceGroupEntries()[position - 1]?.[0] ?? String(position)) : String(position)
-}
-
-function groupOwnConfig(position: number): Partial<ConfigLimpezaGrupo> {
-  const key = groupSourceId(position)
-  return usingServiceGroups() ? limpeza.gruposServicoConfig?.[key] ?? {} : limpeza.gruposConfig?.[key] ?? {}
-}
-
 function effectiveGenerationData(): { config: ConfigLimpeza; people: RawPessoas } {
   if (!usingServiceGroups()) return { config: limpeza as ConfigLimpeza, people: pessoas }
   const groups = serviceGroupEntries()
@@ -174,24 +166,29 @@ async function loadAll(): Promise<void> {
   }
 
   try {
-    const [pessoasSnap, limpezaSnap, periodosSnap, congregacaoSnap, reunioesSnap, planejamentoSnap, gruposSnap, publicadoresSnap] = await Promise.all([
-      get(pessoasRef),
-      get(configLimpezaRef),
-      get(limpezaPeriodosRef),
-      get(configCongregacaoRef),
-      get(configReunioesRef),
-      get(tarefasPlanejamentoRef),
+    const [masterSnap, limpezaSnap, gruposSnap, publicadoresSnap] = await Promise.all([
+      get(masterRef),
+      get(limpezaRef),
       get(secretarioGruposRef),
       get(secretarioPublicadoresRef),
     ])
-    pessoas = pessoasSnap.exists() ? (pessoasSnap.val() as RawPessoas) : {}
-    limpeza = limpezaSnap.exists() ? (limpezaSnap.val() as ConfigLimpeza) : {}
-    periodos = periodosSnap.exists() ? (periodosSnap.val() as Record<string, LimpezaPeriodoGerado>) : {}
-    const congregacao = congregacaoSnap.exists() ? (congregacaoSnap.val() as ConfigCongregacao) : undefined
+    const master = masterSnap.exists() ? masterSnap.val() as {
+      pessoas?: RawPessoas
+      config?: { limpeza?: ConfigLimpeza; congregacao?: ConfigCongregacao; reunioes?: ConfigReunioes }
+    } : {}
+    const limpezaRoot = limpezaSnap.exists() ? limpezaSnap.val() as {
+      periodos?: Record<string, LimpezaPeriodoGerado>
+    } : {}
+    pessoas = master.pessoas ?? {}
+    limpeza = master.config?.limpeza ?? {}
+    periodos = limpezaRoot.periodos ?? {}
+    const congregacao = master.config?.congregacao
     congregationName = congregacao?.nome?.trim() || 'Noroeste'
-    reunioes = reunioesSnap.exists() ? (reunioesSnap.val() as ConfigReunioes) : {}
-    const planejamento = planejamentoSnap.exists() ? (planejamentoSnap.val() as { periodMode?: CleaningPeriodMode }) : {}
-    periodMode = planejamento.periodMode === 'month' ? 'month' : 'bimester'
+    reunioes = master.config?.reunioes ?? {}
+    const savedMode = localStorage.getItem(CLEANING_PERIOD_MODE_KEY)
+    periodMode = savedMode === 'month' || savedMode === 'bimester'
+      ? savedMode
+      : limpeza.periodMode === 'month' ? 'month' : 'bimester'
     const secretario = {
       grupos:gruposSnap.exists() ? gruposSnap.val() as Record<string, GrupoServico> : {},
       publicadores:publicadoresSnap.exists() ? publicadoresSnap.val() as Record<string, PublicadorServico> : {},
@@ -226,7 +223,7 @@ function renderIndex(): void {
     { id: 'escala', titulo: 'Gerar escala', subtitulo: 'Calcule e salve a rotação mensal ou bimestral', icone: '▦', corFundo: '#B83E18' },
     { id: 'grupos', titulo: 'Grupos', subtitulo: 'Distribua as pessoas pelos grupos de limpeza', icone: '♧', corFundo: '#006EB6' },
     { id: 'pdf', titulo: 'PDF', subtitulo: 'Baixe a escala já gerada em arquivo separado', icone: '▤', corFundo: '#7E3AF2' },
-    { id: 'config', titulo: 'Configuração', subtitulo: 'Rotação, grupos e responsáveis', icone: '⚙', corFundo: '#003F72' },
+    { id: 'config', titulo: 'Configuração', subtitulo: 'Rotação, grupos, responsáveis e mensagens', icone: '⚙', corFundo: '#003F72' },
   ]
   renderMenuCards(content.querySelector<HTMLElement>('#limpezaMenu')!, items, id => { activeTab = id as LimpezaTab; renderContent() })
 }
@@ -273,6 +270,7 @@ function renderEscala(): void {
     </div>`
   document.getElementById('limpezaPeriodMode')?.addEventListener('change', event => {
     periodMode = (event.target as HTMLSelectElement).value as CleaningPeriodMode
+    localStorage.setItem(CLEANING_PERIOD_MODE_KEY, periodMode)
     renderEscala()
   })
   document.getElementById('limpezaPeriodAnchor')?.addEventListener('change', event => {
@@ -289,6 +287,8 @@ async function saveGeneratedPeriod(): Promise<void> {
     if (!limpeza.ativa || !limpeza.inicioRotacao || !effective.config.grupos || !reunioes.meiaDeSemana || !reunioes.fimDeSemana) {
       throw new Error('Complete a configuração da rotação e dos dias de reunião antes de gerar.')
     }
+    const periodId = periodBounds(`${periodAnchor.slice(0, 7)}-01`, periodMode).id
+    assertCleaningPeriodEditable(periodos[periodId])
     button?.setAttribute('disabled', '')
     if (button) button.textContent = 'Gerando...'
     const generated = generateCleaningPeriod(
@@ -296,6 +296,12 @@ async function saveGeneratedPeriod(): Promise<void> {
       reunioes as ConfigReunioes, effective.people, congregationName, new Date().toISOString(),
     )
     await update(limpezaPeriodosRef, { [generated.id]: generated })
+    try {
+      await update(configLimpezaRef, { periodMode })
+      limpeza.periodMode = periodMode
+    } catch {
+      console.warn('A escala foi salva, mas não foi possível guardar o formato preferido de Limpeza')
+    }
     periodos[generated.id] = generated
     selectedPeriodId = generated.id
     toast(`Escala gerada com ${generated.semanas.length} semanas`)
@@ -422,20 +428,26 @@ async function saveGrupos(ativos: [string, MasterPessoa][]): Promise<void> {
   }
 }
 
-function renderConfig(): void {
+function renderConfig(reuseOverride?: boolean): void {
   const content = document.getElementById('limpezaContent')
   if (!content) return
 
   const ativa = limpeza.ativa ?? false
-  const grupos = groupCount()
+  const reuseServiceGroups = reuseOverride ?? usingServiceGroups()
+  const serviceGroups = serviceGroupEntries()
+  const grupos = reuseServiceGroups
+    ? serviceGroups.length
+    : Math.max(1, Math.min(12, Number(limpeza.grupos ?? 4)))
   const inicioRotacao = limpeza.inicioRotacao ?? ''
 
   const grupoCards = Array.from({ length: grupos }, (_, i) => {
     const gid = String(i + 1)
-    const sourceId = groupSourceId(i + 1)
-    const item = groupOwnConfig(i + 1)
-    const serviceName = usingServiceGroups() ? gruposServico[sourceId]?.nome ?? `Grupo ${gid}` : ''
-    const nome = usingServiceGroups() ? serviceName : item.nome ?? ''
+    const sourceId = reuseServiceGroups ? (serviceGroups[i]?.[0] ?? gid) : gid
+    const item: Partial<ConfigLimpezaGrupo> = reuseServiceGroups
+      ? limpeza.gruposServicoConfig?.[sourceId] ?? {}
+      : limpeza.gruposConfig?.[sourceId] ?? {}
+    const serviceName = reuseServiceGroups ? gruposServico[sourceId]?.nome ?? `Grupo ${gid}` : ''
+    const nome = reuseServiceGroups ? serviceName : item.nome ?? ''
     const superintendenteMid = item.superintendenteMid ?? ''
     const ajudantesMid = toStringArray(item.ajudantesMid as string[] | Record<string, string> | undefined)
 
@@ -445,7 +457,7 @@ function renderConfig(): void {
         <div style="font-size:.9rem;font-weight:700;color:var(--blue-deep);margin-bottom:10px">
           ${escapeHtml(nome || `Grupo ${gid}`)}
         </div>
-        <div class="form-group" ${usingServiceGroups() ? 'hidden' : ''}>
+        <div class="form-group" ${reuseServiceGroups ? 'hidden' : ''}>
           <label class="form-label">Nome do grupo</label>
           <input id="gNome_${escapeHtml(sourceId)}" class="form-input" maxlength="40" value="${escapeHtml(nome)}" placeholder="Ex.: Salão do Reino">
         </div>
@@ -458,13 +470,11 @@ function renderConfig(): void {
         </div>
         <div class="form-group">
           <label class="form-label">Ajudantes</label>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px 10px;
-            max-height:150px;overflow-y:auto;border:1px solid var(--border);
-            border-radius:6px;padding:8px;background:var(--surface-2)">
+          <div class="cleaning-helper-grid">
             ${activePeople().map(([mid, p]) => `
-              <label style="display:flex;align-items:center;gap:5px;cursor:pointer;padding:2px 0;font-size:.8rem">
+              <label title="${escapeHtml(p.name)}">
                 <input type="checkbox" data-group-helper="${escapeHtml(sourceId)}" value="${mid}" ${ajudantesMid.includes(mid) ? 'checked' : ''}>
-                <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(p.name.split(' ')[0] ?? p.name)}</span>
+                <span>${escapeHtml(p.name)}</span>
               </label>`).join('')}
           </div>
         </div>
@@ -481,13 +491,13 @@ function renderConfig(): void {
     </div>
     <div class="form-group">
       <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
-        <input type="checkbox" id="lUsarGruposServico" ${usingServiceGroups() ? 'checked' : ''}>
+        <input type="checkbox" id="lUsarGruposServico" ${reuseServiceGroups ? 'checked' : ''}>
         <span class="form-label" style="margin:0">Aproveitar grupos de serviço de campo</span>
       </label>
       <p class="form-help">Marcado, nomes e membros vêm do Secretário e não podem ser alterados na Limpeza.</p>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-      <div class="form-group" ${usingServiceGroups() ? 'hidden' : ''}>
+      <div class="form-group" ${reuseServiceGroups ? 'hidden' : ''}>
         <label class="form-label">Número de grupos</label>
         <select id="lGrupos" class="form-select">
           ${[2,3,4,5,6].map(n => `<option value="${n}" ${grupos === n ? 'selected' : ''}>${n} grupos</option>`).join('')}
@@ -503,25 +513,26 @@ function renderConfig(): void {
     ${grupoCards}
     <div style="position:sticky;bottom:8px;margin-top:4px">
       <button id="btnSalvarLimpezaConfig" class="btn btn-primary btn-full">Salvar Configuração</button>
-    </div>`
+    </div><div id="cleaningMessageSettings"></div>`
 
   document.getElementById('lUsarGruposServico')!.addEventListener('change', event => {
-    limpeza.aproveitarGruposServicoCampo = (event.target as HTMLInputElement).checked
-    renderConfig()
+    renderConfig((event.target as HTMLInputElement).checked)
   })
   document.getElementById('btnSalvarLimpezaConfig')!
     .addEventListener('click', () => void saveConfig())
+  void mountModuleMessageSettings('cleaningMessageSettings', 'limpeza', toast)
 }
 
 async function saveConfig(): Promise<void> {
   const checked = (id: string) => (document.getElementById(id) as HTMLInputElement).checked
   const value = (id: string) => (document.getElementById(id) as HTMLInputElement).value.trim()
   const reuseServiceGroups = checked('lUsarGruposServico')
-  const grupos = reuseServiceGroups ? serviceGroupEntries().length : Number((document.getElementById('lGrupos') as HTMLSelectElement).value)
+  const serviceGroups = serviceGroupEntries()
+  const grupos = reuseServiceGroups ? serviceGroups.length : Number((document.getElementById('lGrupos') as HTMLSelectElement).value)
   const editedConfigs: Record<string, ConfigLimpezaGrupo> = {}
 
   for (let i = 1; i <= grupos; i++) {
-    const gid = groupSourceId(i)
+    const gid = reuseServiceGroups ? (serviceGroups[i - 1]?.[0] ?? String(i)) : String(i)
     const ajudantesMid = Array.from(
       document.querySelectorAll<HTMLInputElement>('[data-group-helper]:checked')
     ).filter(cb => cb.dataset['groupHelper'] === gid).map(cb => cb.value)
@@ -536,6 +547,7 @@ async function saveConfig(): Promise<void> {
   const nextConfig: ConfigLimpeza = {
     ativa: checked('lAtiva'),
     aproveitarGruposServicoCampo: reuseServiceGroups,
+    periodMode,
     grupos: reuseServiceGroups ? Number(limpeza.grupos ?? 4) : grupos,
     inicioRotacao: value('lInicio'),
     gruposConfig: reuseServiceGroups ? limpeza.gruposConfig ?? {} : editedConfigs,
@@ -591,19 +603,33 @@ async function toggleCleaningPublication(): Promise<void> {
   try {
     const { createCleaningPdf } = await import('./limpeza-documents')
     const { publishAgendaModulePdf, unpublishAgendaModulePdf } = await import('./agenda-documents')
+    const fontSize = Number(localStorage.getItem('noroeste_limpeza_pdf_font') ?? 15)
+    const label = period.modo === 'bimester' ? `${period.inicio.slice(0, 7)} a ${period.fim.slice(0, 7)}` : period.inicio.slice(0, 7)
+    const metadata = { modulo:'limpeza' as const, periodo:label, inicio:period.inicio, fim:period.fim, origemPeriodoId:period.id, nome:`limpeza-${period.id}.pdf` }
     if (period.publicado) {
+      const restore = await createCleaningPdf(period, { requestedFontSize:fontSize })
       await unpublishAgendaModulePdf('limpeza', period.id)
-      await update(limpezaPeriodosRef, { [`${period.id}/publicado`]:false, [`${period.id}/publicadoEm`]:null })
+      try {
+        await update(limpezaPeriodosRef, { [`${period.id}/publicado`]:false, [`${period.id}/publicadoEm`]:null })
+      } catch (error) {
+        try { await publishAgendaModulePdf(restore.bytes, metadata) }
+        catch { console.warn('Não foi possível restaurar a publicação de Limpeza') }
+        throw error
+      }
       period.publicado = false; delete period.publicadoEm
       toast('Período reaberto e retirado do Quadro')
     } else {
-      const fontSize = Number(localStorage.getItem('noroeste_limpeza_pdf_font') ?? 15)
       if (!cleaningPdfPreview.matches(cleaningPdfPreviewInput(period, fontSize))) { toast('Abra a prévia atual do PDF antes de publicar'); return }
       const result = await createCleaningPdf(period, { requestedFontSize:fontSize })
-      const label = period.modo === 'bimester' ? `${period.inicio.slice(0, 7)} a ${period.fim.slice(0, 7)}` : period.inicio.slice(0, 7)
-      await publishAgendaModulePdf(result.bytes, { modulo:'limpeza', periodo:label, inicio:period.inicio, fim:period.fim, origemPeriodoId:period.id, nome:`limpeza-${period.id}.pdf` })
+      await publishAgendaModulePdf(result.bytes, metadata)
       const publishedAt = new Date().toISOString()
-      await update(limpezaPeriodosRef, { [`${period.id}/publicado`]:true, [`${period.id}/publicadoEm`]:publishedAt })
+      try {
+        await update(limpezaPeriodosRef, { [`${period.id}/publicado`]:true, [`${period.id}/publicadoEm`]:publishedAt })
+      } catch (error) {
+        try { await unpublishAgendaModulePdf('limpeza', period.id) }
+        catch { console.warn('Não foi possível desfazer a publicação incompleta de Limpeza') }
+        throw error
+      }
       period.publicado = true; period.publicadoEm = publishedAt
       toast('Período publicado no Quadro')
     }

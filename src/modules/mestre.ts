@@ -9,7 +9,6 @@ import type {
   RawUsuarios,
   Role,
   Sex,
-  TipoDesignacao,
   Usuario,
   ModuleName,
 } from '../types'
@@ -20,7 +19,6 @@ import {
   configRef,
   configCongregacaoRef,
   configReunioesRef,
-  configDesignacoesRef,
   agendaConfigRef,
   agendaDocumentsRef,
   rootRef,
@@ -38,10 +36,12 @@ import { validateBackup } from './mestre-backup-domain'
 import {
   createMasterId,
   linkIssueSource,
+  masterIdReferencePaths,
   normalizeWhatsapp,
   personalUserConflict,
   sanitizeFailureReportValue,
   sharedWhatsappPeople,
+  stableUserMasterId,
 } from './mestre-domain'
 import { navigateTo } from '../router'
 import { previewPdf } from '../ui/pdf-preview'
@@ -63,35 +63,13 @@ let previewedAgendaPdfKey = ''
 
 type AdminTab = 'indice' | 'pessoas' | 'usuarios' | 'config' | 'vinculos' | 'dados'
 let activeTab: AdminTab = 'indice'
-let activeConfigSection: 'congregacao' | 'designacoes' | 'agenda' = 'congregacao'
+let activeConfigSection: 'congregacao' | 'agenda' = 'congregacao'
 
 let pessoaFilter = { nome: '', role: '', ativo: 'true', sex: '' }
 
 // ─── Constantes ──────────────────────────────────────────────────────────────
 
 const DIAS_SEMANA = ['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado']
-
-const DESIGNACOES_TIPOS: TipoDesignacao[] = [
-  'presidente','leitor','microfone','operador','auditorio','entrada',
-  'limpeza-super','limpeza-ajudante','limpeza-grupo',
-  'escala-campo','discurso-local','discurso-saida','programacao-parte',
-]
-
-const DESIGNACAO_LABELS: Record<TipoDesignacao, string> = {
-  'presidente':        'Presidente',
-  'leitor':            'Leitor',
-  'microfone':         'Microfone',
-  'operador':          'Operador AV',
-  'auditorio':         'Auditório',
-  'entrada':           'Entrada',
-  'limpeza-super':     'Limpeza — Superintendente',
-  'limpeza-ajudante':  'Limpeza — Ajudante',
-  'limpeza-grupo':     'Limpeza — Grupo',
-  'escala-campo':      'Escala de campo',
-  'discurso-local':    'Discurso local',
-  'discurso-saida':    'Discurso saída',
-  'programacao-parte': 'Programação — parte',
-}
 
 // ─── Utilitários gerais ───────────────────────────────────────────────────────
 
@@ -159,35 +137,6 @@ function setLoading(btnId: string, loading: boolean, label = 'Salvar'): void {
   if (!btn) return
   btn.disabled = loading
   btn.textContent = loading ? 'Salvando…' : label
-}
-
-// ─── Utilitários de config ────────────────────────────────────────────────────
-
-function todayStr(): string {
-  return new Date().toISOString().slice(0, 10)
-}
-
-function formatDate(d: string): string {
-  if (!d) return '—'
-  const [y, m, day] = d.split('-')
-  return `${day}/${m}/${y}`
-}
-
-function charCounter(textareaId: string, counterId: string, max = 250): void {
-  const ta = document.getElementById(textareaId) as HTMLTextAreaElement | null
-  const ct = document.getElementById(counterId)
-  if (!ta || !ct) return
-  const update = () => { ct.textContent = `${ta.value.length}/${max}` }
-  ta.addEventListener('input', update)
-  update()
-}
-
-function keepApprovalIfTextUnchanged(
-  savedText: string | undefined,
-  currentText: string,
-  approvedAt: string | undefined,
-): string {
-  return savedText === currentText ? (approvedAt ?? '') : ''
 }
 
 // ─── Mount ───────────────────────────────────────────────────────────────────
@@ -268,7 +217,6 @@ function renderContent(): void {
   else                               renderDados()
 
 }
-
 async function loadPublicRoot(): Promise<Record<string, unknown>> {
   const entries = await Promise.all([
     ['master', masterRef], ['usuarios', usuariosRef], ['tarefas', tarefasRef],
@@ -295,7 +243,7 @@ function renderIndex(): void {
   const items: ItemMenu[] = [
     { id: 'pessoas', titulo: 'Pessoas', subtitulo: 'Cadastros e dados da congregação', icone: '♙', corFundo: '#003F72' },
     { id: 'usuarios', titulo: 'Usuários', subtitulo: 'Acessos e módulos disponíveis', icone: '⚿', corFundo: '#006EB6' },
-    { id: 'config', titulo: 'Configuração', subtitulo: 'Congregação, reuniões e designações', icone: '⚙', corFundo: '#5C6062' },
+    { id: 'config', titulo: 'Configuração', subtitulo: 'Congregação, agenda e PDFs', icone: '⚙', corFundo: '#5C6062' },
     { id: 'vinculos', titulo: 'Vínculos', subtitulo: 'IDs compartilhados entre os módulos', icone: '⌁', corFundo: '#1A6B3C' },
     { id: 'dados', titulo: 'Dados', subtitulo: 'Backup completo e restauração', icone: '▤', corFundo: '#B3261E' },
   ]
@@ -485,7 +433,7 @@ function renderVinculos(): void {
 
   mc.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:12px">
-      <div style="font-size:.8rem;color:var(--ink-3)">${issues.length ? `${issues.length} item${issues.length === 1 ? '' : 's'} para revisar` : 'Todos os vínculos estão consistentes'}</div>
+      <div style="font-size:.8rem;color:var(--ink-3)">${issues.length ? `${issues.length} ${issues.length === 1 ? 'item' : 'itens'} para revisar` : 'Todos os vínculos estão consistentes'}</div>
       <div style="display:flex;gap:8px"><button id="btnExportLinkFailures" class="btn btn-primary" type="button">Relatório</button><button id="btnRefreshLinks" class="btn btn-ghost" type="button">Atualizar</button></div>
     </div>
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px">
@@ -970,6 +918,19 @@ function findMasterReferences(data: Record<string, unknown>, mid: string): strin
       found.add('Grupos de limpeza')
     }
   })
+  masterIdReferencePaths(data, mid).forEach(path => {
+    if (path.startsWith('usuarios/')) found.add('Usuários')
+    else if (path.startsWith('tarefas/discursos/oradores/')) found.add('Oradores')
+    else if (path.startsWith('tarefas/')) found.add('Tarefas')
+    else if (path.startsWith('limpeza/')) found.add('Limpeza')
+    else if (path.startsWith('escala/')) found.add('Escala TPL')
+    else if (path.startsWith('programacao/')) found.add('Programação')
+    else if (path.startsWith('secretario/')) found.add('Secretário')
+    else if (path.startsWith('servicoCampo/')) found.add('Serviço de Campo')
+    else if (path.startsWith('agenda/')) found.add('Minha Agenda')
+    else if (path.startsWith('master/config/limpeza/')) found.add('Grupos de limpeza')
+    else if (!path.startsWith(`master/pessoas/${mid}/`)) found.add('Históricos ou configurações')
+  })
   return [...found]
 }
 
@@ -1029,6 +990,7 @@ function usuarioCard(uid: string, u: Usuario): string {
 
 function openUsuarioModal(uid: string | null): void {
   const u    = uid ? usuarios[uid] : undefined
+  const identityLocked = Boolean(u?.masterId && pessoas[u.masterId])
   const apps = u?.apps ?? {
     mestre:false, tarefas:false, limpeza:false, escala:false,
     oradores:false, programacao:false, secretario:false,
@@ -1046,8 +1008,8 @@ function openUsuarioModal(uid: string | null): void {
       <h2>${uid ? 'Editar Usuário' : 'Novo Usuário'}</h2>
       <div class="form-group">
         <label class="form-label" for="uMasterId">Pessoa vinculada *</label>
-        <select id="uMasterId" class="form-select"><option value="">Selecione uma pessoa</option>${personOptions}</select>
-        <p class="form-help">Nome, telefone e identidade vêm do cadastro central de pessoas.</p>
+        <select id="uMasterId" class="form-select" ${identityLocked ? 'disabled' : ''}><option value="">Selecione uma pessoa</option>${personOptions}</select>
+        <p class="form-help">${identityLocked ? 'A pessoa vinculada não pode ser trocada. Nome e telefone continuam vindo do cadastro Admin.' : 'Nome, telefone e identidade vêm do cadastro central de pessoas.'}</p>
       </div>
       <div class="form-group">
         <label class="form-label">Senha *</label>
@@ -1087,7 +1049,8 @@ function openUsuarioModal(uid: string | null): void {
 
 async function saveUsuario(uid: string | null, overlay: HTMLElement): Promise<void> {
   const senha    = (document.getElementById('uSenha')    as HTMLInputElement).value
-  const masterId = (document.getElementById('uMasterId') as HTMLSelectElement).value
+  const requestedMasterId = (document.getElementById('uMasterId') as HTMLSelectElement).value
+  const masterId = stableUserMasterId(uid ? usuarios[uid] : undefined, requestedMasterId, pessoas)
   const ativo    = (document.getElementById('uAtivo')    as HTMLInputElement).checked
   if (!senha) { toast('Preencha a senha'); return }
   if (!masterId || !pessoas[masterId]) { toast('Selecione uma pessoa válida'); return }
@@ -1160,7 +1123,6 @@ function renderConfig(): void {
 
   const secs: Array<{ id: typeof activeConfigSection; label: string }> = [
     { id: 'congregacao', label: 'Congregação' },
-    { id: 'designacoes', label: 'Designações' },
     { id: 'agenda', label: 'Agenda' },
   ]
 
@@ -1182,7 +1144,6 @@ function renderConfig(): void {
   })
 
   if (activeConfigSection === 'congregacao') renderConfigCongregacao()
-  else if (activeConfigSection === 'designacoes') renderConfigDesignacoes()
   else renderConfigAgenda()
 }
 
@@ -1273,15 +1234,11 @@ function renderConfigAgenda(): void {
       ${reminderSelect(`agendaReminder2_${module.id}`, values[1] ?? '')}
     </div>`
   }).join('')
-  const whatsAppRows = AGENDA_REMINDER_MODULES.map(module => {
-    const current = moduleWhatsApp[module.id] ?? {}
-    const fallbackLink = module.id === 'quadro' ? agendaConfig.quadroWhatsAppLink ?? '' : ''
-    const defaultMeeting = module.id === 'servicoCampo' ? 'Olá, irmãos. Segue a programação do serviço de campo:\n\n{programacao_servico_campo}\n\nQuem puder participar, será muito bem-vindo. Obrigado.' : 'Olá, irmãos. Seguem as informações da nossa reunião:\n\n{dados_da_reuniao}\n\nObrigado.'
-    return `<details class="form-panel"><summary>${escapeHtml(module.label)}</summary><div class="form-group" style="margin-top:12px"><label class="form-label" for="agendaWhatsLink_${module.id}">Link do grupo</label><input id="agendaWhatsLink_${module.id}" class="form-input" type="url" value="${escapeHtml(current.groupLink ?? fallbackLink)}" placeholder="https://chat.whatsapp.com/..."></div><div class="form-group"><label class="form-label" for="agendaWhatsMeeting_${module.id}">Texto de reunião ou programação</label><textarea id="agendaWhatsMeeting_${module.id}" class="form-input" rows="5">${escapeHtml(current.meetingText ?? defaultMeeting)}</textarea></div><div class="form-group"><label class="form-label" for="agendaWhatsDocument_${module.id}">Texto de PDF publicado</label><textarea id="agendaWhatsDocument_${module.id}" class="form-input" rows="4">${escapeHtml(current.documentText ?? 'Olá, irmãos. O arquivo de {modulo} referente a {periodo} está disponível para consulta:\n\n{link_ou_orientacao}\n\nObrigado.')}</textarea></div></details>`
-  }).join('')
+  const quadroWhatsApp = moduleWhatsApp.quadro ?? {}
+  const quadroLink = quadroWhatsApp.groupLink ?? agendaConfig.quadroWhatsAppLink ?? ''
 
   el.innerHTML = `
-    <div><h3 style="margin-top:0">WhatsApp por módulo</h3><p class="form-help">Cada módulo pode abrir um grupo diferente. Quando o mesmo grupo for usado, repita o link nos módulos desejados. Os textos são predefinidos, educados e editáveis.</p>${whatsAppRows}</div>
+    <div><h3 style="margin-top:0">WhatsApp do Quadro</h3><p class="form-help">As mensagens dos módulos são configuradas dentro de cada módulo. Aqui fica somente o grupo usado pelo Quadro de anúncios.</p><div class="form-group"><label class="form-label" for="agendaWhatsLink_quadro">Link do grupo</label><input id="agendaWhatsLink_quadro" class="form-input" type="url" value="${escapeHtml(quadroLink)}" placeholder="https://chat.whatsapp.com/..."></div><div class="form-group"><label class="form-label" for="agendaWhatsMeeting_quadro">Mensagem do Quadro</label><textarea id="agendaWhatsMeeting_quadro" class="form-input" rows="5">${escapeHtml(quadroWhatsApp.meetingText ?? 'Olá, irmãos. Seguem as informações da nossa reunião:\n\n{dados_da_reuniao}\n\nObrigado.')}</textarea></div></div>
     <div style="margin-top:18px">
       <div style="font-size:.8rem;font-weight:600;color:var(--ink-2);margin-bottom:4px;text-transform:uppercase;letter-spacing:.05em">Lembretes do calendário</div>
       <p class="form-help" style="margin-top:0">Cada coluna adiciona um lembrete ao arquivo .ics. Deixe uma ou ambas como “Sem lembrete” quando aquele módulo não precisar avisar.</p>
@@ -1352,15 +1309,13 @@ function normalizedReminderValues(values: string[]): string[] {
 }
 
 async function saveConfigAgenda(): Promise<void> {
-  const moduleWhatsApp: NonNullable<AgendaConfig['moduleWhatsApp']> = {}
-  for (const module of AGENDA_REMINDER_MODULES) {
-    const groupLink = (document.getElementById(`agendaWhatsLink_${module.id}`) as HTMLInputElement).value.trim()
-    if (groupLink && !/^https:\/\/(chat\.)?whatsapp\.com\//i.test(groupLink)) { toast(`Use um link válido do WhatsApp em ${module.label}`); return }
-    moduleWhatsApp[module.id] = {
-      groupLink,
-      meetingText:(document.getElementById(`agendaWhatsMeeting_${module.id}`) as HTMLTextAreaElement).value.trim(),
-      documentText:(document.getElementById(`agendaWhatsDocument_${module.id}`) as HTMLTextAreaElement).value.trim(),
-    }
+  const moduleWhatsApp: NonNullable<AgendaConfig['moduleWhatsApp']> = { ...(agendaConfig.moduleWhatsApp ?? {}) }
+  const groupLink = (document.getElementById('agendaWhatsLink_quadro') as HTMLInputElement).value.trim()
+  if (groupLink && !/^https:\/\/(chat\.)?whatsapp\.com\//i.test(groupLink)) { toast('Use um link válido do WhatsApp no Quadro'); return }
+  moduleWhatsApp.quadro = {
+    ...(moduleWhatsApp.quadro ?? {}),
+    groupLink,
+    meetingText:(document.getElementById('agendaWhatsMeeting_quadro') as HTMLTextAreaElement).value.trim(),
   }
   const icsReminders: AgendaConfig['icsReminders'] = {}
   AGENDA_REMINDER_MODULES.forEach(module => {
@@ -1370,11 +1325,20 @@ async function saveConfigAgenda(): Promise<void> {
     ]
     icsReminders[module.id] = normalizedReminderValues(values)
   })
-  const next: AgendaConfig = { quadroWhatsAppLink:moduleWhatsApp.quadro?.groupLink ?? '', moduleWhatsApp, icsReminders }
+  const quadroSettings = moduleWhatsApp.quadro ?? {}
   setLoading('btnSalvarAgendaConfig', true)
   try {
-    await set(agendaConfigRef, next)
-    agendaConfig = next
+    await update(agendaConfigRef, {
+      quadroWhatsAppLink:groupLink,
+      'moduleWhatsApp/quadro':quadroSettings,
+      icsReminders,
+    })
+    agendaConfig = {
+      ...agendaConfig,
+      quadroWhatsAppLink:groupLink,
+      moduleWhatsApp:{ ...(agendaConfig.moduleWhatsApp ?? {}), quadro:quadroSettings },
+      icsReminders,
+    }
     toast('Configurações da Agenda salvas ✓')
   } catch {
     toast('Erro ao salvar configurações da Agenda')
@@ -1462,111 +1426,5 @@ async function saveConfigCongregacao(): Promise<void> {
     toast('Erro ao salvar')
   } finally {
     setLoading('btnSalvarCong', false, 'Salvar Congregação')
-  }
-}
-
-// ── Config Designações ────────────────────────────────────────────────────────
-
-function renderConfigDesignacoes(): void {
-  const el   = document.getElementById('configContent')!
-  const desig = config.designacoes ?? {}
-
-  const cards = DESIGNACOES_TIPOS.map(tipo => {
-    const d = desig[tipo] ?? { textoIcs: '', ativo: true, aprovadoEm: '' }
-    return `
-      <div style="background:var(--surface);border:1px solid var(--border);
-        border-radius:8px;padding:12px;margin-bottom:8px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-          <span style="font-size:.85rem;font-weight:600">${DESIGNACAO_LABELS[tipo]}</span>
-          <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:.78rem;
-            white-space:nowrap;margin-left:8px">
-            <input type="checkbox" class="dAtivo" data-tipo="${tipo}" ${d.ativo ? 'checked' : ''}>
-            Ativo
-          </label>
-        </div>
-        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
-          <label class="form-label" style="margin:0;font-size:.78rem">Texto .ics</label>
-          <span style="font-size:.72rem;color:var(--ink-3)" id="dCount_${tipo}">
-            ${d.textoIcs.length}/250
-          </span>
-        </div>
-        <textarea id="dTexto_${tipo}" class="form-input" rows="2"
-          maxlength="250" style="resize:none;font-size:.82rem">${escapeHtml(d.textoIcs)}</textarea>
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:5px">
-          <span style="font-size:.72rem;color:var(--ink-3)">
-            Aprovado: <strong>${d.aprovadoEm ? formatDate(d.aprovadoEm) : '—'}</strong>
-          </span>
-          <button class="btn btn-ghost dAprovar" data-tipo="${tipo}"
-            style="font-size:.75rem;padding:3px 10px">✓ Aprovar</button>
-        </div>
-      </div>`
-  }).join('')
-
-  el.innerHTML = `
-    <p style="font-size:.78rem;color:var(--ink-3);margin-bottom:12px">
-      Texto que aparece no campo Observações do arquivo .ics exportado para o calendário (máx. 250 caracteres).
-    </p>
-    ${cards}
-    <div style="position:sticky;bottom:8px;margin-top:4px">
-      <button id="btnSalvarDesig" class="btn btn-primary btn-full">
-        Salvar Designações
-      </button>
-    </div>`
-
-  // Contadores de caracteres
-  DESIGNACOES_TIPOS.forEach(tipo => charCounter(`dTexto_${tipo}`, `dCount_${tipo}`))
-
-  // Aprovar individual
-  el.querySelectorAll<HTMLButtonElement>('.dAprovar').forEach(btn => {
-    btn.addEventListener('click', () => void approveDesignacao(btn.dataset['tipo'] as TipoDesignacao))
-  })
-
-  // Salvar tudo
-  document.getElementById('btnSalvarDesig')!
-    .addEventListener('click', () => void saveConfigDesignacoes())
-}
-
-async function approveDesignacao(tipo: TipoDesignacao): Promise<void> {
-  const texto = (document.getElementById(`dTexto_${tipo}`) as HTMLTextAreaElement).value
-  const ativo = (document.querySelector(`.dAtivo[data-tipo="${tipo}"]`) as HTMLInputElement)?.checked ?? true
-  const hoje  = todayStr()
-  try {
-    await update(configDesignacoesRef, {
-      [`${tipo}/textoIcs`]:   texto,
-      [`${tipo}/ativo`]:      ativo,
-      [`${tipo}/aprovadoEm`]: hoje,
-    })
-    if (!config.designacoes) config.designacoes = {}
-    config.designacoes[tipo] = { textoIcs: texto, ativo, aprovadoEm: hoje }
-    toast(`"${DESIGNACAO_LABELS[tipo]}" aprovado ✓`)
-    renderConfigDesignacoes()
-  } catch {
-    toast('Erro ao aprovar')
-  }
-}
-
-async function saveConfigDesignacoes(): Promise<void> {
-  const result: Partial<Record<TipoDesignacao, { textoIcs: string; ativo: boolean; aprovadoEm: string }>> = {}
-
-  for (const tipo of DESIGNACOES_TIPOS) {
-    const textoIcs = (document.getElementById(`dTexto_${tipo}`) as HTMLTextAreaElement).value
-    const ativo    = (document.querySelector(`.dAtivo[data-tipo="${tipo}"]`) as HTMLInputElement)?.checked ?? true
-    const aprovadoEm = keepApprovalIfTextUnchanged(
-      config.designacoes?.[tipo]?.textoIcs,
-      textoIcs,
-      config.designacoes?.[tipo]?.aprovadoEm,
-    )
-    result[tipo] = { textoIcs, ativo, aprovadoEm }
-  }
-
-  setLoading('btnSalvarDesig', true)
-  try {
-    await set(configDesignacoesRef, result)
-    config.designacoes = result as Record<TipoDesignacao, { textoIcs: string; ativo: boolean; aprovadoEm: string }>
-    toast('Designações salvas ✓')
-  } catch {
-    toast('Erro ao salvar')
-  } finally {
-    setLoading('btnSalvarDesig', false, 'Salvar Designações')
   }
 }
