@@ -1,11 +1,16 @@
 # Pendencias finais do Admin SPA
 
-Atualizado em 14/09/2026.
+Atualizado em 15/09/2026.
 
 Este documento concentra somente o que ainda falta para encerrar o Admin SPA e
 a Minha Agenda. Os demais documentos continuam servindo como historico e
 especificacao detalhada, mas este arquivo e a referencia para a ordem de
 execucao final.
+
+Etapa atual: auditorias locais de Servico de Campo, Secretario e Vida e
+Ministerio concluidas. Vida e Ministerio foi antecipado para antes da Minha
+Agenda, por decisao do responsavel.
+Homologacao em producao e aparelhos reais continua ao final.
 
 ## Leituras agrupadas - 14/09/2026
 
@@ -17,12 +22,104 @@ execucao final.
   acesso com permissao exclusiva de Limpeza. Sao cinco caminhos em uma chamada.
 - [x] Suite completa aprovada com 163 testes, build de producao aprovado e
   verificacao de whitespace sem erros depois da implementacao.
-- [ ] Repetir cargas no servidor local e em producao para confirmar o efeito
-  sobre o pico de conexoes. O agrupamento reduz invocacoes, mas nao garante por
-  si so a eliminacao de conexoes persistentes de outras Functions.
+- [x] Repetir cargas autenticadas no Netlify Dev em localhost:5174: dez rodadas
+  com dois lotes simultaneos, 20 requisicoes e 120 leituras, todas HTTP 200,
+  sem erros individuais ou timeout. Minimo 2699 ms, maximo 6118 ms e media
+  3583 ms por lote. Dados de negocio apenas consultados; sessao encerrada.
+- [x] Cinco testes focados aprovados, incluindo 570 leituras simuladas em
+  30 lotes e recuperacao apos resposta incompleta.
+- [ ] Repetir cargas em producao e observar conexoes no Firebase. O teste local
+  nao mediu o contador de conexoes nem comprova estabilidade prolongada.
 
 Esta atualizacao substitui a pendencia de implementar o agrupamento abaixo;
-permanece pendente a comprovacao operacional da ausencia de timeout.
+validacao local concluida neste recorte; permanece a comprovacao em producao.
+
+## Auditoria local de Oradores - 14/09/2026
+
+- [x] Corrigida execucao automatica de Resolver, Ignorar e Trazer de volta ao
+  renderizar Pendencias. As tres acoes agora dependem de clique.
+- [x] Edicao ignora o proprio compromisso ao verificar conflitos; local e
+  visitante compartilham a vaga. Saidas de pessoas distintas podem coexistir;
+  perfis diferentes com o mesmo vinculo central continuam em conflito.
+- [x] Eventos especiais tambem bloqueiam visitante; alertas incluem
+  reconfirmacao e vinculo central inexistente.
+- [x] Falha de carga interrompe a abertura do modulo, sem apresentar dados
+  antigos como se fossem a leitura atual.
+- [x] Emergencia resolve nomes pelo cadastro central e exclui inativos.
+  Copia de aprovados e emergencia verificada sem telefone no texto.
+- [x] Filtros de tipo, status, temas, pendencias e ignoradas persistem localmente.
+- [x] Abertura do WhatsApp registra a acao sem confundir o retorno nulo de
+  noopener com bloqueio do navegador; envio externo nao foi realizado.
+- [x] Publicacao captura o periodo e impede acionamento simultaneo. Falha ao
+  gravar o marcador tenta retirar o PDF; falha ao retirar tenta restaurar o
+  marcador anterior. Falha na compensacao apresenta aviso especifico.
+- [x] PDF de programacao pagina pela altura real e prefere uma A4 retrato;
+  catalogo tambem respeita textos extensos. Linhas separadoras revisadas. No
+  PDF mensal, a data mostra somente o dia, a coluna Tema recebeu mais largura e
+  paginacao ou metadados tecnicos de geracao/impressao nao sao exibidos.
+- [x] A secao de saidas do PDF inclui todas as saidas a partir do mes
+  selecionado, mesmo quando estiverem em meses posteriores.
+- [x] Testes de navegador com dados ficticios e todas as Functions interceptadas:
+  desktop 1440x900 e celular 390x844, dez telas, zero erros JavaScript,
+  sem rolagem horizontal, Voltar > Voltar > Sair e falhas de publicacao simuladas.
+- [x] Suite completa e build aprovados; 19 testes especificos de Oradores.
+  PDFs de exemplo renderizados e inspecionados visualmente.
+- [x] Padrao visual compartilhado aplicado aos PDFs proprios de Tarefas,
+  Limpeza, Oradores, Escala TPL, Servico de Campo e grupos do Secretario:
+  cabecalho neutro, congregacao, periodo quando aplicavel, linhas e ausencia de
+  paginacao ou rodape tecnico. Vida e Ministerio permanece como unica excecao.
+- [ ] Homologar publicacao/retirada no Netlify publicado e impressao/aplicativo
+  WhatsApp em aparelhos reais. Compensacao entre requisicoes nao e transacao
+  atomica; duas sessoes concorrentes ainda precisam de homologacao.
+
+Teste reproduzivel: `tests/oradores-browser.mjs`, com servidor em localhost:5174,
+Microsoft Edge e Playwright disponiveis. Quando Playwright estiver no runtime
+externo, definir `PLAYWRIGHT_PACKAGE_JSON` para o package.json desse runtime.
+Capturas e PDFs de teste ficam em `.netlify/`, ignorada pelo Git.
+Nenhuma alteracao dos dados reais, commit ou deploy nesta auditoria.
+Proxima fase: Escala TPL.
+
+## Auditoria local de Escala TPL - 14/09/2026
+
+- [x] Meses anteriores consultam `publishedMonths`, alem do ponteiro legado.
+  Gerar, editar, apagar e alterar excecoes exigem reabertura do mes publicado.
+- [x] Reabrir um mes antigo conserva o ponteiro de outro mes publicado.
+  Publicacao captura o periodo e impede acionamento simultaneo; falhas tentam
+  retirar o PDF incompleto ou restaurar o marcador anterior, com aviso se a
+  compensacao tambem falhar.
+- [x] Participante inativo no Admin ou sem vinculo central valido fica fora
+  da geracao. Perfis com o mesmo masterId nao formam dupla nem contornam
+  limite mensal, repeticao no dia ou conflito entre locais.
+- [x] Motor ignora locais inativos, valida meses e horarios e nao quebra ao
+  avaliar dupla com participante removido. Horarios entre locais sao
+  comparados por minutos, incluindo grades que nao coincidem exatamente.
+- [x] Edicao de local atualiza a lista de horarios; tela e PDF usam datas e
+  horarios gravados na escala para preservar o historico apos mudar o local.
+- [x] Republicacao conserva nomes historicos de participantes removidos no
+  snapshot e atualiza o snapshot em memoria.
+- [x] Falha na carga nao apresenta dados antigos como leitura bem-sucedida.
+  Trocar periodo conserva o fluxo de Voltar ate Sair.
+- [x] PDF A4 paisagem mantido para TPL: ate seis horarios por faixa de paginas,
+  nomes completos em linhas e paginacao pela altura. Teste com 20 horarios,
+  30 datas e nomes extensos; exemplo de dez horarios renderizado e inspecionado.
+- [x] 24 testes especificos, suite completa e build aprovados. Navegador
+  conferido em 1440x900 e 390x844: sete telas, sem erros JavaScript ou rolagem
+  horizontal; nome historico permanece depois da republicacao.
+- [ ] Homologar publicacao e retirada na versao publicada e impressao em
+  aparelho real. Testes locais usam Functions interceptadas e nao alteram dados.
+- [ ] Conferir duas sessoes concorrentes em producao. Recuperacao entre
+  requisicoes nao constitui transacao atomica.
+
+Teste reproduzivel: `tests/escala-browser.mjs`, Netlify Dev em localhost:5174,
+Edge e Playwright (runtime externo via `PLAYWRIGHT_PACKAGE_JSON`). Cobertura:
+telas em 1440x900 e 390x844, bloqueio de meses, nomes historicos, inativos,
+previa, publicacao, retirada e falhas simuladas. Evidencias em `.netlify/`.
+Proxima fase: Servico de Campo. Sem alteracao de dados reais, commit ou deploy.
+
+Nota do ambiente: o Netlify Dev encerrou durante a interrupcao da conversa.
+A ultima rodada do navegador usou Vite local com todas as Functions simuladas.
+As tentativas de reiniciar Netlify Dev, inclusive offline, nao chegaram a abrir
+a porta e foram encerradas. Restabelecer o CLI antes de testar Functions reais.
 
 ## Estado confirmado
 
@@ -317,6 +414,9 @@ dos dados de exemplo e da aparencia detalhada de cada documento.
 - [x] Remover a tela central de textos de designacoes do Admin e colocar link e
   mensagens na configuracao de Tarefas, Limpeza, Escala TPL, Oradores, Vida e
   Ministerio e Servico de Campo. O Admin conserva somente o Quadro.
+- [x] Preencher os textos iniciais dos seis modulos e do Quadro com redacao
+  educada e neutra, sem alterar a elegibilidade masculina de Tarefas, Oradores
+  e Servico de Campo.
 - [x] Salvar Quadro e lembretes por atualizacao parcial, preservando mensagens
   gravadas por outros modulos em outra aba.
 - [ ] Restaurar um backup descartavel em ambiente separado. A operacao nao foi
@@ -330,17 +430,31 @@ dos dados de exemplo e da aparencia detalhada de cada documento.
   pequena e navegacao.
 - [ ] Limpeza: publicar um periodo representativo e reabri-lo depois do deploy
   final; a operacao nao foi executada sobre os dados atuais.
-- [ ] Oradores: lista unica, programacao, saida, copiar texto, WhatsApp, previa
-  A4 retrato e publicacao.
-- [ ] Escala TPL: maior quantidade esperada de horarios, snapshot, publicacao e
-  despublicacao.
-- [ ] Vida e Ministerio: importacao de URL oficial, S-89, lote semanal, S-140 PDF
-  e DOCX.
-- [ ] Secretario: grupos, S-1, S-21, S-88, S-3, fechamento, reabertura e
-  concorrencia com Minha Agenda.
-- [ ] Servico de Campo: locais, horarios, dirigentes, recorrencia, rodizio,
-  lembrete individual e PDF A4 retrato.
-- [ ] Minha Agenda: Pessoal, Geral, Relatorio e Quadro em celular e desktop.
+- [x] Oradores: auditoria local de telas, programacao, saidas, copiar texto,
+  rascunho WhatsApp, previa A4 e publicacao com falhas simuladas.
+- [ ] Oradores: homologar publicacao, retirada e aplicativos externos em producao.
+- [x] Escala TPL: motor, PDF com muitos horarios, snapshot e publicacao/retirada
+  com falhas simuladas em ambiente local.
+- [ ] Escala TPL: repetir publicacao, retirada e impressao em producao.
+- [x] Vida e Ministerio, auditoria local: importacao e reimportacao preservando
+  edicoes, datas civis, vinculos por `masterId`, elegibilidade, conflitos,
+  pendencias, lembretes, S-89 e S-140 sem alterar os formularios oficiais.
+- [ ] Vida e Ministerio: testar importacao por URL oficial, S-89 individual e
+  semanal e S-140 PDF/DOCX com dados representativos na versao publicada.
+- [x] Secretario, auditoria local: grupos, painel S-1, S-21, S-88, S-3,
+  fechamento, reabertura, vinculos e contrato concorrente com Minha Agenda.
+- [ ] Secretario: homologar em dois aparelhos o envio concorrente da Minha
+  Agenda, fechamento/reabertura e documentos oficiais com dados representativos.
+- [x] Servico de Campo, auditoria local: locais, horarios, dirigentes homens
+  ativos, recorrencia, varias saidas no mesmo dia, rodizio e PDF A4 retrato.
+- [ ] Servico de Campo: homologar publicacao/retirada, lembrete individual do
+  dirigente, Quadro sem lembrete e impressao em producao/aparelho real.
+- [x] Minha Agenda, auditoria local: Pessoal, Geral, Relatorio e Quadro em
+  1440x900 e 390x844, persistencia depois da recarga, cinco PDFs independentes,
+  cache diario, primeiro acesso sem dados, relatorio e assinatura sem rolagem
+  horizontal ou erro de pagina.
+- [ ] Minha Agenda: repetir os quatro fluxos com dados e aparelhos reais na
+  versao publicada.
 - [ ] Conferir o fluxo `Voltar`, `Voltar`, `Sair` em todos os niveis.
 - [ ] Confirmar que a marca da Netlify nao impede nenhum clique.
 - [ ] Preencher os links reais de WhatsApp de cada modulo.

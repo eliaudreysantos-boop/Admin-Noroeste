@@ -2,10 +2,12 @@ import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf
 import { speakerName, themeHistory, type Congregation, type Speaker, type Talk, type Theme } from './oradores-domain.ts'
 import { agendaToIcs, type AgendaEvent } from './individual-domain.ts'
 import { previewPdf } from '../ui/pdf-preview.ts'
+import { A4_PORTRAIT as A4, PDF_INK, PDF_LINE, PDF_MUTED, drawPublicPdfHeader } from '../ui/public-pdf-layout.ts'
 
-const A4: [number, number] = [595.28, 841.89]
 const MARGIN = 42
 const ROW_HEIGHT = 17
+const SCHEDULE_COLUMNS = [MARGIN, 78, 207, 418]
+const SCHEDULE_COLUMN_WIDTHS = [28, 121, 203, 127]
 
 export interface AvailableSpeakerThemes {
   nome: string
@@ -75,7 +77,19 @@ function formatMonthYear(value: string): string {
 }
 
 function wrapText(font: PDFFont, value: string, size: number, width: number): string[] {
-  const words = value.trim().split(/\s+/).filter(Boolean)
+  const words = value.trim().split(/\s+/).filter(Boolean).flatMap(word => {
+    const pieces: string[] = []
+    let piece = ''
+    for (const character of word) {
+      if (piece && font.widthOfTextAtSize(piece + character, size) > width) {
+        pieces.push(piece)
+        piece = ''
+      }
+      piece += character
+    }
+    if (piece) pieces.push(piece)
+    return pieces
+  })
   const lines: string[] = []
   let line = ''
   for (const word of words) {
@@ -89,13 +103,8 @@ function wrapText(font: PDFFont, value: string, size: number, width: number): st
   return lines.length ? lines : ['']
 }
 
-function drawHeader(page: PDFPage, bold: PDFFont, regular: PDFFont, congregacao: string, pageNumber: number, title = 'TEMAS DISPONIVEIS'): number {
-  const [, height] = A4
-  page.drawText(title, { x: MARGIN, y: height - 54, size: 18, font: bold, color: rgb(.08, .1, .14) })
-  page.drawText(congregacao.toLocaleUpperCase('pt-BR'), { x: MARGIN, y: height - 72, size: 9, font: regular, color: rgb(.32, .34, .38) })
-  page.drawText(`Pagina ${pageNumber}`, { x: 488, y: height - 62, size: 8, font: regular, color: rgb(.32, .34, .38) })
-  page.drawLine({ start: { x: MARGIN, y: height - 82 }, end: { x: A4[0] - MARGIN, y: height - 82 }, thickness: 1, color: rgb(.32, .37, .43) })
-  return height - 108
+function drawHeader(page: PDFPage, bold: PDFFont, regular: PDFFont, congregacao: string, title = 'TEMAS DISPONIVEIS'): number {
+  return drawPublicPdfHeader(page, bold, regular, { title, congregation:congregacao, margin:MARGIN })
 }
 
 export function availableSpeakerThemes(params: {
@@ -106,7 +115,7 @@ export function availableSpeakerThemes(params: {
 }): AvailableSpeakerThemes[] {
   const history = themeHistory(params.talks, params.today)
   return Object.entries(params.speakers)
-    .filter(([, speaker]) => speaker.tipo === 'local')
+    .filter(([, speaker]) => speaker.tipo === 'local' && speaker.ativo !== false)
     .map(([id, speaker]) => ({
       nome: speakerName(speaker, id),
       temas: (speaker.temaIds ?? [])
@@ -135,14 +144,12 @@ export async function createAvailableThemesPdf(params: {
   const pdf = await PDFDocument.create()
   const regular = await pdf.embedFont(StandardFonts.Helvetica)
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold)
-  let pageNumber = 0
   let page!: PDFPage
   let y = 0
 
   const addPage = () => {
     page = pdf.addPage(A4)
-    pageNumber += 1
-    y = drawHeader(page, bold, regular, params.congregation || 'Congregacao', pageNumber)
+    y = drawHeader(page, bold, regular, params.congregation || 'Congregacao')
   }
   addPage()
 
@@ -176,18 +183,22 @@ export async function downloadAvailableThemesPdf(params: {
   previewPdf(result.bytes, 'temas-disponiveis.pdf', 'Previa dos temas disponiveis')
 }
 
-function formatDate(value: string): string {
-  const [year, month, day] = value.split('-')
-  return year && month && day ? `${day}/${month}/${year}` : value
+export function formatScheduleDay(value: string): string {
+  const match = /^\d{4}-\d{2}-(\d{2})$/.exec(value)
+  return match?.[1] ?? value
 }
 
-function drawScheduleRows(page: PDFPage, regular: PDFFont, bold: PDFFont, title: string, rows: SchedulePdfRow[], y: number): number {
-  page.drawText(title, { x: MARGIN, y, size: 12, font: bold, color: rgb(.08, .1, .14) })
+function scheduleMonthLabel(value: string): string {
+  const date = new Date(`${value}-01T12:00:00`)
+  return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat('pt-BR', { month:'long', year:'numeric' }).format(date)
+}
+
+function drawScheduleRows(page: PDFPage, regular: PDFFont, bold: PDFFont, title: string, rows: string[][][], y: number): number {
+  page.drawText(title, { x: MARGIN, y, size: 12, font: bold, color: PDF_INK })
   y -= 20
-  const columns = [MARGIN, 112, 235, 402]
-  ;['Data', 'Orador', 'Tema', 'Congregação'].forEach((label, index) => page.drawText(label, { x: columns[index], y, size: 8, font: bold, color: rgb(.32, .34, .38) }))
+  ;['Dia', 'Orador', 'Tema', 'Congregação'].forEach((label, index) => page.drawText(label, { x: SCHEDULE_COLUMNS[index], y, size: 8, font: bold, color: PDF_MUTED }))
   y -= 12
-  page.drawLine({ start: { x: MARGIN, y }, end: { x: A4[0] - MARGIN, y }, thickness: .5, color: rgb(.68, .7, .73) })
+  page.drawLine({ start: { x: MARGIN, y }, end: { x: A4[0] - MARGIN, y }, thickness: .5, color: PDF_LINE })
   y -= 13
   if (!rows.length) {
     page.drawText('Nenhum item neste período.', { x: MARGIN, y, size: 8.5, font: regular, color: rgb(.32, .34, .38) })
@@ -195,19 +206,17 @@ function drawScheduleRows(page: PDFPage, regular: PDFFont, bold: PDFFont, title:
     page.drawLine({ start: { x: MARGIN, y }, end: { x: A4[0] - MARGIN, y }, thickness: .35, color: rgb(.78, .79, .81) })
     return y - 10
   }
-  for (const row of rows) {
-    const cells = [formatDate(row.data), row.orador || '—', row.tema || '—', row.congregacao || '—']
-    const lines = cells.map((value, index) => wrapText(regular, value, 8.5, [64, 112, 155, 145][index]))
+  for (const lines of rows) {
     const lineCount = Math.max(...lines.map(linesForCell => linesForCell.length))
     for (let line = 0; line < lineCount; line += 1) {
       lines.forEach((linesForCell, index) => {
-        if (linesForCell[line]) page.drawText(linesForCell[line], { x: columns[index], y, size: 8.5, font: regular })
+        if (linesForCell[line]) page.drawText(linesForCell[line], { x: SCHEDULE_COLUMNS[index], y, size: 8.5, font: regular })
       })
       y -= 11
     }
     y -= 3
     page.drawLine({ start: { x: MARGIN, y }, end: { x: A4[0] - MARGIN, y }, thickness: .35, color: rgb(.78, .79, .81) })
-    y -= 6
+    y -= 11
   }
   return y
 }
@@ -222,35 +231,53 @@ export async function createSchedulePdf(params: {
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold)
   const locais = params.rows.filter(row => row.tipo !== 'saida_orador')
   const saidas = params.rows.filter(row => row.tipo === 'saida_orador')
-  const sections: Array<[string, SchedulePdfRow[]]> = [
-    ['Local e visitantes', locais],
-    ['Saídas', saidas],
-  ]
-  let pageNumber = 0
+  const saidasPorMes = new Map<string, SchedulePdfRow[]>()
+  saidas.forEach(row => {
+    const month = /^\d{4}-\d{2}/.exec(row.data)?.[0] ?? params.periodLabel
+    saidasPorMes.set(month, [...(saidasPorMes.get(month) ?? []), row])
+  })
+  const sections: Array<[string, SchedulePdfRow[]]> = [['Local e visitantes', locais]]
+  if (saidasPorMes.size) {
+    saidasPorMes.forEach((rows, month) => sections.push([`Saídas - ${scheduleMonthLabel(month)}`, rows]))
+  } else sections.push(['Saídas', []])
   let page!: PDFPage
   let y = 0
   const addPage = () => {
     page = pdf.addPage(A4)
-    pageNumber += 1
-    y = drawHeader(page, bold, regular, params.congregation || 'Congregacao', pageNumber, 'PROGRAMAÇÃO DE ORADORES')
+    y = drawHeader(page, bold, regular, params.congregation || 'Congregacao', 'PROGRAMAÇÃO DE ORADORES')
     page.drawText(params.periodLabel.toLocaleUpperCase('pt-BR'), { x: MARGIN, y, size: 11, font: bold, color: rgb(.08, .1, .14) })
     y -= 28
   }
   addPage()
 
   for (const [title, rows] of sections) {
-    const chunks = rows.length ? Array.from({ length: Math.ceil(rows.length / 12) }, (_, index) => rows.slice(index * 12, index * 12 + 12)) : [[]]
-    for (const [chunkIndex, pageRows] of chunks.entries()) {
-      const estimatedHeight = 54 + Math.max(1, pageRows.length) * 27
-      if (y - estimatedHeight < MARGIN) addPage()
-      y = drawScheduleRows(page, regular, bold, chunkIndex ? `${title} (continuação)` : title, pageRows, y)
-      y -= 12
+    const prepared = rows.flatMap(row => {
+      const cells = [formatScheduleDay(row.data), row.orador || '—', row.tema || '—', row.congregacao || '—']
+      const lines = cells.map((value, index) => wrapText(regular, value, 8.5, SCHEDULE_COLUMN_WIDTHS[index]))
+      const count = Math.max(...lines.map(cell => cell.length))
+      return Array.from({ length:Math.ceil(count / 45) }, (_, index) => lines.map(cell => cell.slice(index * 45, (index + 1) * 45)))
+    })
+    let chunk: string[][][] = []
+    let height = 45
+    let continuation = false
+    const flush = () => {
+      y = drawScheduleRows(page, regular, bold, continuation ? `${title} (continuação)` : title, chunk, y) - 12
+      continuation = true
+      chunk = []
+      height = 45
     }
+    for (const lines of prepared) {
+      const rowHeight = Math.max(...lines.map(cell => cell.length)) * 11 + 14
+      if (y - height - rowHeight - 12 < MARGIN) {
+        if (chunk.length) flush()
+        addPage()
+      }
+      chunk.push(lines)
+      height += rowHeight
+    }
+    if (!prepared.length && y - 82 < MARGIN) addPage()
+    flush()
   }
-
-  pdf.getPages().forEach(currentPage => {
-    currentPage.drawText('Gerado pelo sistema Noroeste', { x:MARGIN, y:24, size:7, font:regular, color:rgb(.42, .45, .49) })
-  })
 
   return { bytes:Uint8Array.from(await pdf.save()), pages:pdf.getPageCount() }
 }
@@ -272,26 +299,35 @@ export async function createThemeCatalogPdf(params: {
   const pdf = await PDFDocument.create()
   const regular = await pdf.embedFont(StandardFonts.Helvetica)
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold)
-  const chunks = params.rows.length ? Array.from({ length: Math.ceil(params.rows.length / 22) }, (_, index) => params.rows.slice(index * 22, index * 22 + 22)) : [[]]
-  chunks.forEach((rows, index) => {
-    const page = pdf.addPage(A4)
-    let y = drawHeader(page, bold, regular, params.congregation || 'Congregacao', index + 1)
+  let page!: PDFPage
+  let y = 0
+  let count = 0
+  const columns = [MARGIN, 82, 326, 428]
+  const addPage = () => {
+    page = pdf.addPage(A4)
+    count = 0
+    y = drawHeader(page, bold, regular, params.congregation || 'Congregacao')
     page.drawText('CATÁLOGO DE TEMAS', { x: MARGIN, y, size: 12, font: bold, color: rgb(.08, .1, .14) })
     y -= 22
-    const columns = [MARGIN, 82, 326, 428]
     ;['Nº', 'Título', 'Último uso', 'Próximos'].forEach((label, column) => page.drawText(label, { x: columns[column], y, size: 8, font: bold, color: rgb(.32, .34, .38) }))
     y -= 14
-    rows.forEach(row => {
-      page.drawText(String(row.numero).padStart(3, '0'), { x: columns[0], y, size: 9, font: regular })
-      const titleLines = wrapText(regular, row.titulo, 9, 230)
-      const nextLines = wrapText(regular, row.proximos || '—', 9, 120)
-      titleLines.forEach((line, lineIndex) => page.drawText(line, { x: columns[1], y: y - lineIndex * 10, size: 9, font: regular }))
-      page.drawText(row.ultimoUso || 'Nunca', { x: columns[2], y, size: 9, font: regular })
-      nextLines.forEach((line, lineIndex) => page.drawText(line, { x: columns[3], y: y - lineIndex * 10, size: 9, font: regular }))
-      y -= Math.max(titleLines.length, nextLines.length) * 10 + 5
-    })
-    if (!rows.length) page.drawText('Nenhum tema cadastrado.', { x: MARGIN, y, size: 10, font: regular })
-  })
+  }
+  addPage()
+  for (const row of params.rows) {
+    const cells = [String(row.numero).padStart(3, '0'), row.titulo, row.ultimoUso || 'Nunca', row.proximos || '—']
+      .map((value, index) => wrapText(regular, value, 9, [34, 230, 94, 120][index]))
+    const lineCount = Math.max(...cells.map(cell => cell.length))
+    for (let offset = 0; offset < lineCount; offset += 45) {
+      const lines = cells.map(cell => cell.slice(offset, offset + 45))
+      const height = Math.max(...lines.map(cell => cell.length)) * 10 + 14
+      if (count >= 22 || y - height < MARGIN) addPage()
+      lines.forEach((cell, column) => cell.forEach((line, index) => page.drawText(line, { x:columns[column], y:y - index * 10, size:9, font:regular })))
+      y -= height
+      page.drawLine({ start:{ x:MARGIN, y:y + 10 }, end:{ x:A4[0] - MARGIN, y:y + 10 }, thickness:.35, color:rgb(.78, .79, .81) })
+      count += 1
+    }
+  }
+  if (!params.rows.length) page.drawText('Nenhum tema cadastrado.', { x:MARGIN, y, size:10, font:regular })
   return { bytes:Uint8Array.from(await pdf.save()), pages:pdf.getPageCount() }
 }
 

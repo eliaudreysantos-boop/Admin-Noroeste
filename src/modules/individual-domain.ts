@@ -19,8 +19,16 @@ export interface AgendaIcsOptions {
   calendarName?: string
 }
 
+export function normalizeAgendaPeople(source: unknown): Record<string, MasterPessoa> {
+  if (!source || typeof source !== 'object' || Array.isArray(source)) return {}
+  return Object.fromEntries(Object.entries(source).filter((entry): entry is [string, MasterPessoa] => {
+    const [id, person] = entry
+    return Boolean(id && person && typeof person === 'object' && typeof (person as MasterPessoa).name === 'string' && (person as MasterPessoa).name.trim())
+  }))
+}
+
 export function sanitizeAgendaPeople(source: Record<string, MasterPessoa>): Record<string, MasterPessoa> {
-  return Object.fromEntries(Object.entries(source).map(([id, person]) => [id, {
+  return Object.fromEntries(Object.entries(normalizeAgendaPeople(source)).map(([id, person]) => [id, {
     name:person.name,
     active:person.active,
     sex:person.sex,
@@ -38,7 +46,16 @@ type Row = Record<string, unknown>
 const rows = (value: unknown): Row => value && typeof value === 'object' ? value as Row : {}
 const text = (value: unknown): string => typeof value === 'string' ? value.trim() : ''
 const values = (value: unknown): unknown[] => Array.isArray(value) ? value : Object.values(rows(value))
-const validDate = (value: string): boolean => /^\d{4}-\d{2}-\d{2}$/.test(value)
+export function validAgendaDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
+  const [year, month, day] = value.split('-').map(Number)
+  const date = new Date(Date.UTC(year, month - 1, day))
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
+}
+
+export function validAgendaTime(value: string | undefined): boolean {
+  return value === undefined || /^([01]\d|2[0-3]):[0-5]\d$/.test(value)
+}
 const TASK_LABELS: Record<string, string> = { presidente:'Presidente', operador1:'Operador', operador2:'Operador 2', leitor:'Leitor', entrada:'Entrada', auditorio:'Auditório', mic1:'Microfone 1', mic2:'Microfone 2', microfone1:'Microfone 1', microfone2:'Microfone 2' }
 
 export function collectAgendaEvents(rootValue: unknown, masterId: string, allowed: Partial<Record<AgendaSource, boolean>> = {}): AgendaEvent[] {
@@ -46,7 +63,7 @@ export function collectAgendaEvents(rootValue: unknown, masterId: string, allowe
   const root = rows(rootValue), tarefas = rows(root['tarefas']), taskPeople = rows(tarefas['people'])
   const taskIds = new Set(Object.entries(taskPeople).filter(([, person]) => text(rows(person)['masterId']) === masterId).map(([id]) => id))
   const result: AgendaEvent[] = []
-  const add = (event: AgendaEvent): void => { if (validDate(event.date)) result.push({ ...event, note: text(event.note).slice(0, 250) || undefined }) }
+  const add = (event: AgendaEvent): void => { if (validAgendaDate(event.date) && validAgendaTime(event.time)) result.push({ ...event, note: text(event.note).slice(0, 250) || undefined }) }
 
   if (allowed.tarefas !== false) Object.entries(rows(rows(rows(tarefas['scale'])['periods']))).forEach(([periodId, periodValue]) => {
     const period = rows(periodValue)
@@ -154,7 +171,7 @@ export function collectAnnouncementEvents(rootValue: unknown, allowed: Partial<R
   const root = rows(rootValue), people = rows(rows(root['master'])['pessoas'])
   const grouped = new Map<string, AnnouncementEvent>()
   const add = (event: AgendaEvent, name: string): void => {
-    if (!name || !validDate(event.date)) return
+    if (!name || !validAgendaDate(event.date) || !validAgendaTime(event.time)) return
     const key = `${event.source}|${event.id}|${event.date}|${event.time || ''}`
     const current = grouped.get(key)
     if (current) { if (!current.people.includes(name)) current.people.push(name); return }
@@ -194,7 +211,7 @@ function nextCivilDate(value: string): string {
 }
 export function agendaToIcs(events: AgendaEvent[], generatedAt: string, options: AgendaIcsOptions = {}): string {
   const namespace = options.namespace?.replace(/[^a-zA-Z0-9_-]/g, '') || 'noroeste'
-  const body = events.map(event => {
+  const body = events.filter(event => validAgendaDate(event.date) && validAgendaTime(event.time)).map(event => {
     const date = event.date.replace(/-/g, ''), start = event.time ? `DTSTART;TZID=America/Fortaleza:${date}T${event.time.replace(':', '')}00` : `DTSTART;VALUE=DATE:${date}`, details = [event.detail, event.note, `Origem: ${event.source}`, `Status: ${event.status}`].filter(Boolean).join('\n')
     const end = event.time ? 'DURATION:PT1H' : `DTEND;VALUE=DATE:${nextCivilDate(event.date)}`
     const alarms = [...new Set(options.reminders?.[event.source] ?? [])].filter(validReminder).slice(0, 2).flatMap(offset => ['BEGIN:VALARM', 'ACTION:DISPLAY', `DESCRIPTION:${icsEscape(`Lembrete: ${event.title}`)}`, `TRIGGER:-${offset}`, 'END:VALARM'])
@@ -204,11 +221,12 @@ export function agendaToIcs(events: AgendaEvent[], generatedAt: string, options:
 }
 
 export function eventsInFeedWindow<T extends AgendaEvent>(events: T[], today: string): T[] {
+  if (!validAgendaDate(today)) return []
   const anchor = new Date(`${today}T12:00:00Z`)
   const start = new Date(anchor); start.setUTCMonth(start.getUTCMonth() - 2)
   const end = new Date(anchor); end.setUTCMonth(end.getUTCMonth() + 12)
   const startDate = start.toISOString().slice(0, 10), endDate = end.toISOString().slice(0, 10)
-  return events.filter(event => event.date >= startDate && event.date <= endDate).sort((a, b) => a.date.localeCompare(b.date) || (a.time || '').localeCompare(b.time || ''))
+  return events.filter(event => validAgendaDate(event.date) && validAgendaTime(event.time) && event.date >= startDate && event.date <= endDate).sort((a, b) => a.date.localeCompare(b.date) || (a.time || '').localeCompare(b.time || ''))
 }
 
 export function agendaMessage(events: AgendaEvent[]): string {

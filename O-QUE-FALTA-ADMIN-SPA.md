@@ -135,20 +135,63 @@ evidencias detalhadas permanecem em `PENDENCIAS-FINAIS-ADMIN-SPA.md`.
 Implementado agrupamento automatico das leituras simultaneas, com deduplicacao
 por lote, erros independentes e sem cache adicional. Limpeza agora usa cinco
 caminhos permitidos em uma chamada, inclusive para conta exclusiva do modulo.
-A implementacao do agrupamento esta concluida; permanece necessario repetir
-cargas locais e publicadas para confirmar a reducao do pico de conexoes.
+A implementacao e a validacao local do agrupamento estao concluidas: dez rodadas
+autenticadas com dois lotes simultaneos, 20 requisicoes e 120 leituras sem erro
+ou timeout (2699 a 6118 ms por lote). Cinco testes focados aprovados, incluindo
+divisao acima de 24 leituras e recuperacao apos resposta incompleta.
+Ainda falta repetir em producao e observar o contador de conexoes do Firebase;
+o teste local nao mediu esse contador.
+
+Auditoria local de Oradores concluida em 14/09/2026, com correcoes de pendencias
+automaticas, conflitos, vinculos, reconfirmacao, persistencia, PDFs e compensacao
+de publicacao. Dez telas conferidas com dados ficticios em 1440x900 e 390x844.
+Suite completa, 17 testes de Oradores e build aprovados. Proxima fase: Escala TPL.
+Publicacao real e aplicativos externos continuam na homologacao final.
+
+Escala TPL revisada em 14/09/2026: bloqueio de meses anteriores, inativos
+centrais, conflitos por masterId, snapshots e compensacao de falhas corrigidos.
+PDF com muitos horarios pagina sem abreviar nomes e conserva datas e horarios
+gravados. 24 testes especificos e build aprovados. A auditoria seguinte foi
+Servico de Campo; Vida e Ministerio foi antecipado para antes da Minha Agenda.
+
+Servico de Campo revisado em 15/09/2026: meses e horarios validados, meses futuros
+nao interferem no rodizio anterior, saidas identicas nao sao duplicadas e varias
+saidas distintas no mesmo dia continuam permitidas. Publicacao e reabertura agora
+possuem bloqueio contra duplo clique e compensacao de falhas. PDF A4 retrato usa
+linhas, dia compacto, nomes e locais completos com quebra e paginacao por altura.
+Dez testes especificos e build aprovados. Falta a homologacao real indicada abaixo.
+
+Secretario revisado em 15/09/2026: vinculo central da pessoa e identidade do
+relatorio nao podem ser trocados durante uma edicao; competencias, datas e
+assistencias duplicadas sao validadas; falha de carga nao reutiliza estado antigo;
+fechamento e reabertura bloqueiam acionamentos simultaneos e capturam a competencia.
+O PDF proprio de grupos conserva quatro colunas e nomes completos. S-21, S-88 e
+S-3 continuam usando seus formularios oficiais sem receber o layout comum nem ter
+campos, posicoes ou paginacao alterados. Dezessete testes especificos e build
+aprovados. Permanecem documentos reais e concorrencia em dois aparelhos.
+
+Vida e Ministerio revisado em 15/09/2026: datas civis invalidas deixam de entrar
+nos periodos e na importacao JSON; vinculos sem pessoa no cadastro mestre ficam
+inativos; falha de carga nao reutiliza estado antigo; importacoes so alteram a
+tela depois da confirmacao do Firebase. Substitutos seguem a mesma elegibilidade
+da parte, conflitos internos sao detectados e semanas de assembleia, celebracao
+ou partes realizadas nao geram lembretes indevidos. S-89 e S-140 foram
+preservados como formularios oficiais. Vinte e dois testes especificos e build
+aprovados. Falta a homologacao real indicada abaixo.
 
 ## Homologacao funcional
 
-- [ ] Conferir manualmente os seis modulos restantes e a Minha Agenda em celular
-  e computador; Admin/Mestre, Tarefas e Limpeza ja tiveram a auditoria de
-  interface concluida.
+- [ ] Repetir Vida e Ministerio, Secretario, Servico de Campo e Minha Agenda
+  com dados e aparelhos reais; todos os modulos ja tiveram auditoria local em
+  celular e computador.
 - [ ] Conferir `Voltar`, `Voltar`, `Sair` e a area inferior protegida da marca da
   Netlify nos modulos restantes; Admin/Mestre, Tarefas e Limpeza ja foram
   confirmados.
 - [ ] Publicar um periodo de Tarefas, Limpeza, Oradores, Escala TPL e Servico de
   Campo.
-- [ ] Confirmar os cinco botoes independentes `Baixar PDF` na Minha Agenda.
+- [x] Confirmar localmente os cinco botoes independentes `Baixar PDF` na Minha
+  Agenda.
+- [ ] Repetir os cinco downloads com PDFs reais na versao publicada.
 - [ ] Enviar mais de um documento pelo Admin e conferir a area `Documentos do
   Admin`.
 - [ ] Conferir previa, A4 retrato, linhas, nomes, datas e quebras de pagina dos

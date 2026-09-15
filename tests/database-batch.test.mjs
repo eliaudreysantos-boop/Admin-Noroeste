@@ -3,6 +3,30 @@ import assert from 'node:assert/strict'
 import { get, pessoasRef, limpezaRef } from '../src/firebase.ts'
 import { readBatch } from '../netlify/lib/database-reads.ts'
 
+test('mais de 24 leituras preservam todos os resultados em cargas repetidas', async t => {
+  const calls = []
+  t.mock.method(globalThis, 'fetch', async url => {
+    const paths = JSON.parse(new URL(url, 'http://localhost').searchParams.get('paths'))
+    calls.push(paths)
+    return Response.json({ results:paths.map(path => ({ value:path })) })
+  })
+  const refs = Array.from({ length:57 }, (_, i) => ({ path:`limpeza/periodos/${i}` }))
+  for (let round = 0; round < 10; round++) {
+    const snapshots = await Promise.all(refs.map(ref => get(ref)))
+    assert.deepEqual(snapshots.map(snapshot => snapshot.val()), refs.map(ref => ref.path))
+  }
+  assert.equal(calls.length, 30)
+  assert.ok(calls.every(paths => paths.length > 0 && paths.length <= 24))
+})
+
+test('resposta incompleta rejeita o lote e permite uma nova leitura', async t => {
+  t.mock.method(globalThis, 'fetch', async () => Response.json({ results:[] }))
+  const results = await Promise.allSettled([get(pessoasRef), get(limpezaRef)])
+  assert.ok(results.every(result => result.status === 'rejected' && /incompleta/.test(result.reason.message)))
+  globalThis.fetch.mock.mockImplementation(async () => Response.json({ results:[{ value:{ recovered:true } }] }))
+  assert.deepEqual((await get(limpezaRef)).val(), { recovered:true })
+})
+
 test('leituras simultaneas usam uma chamada e nao conservam cache', async t => {
   const calls = []
   t.mock.method(globalThis, 'fetch', async url => {

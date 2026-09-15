@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { agendaMessage, agendaToIcs, announcementMessage, boardMeetingDates, boardMeetingEvents, collectAgendaEvents, collectAnnouncementEvents, eventsInFeedWindow, sanitizeAgendaPeople, upcomingAgendaEvents } from '../src/modules/individual-domain.ts'
+import { agendaMessage, agendaToIcs, announcementMessage, boardMeetingDates, boardMeetingEvents, collectAgendaEvents, collectAnnouncementEvents, eventsInFeedWindow, normalizeAgendaPeople, sanitizeAgendaPeople, upcomingAgendaEvents, validAgendaDate, validAgendaTime } from '../src/modules/individual-domain.ts'
 
 const root = {
   master: { pessoas:{ m1:{ name:'Ana', active:true }, m2:{ name:'Bruno', active:true } } },
@@ -18,6 +18,13 @@ const root = {
 test('cache de identidades remove telefone e grupo de limpeza', () => {
   const people = sanitizeAgendaPeople({ m1:{ name:'Ana', whatsapp:'5585999999999', active:true, sex:'F', role:'publicador', limpeza:{ grupo:3 } } })
   assert.deepEqual(people.m1, { name:'Ana', whatsapp:'', active:true, sex:'F', role:'publicador', limpeza:{ grupo:null } })
+})
+
+test('lista de pessoas ausente ou malformada vira coleção vazia', () => {
+  assert.deepEqual(normalizeAgendaPeople(undefined), {})
+  assert.deepEqual(normalizeAgendaPeople(null), {})
+  assert.deepEqual(normalizeAgendaPeople([]), {})
+  assert.deepEqual(normalizeAgendaPeople({ semNome:{ active:true }, m1:{ name:'Ana', active:true } }), { m1:{ name:'Ana', active:true } })
 })
 
 test('agrega apenas atribuicoes do masterId solicitado', () => {
@@ -53,6 +60,16 @@ test('ICS preserva data civil, horario, local e escape', () => {
   assert.match(ics, /DESCRIPTION:Dupla\\; confirmada/)
   assert.match(ics, /DURATION:PT1H/)
   assert.match(ics, /METHOD:PUBLISH/)
+})
+
+test('datas e horários impossíveis não entram na agenda nem no ICS', () => {
+  assert.equal(validAgendaDate('2026-02-28'), true)
+  assert.equal(validAgendaDate('2026-02-31'), false)
+  assert.equal(validAgendaTime('23:59'), true)
+  assert.equal(validAgendaTime('24:00'), false)
+  const invalid = { id:'x', source:'tarefas', date:'2026-02-31', time:'24:00', title:'Inválido', detail:'', status:'futuro' }
+  assert.doesNotMatch(agendaToIcs([invalid], '2026-09-01T12:00:00.000Z'), /BEGIN:VEVENT/)
+  assert.deepEqual(eventsInFeedWindow([invalid], '2026-09-01'), [])
 })
 
 test('ICS aplica no máximo dois lembretes configurados por módulo', () => {

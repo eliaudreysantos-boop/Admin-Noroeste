@@ -4,7 +4,7 @@ import { renderMenuCards, type ItemMenu } from '../ui/menu-cards'
 import { moduleBackButton } from '../ui/module-header'
 import {
   DEFAULT_ESCALA_GENERATION_RULES, ESCALA_RULE_LABELS, activeDates, analyzeCell, availabilityKey, generateAll,
-  isBlocked, localSlots, normalizeEscalaGenerationRules, participantName, validatePair,
+  isBlocked, isPublishedMonth, isValidMonth, localSlots, normalizeEscalaGenerationRules, participantName, validatePair,
   participantDirectoryForHistory,
   type EscalaAvailability, type EscalaBlocks, type EscalaGenerationInput, type EscalaGenerationRules,
   type EscalaLocal, type EscalaParticipant, type EscalaPublishedSnapshot, type EscalaTable, type EscalaTables,
@@ -41,6 +41,8 @@ let publishedMonths: Record<string, boolean> = {}
 let tab: Tab = 'indice'
 let pendingParticipantId = ''
 const scalePdfPreview = new PublicationPreviewGate()
+let changingPublication = false
+const monthLocked = (month = selectedMonth) => isPublishedMonth(month, publishedMonth, publishedMonths)
 
 function scalePdfInput(): Parameters<typeof createScaleSchedulePdf>[0] {
   return { month:selectedMonth, locals, tables, participants:participantDirectory(), exclusions:exclusions[selectedMonth] ?? [], requestedFontPt:Number(settings.printFontPt ?? 12) }
@@ -90,19 +92,19 @@ async function load(): Promise<void> {
     settings = data.settings ?? {}; greetings = data.greetings ?? {}; publishedMonth = data.publishedMonth ?? ''
     publishedMonths = data.publishedMonths ?? {}
     const savedMonth = localStorage.getItem(ESCALA_MONTH_KEY) ?? data.editingMonth
-    selectedMonth = /^\d{4}-\d{2}$/.test(savedMonth ?? '') ? savedMonth! : monthNow()
+    selectedMonth = isValidMonth(savedMonth ?? '') ? savedMonth! : monthNow()
     pessoas = peopleSnap.exists() ? peopleSnap.val() as RawPessoas : {}
     const rawProfiles = data.participants ?? {}
     participants = Object.fromEntries(Object.entries(rawProfiles).map(([id, profile]) => {
       const mid = profile.masterId ?? (pessoas[id] ? id : '')
       const central = pessoas[mid]
-      return [id, central ? { ...profile, name: central.name, sex: central.sex ?? profile.sex, phone: central.whatsapp ?? profile.phone } : profile]
+      return [id, central ? { ...profile, masterId:mid, active:profile.active !== false && central.active !== false, name: central.name, sex: central.sex ?? profile.sex, phone: central.whatsapp ?? profile.phone } : { ...profile, active:false }]
     }))
     historicalSnapshots = data.publishedSnapshots ?? {}
     const savedLocal = localStorage.getItem(ESCALA_LOCAL_KEY) ?? ''
     selectedLocalId = locals[savedLocal] ? savedLocal : orderedLocals()[0]?.[0] ?? ''
     selectedParticipantId = orderedPeople(true)[0]?.[0] ?? ''
-  } catch (error) { console.error(error); toast('Não foi possível carregar a Escala TPL') }
+  } catch (error) { console.error(error); toast('Não foi possível carregar a Escala TPL'); root().innerHTML = '<p class="empty-state">Não foi possível carregar a Escala TPL. Volte aos módulos e tente novamente.</p>'; return }
   render()
 }
 function go(next: Tab): void { tab = next; render() }
@@ -135,9 +137,10 @@ function periodControls(local = true): string {
   return `<div class="module-form-grid" style="margin-bottom:12px"><div class="form-group"><label class="form-label">Período</label><input id="eMonth" class="form-input" type="month" value="${selectedMonth}"></div>${local ? `<div class="form-group"><label class="form-label">Local</label><select id="eLocal" class="form-select">${orderedLocals().map(([id, l]) => `<option value="${esc(id)}" ${id === selectedLocalId ? 'selected' : ''}>${esc(l.name ?? id)}</option>`).join('')}</select></div>` : ''}</div>`
 }
 function bindPeriod(rerender: () => void): void {
+  if (!root().querySelector('[data-module-index-marker]')) root().insertAdjacentHTML('afterbegin', moduleBackButton())
   document.getElementById('eMonth')?.addEventListener('change', event => {
     const value = (event.target as HTMLInputElement).value
-    if (/^\d{4}-\d{2}$/.test(value)) { selectedMonth = value; localStorage.setItem(ESCALA_MONTH_KEY, value); rerender() }
+    if (isValidMonth(value)) { selectedMonth = value; localStorage.setItem(ESCALA_MONTH_KEY, value); rerender() }
   })
   document.getElementById('eLocal')?.addEventListener('change', event => { selectedLocalId = (event.target as HTMLSelectElement).value; localStorage.setItem(ESCALA_LOCAL_KEY, selectedLocalId); rerender() })
 }
@@ -181,6 +184,7 @@ async function saveLocal(id: string, overlay: HTMLElement): Promise<void> {
   const local: EscalaLocal = {
     name: nome, daysActive,
     startTime, endTime, stepMinutes,
+    slots:localSlots({ startTime, endTime, stepMinutes }),
     sortOrder: Number((document.getElementById('lmOrder') as HTMLInputElement).value) || 0,
     active: (document.getElementById('lmActive') as HTMLInputElement).checked,
   }
@@ -321,9 +325,11 @@ function hasData(month: string): boolean {
 function renderScale(): void {
   const local = locals[selectedLocalId]
   if (!local) { root().innerHTML = '<p class="empty-state">Nenhum local cadastrado.</p>'; return }
-  const table = tables[selectedLocalId]?.[selectedMonth], published = publishedMonth === selectedMonth
+  const table = tables[selectedLocalId]?.[selectedMonth], published = monthLocked()
+  const dates = table ? Object.keys(table.rows ?? {}).sort() : activeDates(selectedMonth, local.daysActive ?? [], exclusions[selectedMonth] ?? [])
+  const slots = table?.slots ?? localSlots(local)
   const activeRules = Object.values(normalizeEscalaGenerationRules(settings.engineRules)).filter(Boolean).length
-  root().innerHTML = `${periodControls()}${published ? '<div class="notice warning">Este mês está publicado e bloqueado para edição.</div>' : ''}<div class="scale-actions"><button id="sGenerateAll" class="btn btn-primary" ${published ? 'disabled' : ''}>${hasData(selectedMonth) ? 'Completar mês' : 'Gerar mês'} · ${activeRules} regras</button><button id="sPdf" class="btn btn-ghost" ${hasData(selectedMonth) ? '' : 'disabled'}>Gerar PDF</button>${published ? '<button id="sUnpublish" class="btn btn-ghost">Despublicar</button>' : `<button id="sPublish" class="btn btn-ghost" ${hasData(selectedMonth) ? '' : 'disabled'}>Publicar mês</button>${hasData(selectedMonth) ? '<button id="sDelete" class="btn btn-danger">Apagar mês</button>' : ''}`}</div><div class="scale-days">${activeDates(selectedMonth, local.daysActive ?? [], exclusions[selectedMonth] ?? []).map(date => `<section class="scale-day"><h3>${esc(dayLabel(date))}</h3>${localSlots(local).map(time => slotHtml(date, time, table)).join('')}</section>`).join('') || '<p class="empty-state">Este local não tem dias ativos neste mês.</p>'}</div>`
+  root().innerHTML = `${periodControls()}${published ? '<div class="notice warning">Este mês está publicado e bloqueado para edição.</div>' : ''}<div class="scale-actions"><button id="sGenerateAll" class="btn btn-primary" ${published ? 'disabled' : ''}>${hasData(selectedMonth) ? 'Completar mês' : 'Gerar mês'} · ${activeRules} regras</button><button id="sPdf" class="btn btn-ghost" ${hasData(selectedMonth) ? '' : 'disabled'}>Gerar PDF</button>${published ? '<button id="sUnpublish" class="btn btn-ghost">Despublicar</button>' : `<button id="sPublish" class="btn btn-ghost" ${hasData(selectedMonth) ? '' : 'disabled'}>Publicar mês</button>${hasData(selectedMonth) ? '<button id="sDelete" class="btn btn-danger">Apagar mês</button>' : ''}`}</div><div class="scale-days">${dates.map(date => `<section class="scale-day"><h3>${esc(dayLabel(date))}</h3>${slots.map(time => slotHtml(date, time, table)).join('')}</section>`).join('') || '<p class="empty-state">Este local não tem dias ativos neste mês.</p>'}</div>`
   bindPeriod(renderScale)
   document.getElementById('sGenerateAll')!.addEventListener('click', () => void generate())
   document.getElementById('sPdf')!.addEventListener('click', printPdf)
@@ -340,10 +346,10 @@ function slotHtml(date: string, time: string, table?: EscalaTable): string {
     const eligible = analyzeCell(input(), date, time).eligible
     status = eligible.length === 0 ? 'Ninguém disponível' : eligible.length === 1 ? `Só ${name(eligible[0])} disponível` : `${eligible.length} disponíveis, sem dupla válida`
   }
-  return `<button class="scale-slot" data-slot data-date="${date}" data-time="${time}" ${publishedMonth === selectedMonth ? 'disabled' : ''}><strong>${time}</strong><span>${esc(names.length ? names.join(' + ') : status)}</span></button>`
+  return `<button class="scale-slot" data-slot data-date="${date}" data-time="${time}" ${monthLocked() ? 'disabled' : ''}><strong>${time}</strong><span>${esc(names.length ? names.join(' + ') : status)}</span></button>`
 }
 async function generate(): Promise<void> {
-  if (publishedMonth === selectedMonth) { toast('Despublique o mês antes de gerar'); return }
+  if (monthLocked() || changingPublication) { toast('Despublique o mês antes de gerar'); return }
   const generated = generateAll({ month:selectedMonth, locals, participants, availability, tables, blocks, exclusions:exclusions[selectedMonth] ?? [], rules:settings.engineRules })
   if (generated.errors.length) { toast(generated.errors.join('. ')); return }
   const patch: Record<string, unknown> = { editingMonth: selectedMonth, lastGeneratedAt: now() }
@@ -355,6 +361,7 @@ async function generate(): Promise<void> {
   } catch { toast('Nada foi gravado; a geração falhou sem escrita parcial') }
 }
 function pairModal(date: string, time: string): void {
+  if (monthLocked() || changingPublication) return
   const analysis = analyzeCell(input(), date, time), cell = tables[selectedLocalId]?.[selectedMonth]?.rows?.[date]?.slots?.[time] ?? { p1: '', p2: '' }
   const ids = [...analysis.eligible, ...analysis.blocked.map(item => item.id)]
   const options = ids.map(id => { const item = analysis.blocked.find(candidate => candidate.id === id); return `<option value="${esc(id)}">${esc(name(id))}${item ? ` — ${esc(ESCALA_RULE_LABELS[item.rule])}` : ''}</option>` }).join('')
@@ -363,6 +370,7 @@ function pairModal(date: string, time: string): void {
   document.getElementById('pairCancel')!.addEventListener('click', () => overlay.remove()); document.getElementById('pairSave')!.addEventListener('click', () => void savePair(date, time, overlay))
 }
 async function savePair(date: string, time: string, overlay: HTMLElement): Promise<void> {
+  if (monthLocked() || changingPublication) { toast('Despublique o mês antes de editar'); return }
   const p1 = (document.getElementById('pair1') as HTMLSelectElement).value, p2 = (document.getElementById('pair2') as HTMLSelectElement).value
   const errors = validatePair(input(), date, time, p1, p2)
   if (errors.length && !confirm(`Esta escolha tem conflito:\n\n${errors.join('\n')}\n\nSalvar assim mesmo?`)) return
@@ -374,24 +382,49 @@ async function savePair(date: string, time: string, overlay: HTMLElement): Promi
   } catch { toast('Não foi possível salvar a dupla') }
 }
 async function publish(): Promise<void> {
+  if (monthLocked() || changingPublication) return
   if (!hasData(selectedMonth)) { toast('Gere e revise a escala antes de publicar'); return }
   if (!scalePdfPreview.matches(scalePdfInput())) { toast('Abra a prévia atual do PDF antes de publicar'); return }
-  const snapshot = { publicadoEm:now(), appliedRules:{ ...normalizeEscalaGenerationRules(settings.engineRules), version:1 }, participants:Object.fromEntries(Object.keys(participants).map(id => [id, { name:name(id), masterId:centralId(id) || undefined, active:participants[id]?.active !== false }])), nomes:Object.fromEntries(Object.keys(participants).map(id => [id, name(id)])), locais:Object.fromEntries(orderedLocals().map(([id, local]) => [id, local.name ?? id])) }
+  const month = selectedMonth
+  const pdfInput = structuredClone(scalePdfInput())
+  const directory = participantDirectory()
+  const snapshot = { publicadoEm:now(), appliedRules:{ ...normalizeEscalaGenerationRules(settings.engineRules), version:1 }, participants:Object.fromEntries(Object.keys(directory).map(id => [id, { name:name(id), masterId:centralId(id) || directory[id]?.masterId || undefined, active:directory[id]?.active !== false }])), nomes:Object.fromEntries(Object.keys(directory).map(id => [id, name(id)])), locais:Object.fromEntries(orderedLocals().map(([id, local]) => [id, local.name ?? id])) }
+  changingPublication = true
   try {
-    const input = scalePdfInput()
-    const result = await createScaleSchedulePdf(input)
-    const lastDay = new Date(Number(selectedMonth.slice(0, 4)), Number(selectedMonth.slice(5, 7)), 0).getDate()
-    await publishAgendaModulePdf(result.bytes, { modulo:'escala', periodo:selectedMonth, inicio:`${selectedMonth}-01`, fim:`${selectedMonth}-${lastDay}`, origemPeriodoId:selectedMonth, nome:`escala-tpl-${selectedMonth}.pdf` })
-    await update(escalaRef, { publishedMonth:selectedMonth, [`publishedMonths/${selectedMonth}`]:true, [`publishedSnapshots/${selectedMonth}`]:snapshot })
-    publishedMonth = selectedMonth; publishedMonths[selectedMonth] = true; toast('Mês publicado e bloqueado'); renderScale()
+    const result = await createScaleSchedulePdf(pdfInput)
+    const lastDay = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate()
+    await publishAgendaModulePdf(result.bytes, { modulo:'escala', periodo:month, inicio:`${month}-01`, fim:`${month}-${lastDay}`, origemPeriodoId:month, nome:`escala-tpl-${month}.pdf` })
+    try { await update(escalaRef, { publishedMonth:month, [`publishedMonths/${month}`]:true, [`publishedSnapshots/${month}`]:snapshot }) }
+    catch (error) {
+      try { await unpublishAgendaModulePdf('escala', month) }
+      catch { toast('Publicação incompleta. Reabra o módulo e confira o PDF no Quadro.'); return }
+      throw error
+    }
+    publishedMonth = month; publishedMonths[month] = true; historicalSnapshots[month] = snapshot; toast('Mês publicado e bloqueado'); renderScale()
   } catch { toast('Não foi possível publicar') }
+  finally { changingPublication = false }
 }
 async function unpublish(): Promise<void> {
+  if (!monthLocked() || changingPublication) return
   if (!confirm(`Despublicar ${monthLabel(selectedMonth)}?`)) return
-  try { await unpublishAgendaModulePdf('escala', selectedMonth); await update(escalaRef, { publishedMonth:'', [`publishedMonths/${selectedMonth}`]:null }); publishedMonth = ''; delete publishedMonths[selectedMonth]; toast('Mês aberto para edição'); renderScale() } catch { toast('Não foi possível despublicar') }
+  const month = selectedMonth, previousLatest = publishedMonth, previousFlag = publishedMonths[month] ?? null
+  const nextLatest = publishedMonth === month ? '' : publishedMonth
+  changingPublication = true
+  try {
+    await update(escalaRef, { publishedMonth:nextLatest, [`publishedMonths/${month}`]:null })
+    try { await unpublishAgendaModulePdf('escala', month) }
+    catch (error) {
+      try { await update(escalaRef, { publishedMonth:previousLatest, [`publishedMonths/${month}`]:previousFlag }) }
+      catch { toast('Falha ao restaurar a publicação. Reabra o módulo e confira o período.'); return }
+      throw error
+    }
+    publishedMonth = nextLatest; delete publishedMonths[month]; toast('Mês aberto para edição'); renderScale()
+  } catch { toast('Não foi possível despublicar') }
+  finally { changingPublication = false }
 }
 
 async function deleteMonth(): Promise<void> {
+  if (monthLocked() || changingPublication) { toast('Despublique o mês antes de apagar'); return }
   if (!hasData(selectedMonth) || !confirm(`Apagar a escala inteira de ${monthLabel(selectedMonth)} em todos os locais?`)) return
   const patch: Record<string, unknown> = {}
   Object.keys(locals).forEach(id => {
@@ -515,12 +548,14 @@ async function toggleBlock(scope: string, target: string, key: string, enabled: 
   try { await update(escalaRef, { [`monthSlotBlocks/${scope}/${target}`]: next.length ? next : null }); blocks[scope] ??= {}; blocks[scope][target] = next; toast('Bloqueio atualizado') } catch { toast('Não foi possível atualizar o bloqueio'); renderConfig() }
 }
 async function addExclusion(): Promise<void> {
+  if (monthLocked()) { toast('Despublique o mês antes de alterar as exceções'); return }
   const date = (document.getElementById('cExclusion') as HTMLInputElement).value
   if (!date.startsWith(`${selectedMonth}-`)) { toast('Escolha uma data deste período'); return }
   const next = [...new Set([...(exclusions[selectedMonth] ?? []), date])].sort()
   try { await update(escalaRef, { [`monthExclusions/${selectedMonth}`]: next }); exclusions[selectedMonth] = next; toast('Exceção adicionada'); renderConfig() } catch { toast('Não foi possível adicionar') }
 }
 async function removeExclusion(date: string): Promise<void> {
+  if (monthLocked()) { toast('Despublique o mês antes de alterar as exceções'); return }
   const next = (exclusions[selectedMonth] ?? []).filter(item => item !== date)
   try { await update(escalaRef, { [`monthExclusions/${selectedMonth}`]: next.length ? next : null }); exclusions[selectedMonth] = next; toast('Exceção removida'); renderConfig() } catch { toast('Não foi possível remover') }
 }

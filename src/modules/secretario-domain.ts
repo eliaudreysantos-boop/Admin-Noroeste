@@ -32,9 +32,17 @@ export function records<T>(value: unknown): Record<string, T> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, T> : {}
 }
 
+export const validSecretaryMonth = (value: string): boolean => /^\d{4}-(0[1-9]|1[0-2])$/.test(value)
+export function validSecretaryDate(value: string): boolean {
+  if (!/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(value)) return false
+  const [year, month, day] = value.split('-').map(Number)
+  const parsed = new Date(Date.UTC(year, month - 1, day))
+  return parsed.getUTCFullYear() === year && parsed.getUTCMonth() === month - 1 && parsed.getUTCDate() === day
+}
+
 export function canonicalReportId(masterId: string, competence: string): string {
   const person = masterId.trim()
-  if (!/^[A-Za-z0-9_-]+$/.test(person) || !/^\d{4}-\d{2}$/.test(competence)) throw new Error('Identidade ou competência inválida')
+  if (!/^[A-Za-z0-9_-]+$/.test(person) || !validSecretaryMonth(competence)) throw new Error('Identidade ou competência inválida')
   return `${person}__${competence}`
 }
 
@@ -53,7 +61,7 @@ export function matchingReports(reportList: Record<string, SecretaryReport>, mas
 export function duplicateReportGroups(reportList: Record<string, SecretaryReport>): Array<{ masterId: string; competencia: string; ids: string[] }> {
   const groups = new Map<string, { masterId: string; competencia: string; ids: string[] }>()
   Object.entries(reportList).forEach(([id, report]) => {
-    if (!report.masterId || !/^\d{4}-\d{2}$/.test(report.competencia)) return
+    if (!report.masterId || !validSecretaryMonth(report.competencia)) return
     const key = `${report.masterId}|${report.competencia}`, current = groups.get(key) ?? { masterId:report.masterId, competencia:report.competencia, ids:[] }
     current.ids.push(id); groups.set(key, current)
   })
@@ -107,6 +115,7 @@ export function pendingPublishers(publisherList: Record<string, SecretaryPublish
 }
 
 export function nextMonth(month: string): string {
+  if (!validSecretaryMonth(month)) return ''
   const [year, value] = month.split('-').map(Number)
   const date = new Date(Date.UTC(year, value, 1))
   return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`
@@ -117,11 +126,12 @@ export function accountingMonth(report: SecretaryReport): string {
 }
 
 export function isReportLate(competence: string, receivedDate: string): boolean {
-  if (!/^\d{4}-\d{2}$/.test(competence) || !/^\d{4}-\d{2}-\d{2}$/.test(receivedDate)) return false
+  if (!validSecretaryMonth(competence) || !validSecretaryDate(receivedDate)) return false
   return receivedDate > `${nextMonth(competence)}-10`
 }
 
 export function serviceYearStart(month: string): number {
+  if (!validSecretaryMonth(month)) return new Date().getFullYear()
   const [year, value] = month.split('-').map(Number)
   return value >= 9 ? year : year - 1
 }

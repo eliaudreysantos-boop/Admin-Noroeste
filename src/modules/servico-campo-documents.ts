@@ -1,28 +1,42 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf-lib/cjs/index.js'
 import type { MasterPessoa } from '../types'
 import { previewPdf } from '../ui/pdf-preview.ts'
+import { A4_PORTRAIT, PDF_INK, PDF_LINE, drawPublicPdfHeader } from '../ui/public-pdf-layout.ts'
 import type { FieldServiceAssignment } from './servico-campo-domain.ts'
 
-const A4: [number, number] = [595.28, 841.89]
 const monthLabel = (month: string): string => new Intl.DateTimeFormat('pt-BR', { month:'long', year:'numeric', timeZone:'UTC' }).format(new Date(`${month}-15T12:00:00Z`))
-const dateLabel = (date: string): string => new Intl.DateTimeFormat('pt-BR', { weekday:'short', day:'2-digit', month:'2-digit', timeZone:'UTC' }).format(new Date(`${date}T12:00:00Z`)).replace('.', '')
+const dateLabel = (date: string): string => new Intl.DateTimeFormat('pt-BR', { weekday:'short', day:'2-digit', timeZone:'UTC' }).format(new Date(`${date}T12:00:00Z`)).replace('.', '')
 
-function fitted(font: PDFFont, value: string, size: number, maxWidth: number): string {
-  if (font.widthOfTextAtSize(value, size) <= maxWidth) return value
-  let result = value
-  while (result.length > 1 && font.widthOfTextAtSize(`${result}...`, size) > maxWidth) result = result.slice(0, -1)
-  return `${result.trim()}...`
+function wrap(font: PDFFont, value: string, size: number, maxWidth: number): string[] {
+  const words = value.trim().split(/\s+/).filter(Boolean)
+  if (!words.length) return ['']
+  const lines: string[] = []
+  let current = ''
+  words.forEach(word => {
+    const candidate = current ? `${current} ${word}` : word
+    if (!current || font.widthOfTextAtSize(candidate, size) <= maxWidth) current = candidate
+    else { lines.push(current); current = word }
+  })
+  if (current) lines.push(current)
+  return lines
 }
 
-function drawRow(page: PDFPage, fonts: { regular:PDFFont; bold:PDFFont }, values: string[], y: number, rowHeight: number, header = false): void {
-  const x = 38, widths = [92, 60, 190, 177]
-  page.drawRectangle({ x, y:y - rowHeight, width:519, height:rowHeight, color:header ? rgb(.78, .86, .96) : rgb(1, 1, 1), borderColor:rgb(.58, .67, .77), borderWidth:.5 })
+function rowHeight(fonts: { regular:PDFFont; bold:PDFFont }, values: string[], header = false): number {
+  if (header) return 22
+  const widths = [72, 54, 205, 188], size = 8.5
+  return Math.max(20, ...values.map((value, index) => wrap(fonts.regular, value, size, widths[index]! - 10).length * 10 + 8))
+}
+
+function drawRow(page: PDFPage, fonts: { regular:PDFFont; bold:PDFFont }, values: string[], y: number, height: number, header = false): void {
+  const x = 38, widths = [72, 54, 205, 188]
+  page.drawRectangle({ x, y:y - height, width:519, height, color:header ? PDF_INK : rgb(1, 1, 1), borderColor:PDF_LINE, borderWidth:.5 })
   let cursor = x
   values.forEach((value, index) => {
-    if (index) page.drawLine({ start:{ x:cursor, y }, end:{ x:cursor, y:y - rowHeight }, thickness:.5, color:rgb(.58, .67, .77) })
+    if (index) page.drawLine({ start:{ x:cursor, y }, end:{ x:cursor, y:y - height }, thickness:.5, color:PDF_LINE })
     const font = header ? fonts.bold : fonts.regular
     const size = header ? 9 : 8.5
-    page.drawText(fitted(font, value, size, widths[index]! - 10), { x:cursor + 5, y:y - rowHeight + 7, size, font, color:rgb(.08, .12, .17) })
+    const lines = header ? [value] : wrap(font, value, size, widths[index]! - 10)
+    lines.forEach((line, lineIndex) => page.drawText(line, { x:cursor + 5, y:y - 13 - lineIndex * 10, size, font, color:header ? rgb(1, 1, 1) : PDF_INK }))
     cursor += widths[index]!
   })
 }
@@ -38,20 +52,21 @@ export async function createFieldServicePdf(input: {
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold)
   const fonts = { regular, bold }
   const rows = [...input.assignments].sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time) || a.location.localeCompare(b.location, 'pt-BR'))
-  const perPage = 36
-  const chunks = rows.length ? Array.from({ length:Math.ceil(rows.length / perPage) }, (_, index) => rows.slice(index * perPage, (index + 1) * perPage)) : [[]]
-  chunks.forEach((chunk, pageIndex) => {
-    const page = pdf.addPage(A4)
-    page.drawText('Programação de Serviço de Campo', { x:38, y:792, size:20, font:bold, color:rgb(.02, .25, .45) })
-    page.drawText(`${input.congregation || 'Congregação Noroeste'} - ${monthLabel(input.month)}`, { x:38, y:772, size:10, font:regular, color:rgb(.25, .31, .36) })
-    if (chunks.length > 1) page.drawText(`Página ${pageIndex + 1} de ${chunks.length}`, { x:490, y:792, size:8, font:regular, color:rgb(.35, .4, .45) })
-    let y = 744
+  let page: PDFPage
+  let y = 0
+  const addPage = (): void => {
+    page = pdf.addPage(A4_PORTRAIT)
+    y = drawPublicPdfHeader(page, bold, regular, { title:'Programação de Serviço de Campo', congregation:input.congregation || 'Congregação Noroeste', period:monthLabel(input.month), margin:38 })
     drawRow(page, fonts, ['Dia', 'Hora', 'Local', 'Dirigente'], y, 22, true); y -= 22
-    chunk.forEach(assignment => {
-      drawRow(page, fonts, [dateLabel(assignment.date), assignment.time, assignment.location, input.people[assignment.leaderId]?.name ?? 'A definir'], y, 18)
-      y -= 18
-    })
-    page.drawText('Gerado pelo sistema Noroeste', { x:38, y:30, size:7, font:regular, color:rgb(.45, .49, .53) })
+  }
+  addPage()
+  if (!rows.length) page!.drawText('Nenhuma saída programada para este período.', { x:43, y:y - 24, size:9, font:regular, color:PDF_INK })
+  rows.forEach(assignment => {
+    const values = [dateLabel(assignment.date), assignment.time, assignment.location, input.people[assignment.leaderId]?.name ?? 'A definir']
+    const height = rowHeight(fonts, values)
+    if (y - height < 42) addPage()
+    drawRow(page!, fonts, values, y, height)
+    y -= height
   })
   return pdf.save()
 }

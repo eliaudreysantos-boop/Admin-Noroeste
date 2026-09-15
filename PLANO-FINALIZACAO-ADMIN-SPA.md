@@ -93,11 +93,18 @@ que essa pasta de referencias for apagada.
 
 ### Padrao visual dos PDFs publicos
 
+- Todos os modulos devem seguir este padrao visual, com adaptacoes ao conteudo.
+  Vida e Ministerio e a unica excecao, pois precisa preservar o layout dos
+  formularios oficiais.
 - Tarefas, Oradores, Limpeza e Servico de Campo devem preferir PDF em A4
-  retrato.
+  retrato. Escala TPL pode usar A4 paisagem quando os varios horarios exigirem,
+  sem deixar de seguir o mesmo cabecalho, tema neutro, tipografia e linhas.
 - O layout desses PDFs deve ser padronizado o maximo possivel entre modulos:
-  cabecalho, periodo, identificacao da congregacao, blocos de conteudo, rodape e
-  escala de fonte.
+  cabecalho, periodo, identificacao da congregacao, blocos de conteudo e escala
+  de fonte.
+- Nao imprimir metadados tecnicos sem utilidade para a programacao, como numero
+  ou quantidade de paginas, horario de geracao, horario de impressao e rodape do
+  sistema.
 - Mesmo quando o conteudo nao exigir colunas, o PDF deve manter linhas visiveis
   para facilitar leitura, conferencia e impressao.
 - As linhas podem separar datas, reunioes, saidas, grupos, oradores ou blocos de
@@ -110,6 +117,13 @@ que essa pasta de referencias for apagada.
 - Quando um PDF nao couber em uma folha, pode usar paginas adicionais mantendo o
   mesmo padrao visual, mas a preferencia inicial e tentar organizar em uma folha
   A4 retrato quando for razoavel.
+- No PDF mensal de Oradores, reunioes locais e visitantes pertencem somente ao
+  mes selecionado; a secao de saidas inclui todas as saidas desde o primeiro dia
+  desse mes em diante.
+- O cabecalho compartilhado deve ser usado nos PDFs proprios de Tarefas,
+  Limpeza, Oradores, Escala TPL, Servico de Campo e grupos do Secretario.
+- Formularios oficiais apenas preenchidos pelo app conservam o modelo oficial;
+  isso nao autoriza criar outro tema visual para PDFs proprios do modulo.
 
 ### Minha Agenda
 
@@ -250,7 +264,7 @@ Falta apenas na homologacao:
   na Minha Agenda e reabrir o periodo. Essa operacao nao foi executada durante a
   auditoria para nao alterar os dados atuais.
 
-### Oradores - concluido com reforco de teste documental
+### Oradores - auditoria local revisada em 14/09/2026
 
 Confirmado:
 
@@ -266,13 +280,24 @@ Confirmado:
 - publicacao da programacao para o Quadro;
 - testes reais de assinatura `%PDF`, paginacao, lista vazia, programacao e
   catalogo;
-- quatorze testes aprovados.
+- dezenove testes especificos aprovados, suite completa e build aprovados;
+- dez telas em desktop e celular com dados ficticios; acoes de pendencias
+  corrigidas para acontecer apenas por clique;
+- conflitos de edicao e de vaga local corrigidos, alertas de reconfirmacao e
+  vinculos inexistentes, nomes centrais na emergencia e filtros persistentes;
+- PDF paginado pela altura do texto e compensacao de falhas na publicacao.
+- PDF mensal usa apenas o dia na primeira coluna, reserva mais largura para o
+  tema e omite paginacao e metadados tecnicos de geracao ou impressao.
+- saidas posteriores ao mes selecionado entram no mesmo PDF, separadas em
+  secoes mensais para que a coluna continue mostrando apenas o dia.
 
 Falta apenas na homologacao:
 
-- homologar copiar texto, WhatsApp, previa e impressao em celular e desktop.
+- copiar texto, previa e abertura simulada de WhatsApp conferidos localmente;
+- homologar publicacao real, concorrencia entre sessoes, WhatsApp externo e
+  impressao em aparelhos reais. Detalhes em PENDENCIAS-FINAIS-ADMIN-SPA.md.
 
-### Escala TPL - concluido no codigo
+### Escala TPL - auditoria local revisada em 14/09/2026
 
 Confirmado:
 
@@ -287,14 +312,44 @@ Confirmado:
 - separacao explicita do modulo Servico de Campo: pontos e horarios de carrinho
   nao podem ser importados como saidas de campo;
 - mensagens comuns nao sao enviadas por este modulo;
-- dezoito testes aprovados, incluindo o PDF real e as regras opcionais.
+- 24 testes aprovados, incluindo PDF com 20 horarios e nomes extensos;
+- meses publicados anteriores bloqueados; reabertura conserva outros meses;
+- inativos centrais excluidos do motor e conflitos verificados por masterId;
+- snapshots conservados na republicacao e recuperacao de falhas de publicacao;
+- PDF usa datas e horarios gravados, ate seis colunas por faixa de paginas,
+  mantendo os nomes completos em linhas dentro da A4 paisagem.
 
 Falta apenas na homologacao:
 
-- conferir impressao com o maior numero esperado de horarios;
-- conferir publicacao, despublicacao e snapshot de participante removido.
+- repetir publicacao, despublicacao e impressao na versao publicada;
+- conferir concorrencia real entre sessoes. Detalhes e evidencias locais em
+  PENDENCIAS-FINAIS-ADMIN-SPA.md. A auditoria seguinte foi Servico de Campo;
+  Vida e Ministerio foi antecipado para antes da Minha Agenda.
 
-### Vida e Ministerio - concluido no codigo
+### Servico de Campo - auditoria local revisada em 15/09/2026
+
+Confirmado e corrigido:
+
+- recorrencias por dia e horario, com varias saidas distintas no mesmo dia;
+- rejeicao de competencia e horario invalidos e de saida manual identica;
+- rodizio equilibrado usa somente meses anteriores, sem influencia de meses futuros;
+- dirigente sempre selecionado do cadastro central entre homens ativos;
+- publicacao e reabertura protegidas contra acionamento simultaneo, com compensacao
+  quando PDF e marcador do Firebase nao concluem juntos;
+- falha de carga nao reapresenta dados antigos como leitura atual;
+- PDF A4 retrato no padrao publico, com linhas, dia compacto, quebra de nomes e
+  locais completos, paginacao pela altura e sem metadados tecnicos;
+- dez testes especificos e build de producao aprovados.
+
+Falta na homologacao externa:
+
+- publicar, retirar e imprimir um mes representativo na versao publicada;
+- confirmar em aparelho real o lembrete somente para o dirigente e o Quadro sem
+  lembrete;
+- testar duas sessoes concorrentes. A compensacao entre requisicoes nao e uma
+  transacao atomica.
+
+### Vida e Ministerio - auditoria local revisada em 15/09/2026
 
 Confirmado:
 
@@ -304,7 +359,16 @@ Confirmado:
 - pendencias, realizacao, confirmacao e lembretes operacionais editaveis;
 - S-89 e S-140 PDF com previa; S-140 DOCX por download;
 - adapter para Minha Agenda e Quadro sem recalcular designacoes;
-- dezenove testes aprovados.
+- datas civis invalidas rejeitadas nos filtros e na importacao JSON;
+- perfis sem pessoa mestre ficam inativos e nao entram nas sugestoes;
+- importacoes so atualizam o estado local depois da confirmacao do Firebase;
+- substitutos respeitam a elegibilidade da parte e conflitos entre principal,
+  ajudante e substituto sao detectados;
+- partes realizadas e semanas de assembleia ou celebracao nao geram lembretes
+  nem pendencias normais;
+- S-89 e S-140 permanecem formularios oficiais, sem receber o layout dos PDFs
+  proprios dos demais modulos;
+- vinte e dois testes especificos e build aprovados.
 
 Falta apenas na homologacao:
 
@@ -314,6 +378,17 @@ Falta apenas na homologacao:
 ### Secretario - contrato de relatorios concluido no codigo
 
 Confirmado:
+
+- auditoria local revista em 15/09/2026, com validacao civil de competencias e
+  datas, rejeicao de assistencia duplicada e falha de carga sem estado antigo;
+- pessoa vinculada, pessoa do relatorio e competencia permanecem imutaveis durante
+  a edicao; nomes sempre vem do cadastro central por `masterId`;
+- fechamento e reabertura capturam a competencia e ignoram duplo acionamento;
+- PDF proprio de grupos usa A4 retrato, quatro colunas, linhas de cabecalho e nomes
+  completos sem abreviacao ou metadados tecnicos;
+- S-21, S-88 e S-3 sao formularios oficiais e nao recebem o padrao visual dos
+  PDFs proprios. O mesmo vale para S-140 em Vida e Ministerio;
+- dezessete testes especificos e build aprovados.
 
 - cadastro de grupos e publicadores por `masterId`;
 - categorias, relatorios, atrasos, pendentes e lembretes por pessoa ou grupo;
@@ -764,6 +839,13 @@ Estes itens nao bloqueiam a conclusao do codigo:
 - executar restauracao de backup somente quando houver necessidade real.
 
 ## Criterio para declarar o projeto finalizado
+
+Validacao local das leituras em 14/09/2026: 20 lotes autenticados, em dez
+rodadas com dois lotes simultaneos, concluiram 120 leituras sem erro ou timeout.
+Tempos por lote: 2699 a 6118 ms, media 3583 ms. Cinco testes focados passaram,
+incluindo divisao de lotes e recuperacao de resposta incompleta. Falta repetir
+em producao e observar conexoes; nao foi medido o contador do Firebase.
+Auditoria local de Oradores realizada em 14/09/2026; proxima etapa: Escala TPL.
 
 O projeto pode ser considerado funcionalmente finalizado quando:
 

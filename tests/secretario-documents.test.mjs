@@ -30,3 +30,12 @@ test('gera grupos de serviço em A4 retrato com quatro colunas por página', asy
   assert.ok(Math.abs(pdf.getPage(0).getWidth() - 595.28) < 1)
   assert.ok(pdf.getPage(0).getHeight() > pdf.getPage(0).getWidth())
 })
+
+test('PDF de grupos aceita nomes extensos sem mudar os formulários oficiais', async () => {
+  const people = Object.fromEntries(Array.from({ length:24 }, (_, index) => [`m${index}`, { name:`Pessoa com nome completo bastante extenso número ${index}`, whatsapp:'', sex:'M', role:'publicador', active:true, limpeza:{ grupo:null } }]))
+  const groups = { g1:{ id:'g1', nome:'Grupo de serviço com nome extenso', superintendenteMasterId:'m0', ativo:true } }
+  const publishers = Object.fromEntries(Array.from({ length:24 }, (_, index) => [`p${index}`, { id:`p${index}`, masterId:`m${index}`, categoria:'publicador', grupoId:'g1', ativo:true }]))
+  const pdf = await PDFDocument.load(await createGroupsPdf(groups, publishers, people, 'Noroeste'))
+  assert.equal(pdf.getPageCount(), 1)
+  assert.ok(Math.abs(pdf.getPage(0).getWidth() - 595.28) < 1)
+})

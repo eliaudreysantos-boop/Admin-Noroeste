@@ -19,15 +19,15 @@ const MODULE_LABELS: Record<MessageSettingsModule, string> = {
 }
 
 const MEETING_DEFAULTS: Record<MessageSettingsModule, string> = {
-  tarefas:'Olá, irmãos. Seguem as designações de tarefas da reunião:\n\n{dados_da_reuniao}\n\nObrigado.',
-  limpeza:'Olá, irmãos. Segue a programação de limpeza:\n\n{dados_da_reuniao}\n\nObrigado pela colaboração.',
-  escala:'Olá, irmãos. Segue a programação da Escala TPL:\n\n{dados_da_reuniao}\n\nObrigado.',
-  oradores:'Olá, irmãos. Segue a programação de discursos públicos:\n\n{dados_da_reuniao}\n\nObrigado.',
-  programacao:'Olá, irmãos. Segue a programação da reunião Vida e Ministério:\n\n{dados_da_reuniao}\n\nObrigado.',
-  servicoCampo:'Olá, irmãos. Segue a programação do serviço de campo:\n\n{programacao_servico_campo}\n\nQuem puder participar, será muito bem-vindo. Obrigado.',
+  tarefas:'Olá. Seguem as designações de tarefas da reunião:\n\n{dados_da_reuniao}\n\nAgradecemos pela atenção.',
+  limpeza:'Olá. Segue a programação de limpeza:\n\n{dados_da_reuniao}\n\nAgradecemos pela colaboração.',
+  escala:'Olá. Segue a programação da Escala TPL:\n\n{dados_da_reuniao}\n\nAgradecemos pela atenção.',
+  oradores:'Olá. Segue a programação de discursos públicos:\n\n{dados_da_reuniao}\n\nAgradecemos pela atenção.',
+  programacao:'Olá. Segue a programação da reunião Vida e Ministério:\n\n{dados_da_reuniao}\n\nAgradecemos pela atenção.',
+  servicoCampo:'Olá. Segue a programação do serviço de campo:\n\n{programacao_servico_campo}\n\nSua participação será muito bem recebida. Agradecemos pela atenção.',
 }
 
-const DOCUMENT_DEFAULT = 'Olá, irmãos. O arquivo de {modulo} referente a {periodo} está disponível para consulta:\n\n{link_ou_orientacao}\n\nObrigado.'
+const DOCUMENT_DEFAULT = 'Olá. O arquivo de {modulo} referente a {periodo} está disponível para consulta:\n\n{link_ou_orientacao}\n\nAgradecemos pela atenção.'
 
 function esc(value: unknown): string {
   return String(value ?? '').replace(/[&<>"']/g, char => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#039;' })[char] ?? char)
@@ -68,11 +68,11 @@ export async function mountModuleMessageSettings(
       </div>
       <div class="form-group">
         <label class="form-label" for="${prefix}_meeting">Mensagem de reunião ou programação</label>
-        <textarea id="${prefix}_meeting" class="form-input" rows="5" maxlength="2000">${esc(current.meetingText ?? defaults.meetingText)}</textarea>
+        <textarea id="${prefix}_meeting" class="form-input" rows="5" maxlength="2000">${esc(current.meetingText?.trim() || defaults.meetingText)}</textarea>
       </div>
       <div class="form-group">
         <label class="form-label" for="${prefix}_document">Mensagem de PDF publicado</label>
-        <textarea id="${prefix}_document" class="form-input" rows="4" maxlength="2000">${esc(current.documentText ?? defaults.documentText)}</textarea>
+        <textarea id="${prefix}_document" class="form-input" rows="4" maxlength="2000">${esc(current.documentText?.trim() || defaults.documentText)}</textarea>
       </div>
       <button id="${prefix}_save" class="btn btn-primary" type="button">Salvar mensagens</button>
     </details>`
@@ -85,8 +85,8 @@ export async function mountModuleMessageSettings(
     }
     const next: NonNullable<AgendaConfig['moduleWhatsApp']>[MessageSettingsModule] = {
       groupLink,
-      meetingText:(document.getElementById(`${prefix}_meeting`) as HTMLTextAreaElement).value.trim(),
-      documentText:(document.getElementById(`${prefix}_document`) as HTMLTextAreaElement).value.trim(),
+      meetingText:(document.getElementById(`${prefix}_meeting`) as HTMLTextAreaElement).value.trim() || defaults.meetingText,
+      documentText:(document.getElementById(`${prefix}_document`) as HTMLTextAreaElement).value.trim() || defaults.documentText,
     }
     const button = document.getElementById(`${prefix}_save`) as HTMLButtonElement
     button.disabled = true

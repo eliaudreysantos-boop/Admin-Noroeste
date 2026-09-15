@@ -71,9 +71,11 @@ export function confirmationMessage(prefix: string, personId: string, person: Es
 }
 
 export function printRowsForLocal(localId: string, month: string, local: EscalaLocal, tables: EscalaTables, participants: Record<string, EscalaParticipant>, exclusions: string[]) {
-  return activeDates(month, local.daysActive ?? [], exclusions).map(date => ({
+  const table = tables[localId]?.[month]
+  const dates = table ? Object.keys(table.rows ?? {}).sort() : activeDates(month, local.daysActive ?? [], exclusions)
+  return dates.map(date => ({
     date,
-    cells: localSlots(local).map(time => {
+    cells: (table?.slots ?? localSlots(local)).map(time => {
       const cell = tables[localId]?.[month]?.rows?.[date]?.slots?.[time]
       return [cell?.p1, cell?.p2].filter(Boolean).map(id => participantName(participants[id], id))
     }),

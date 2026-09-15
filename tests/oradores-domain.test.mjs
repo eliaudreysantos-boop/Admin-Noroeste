@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { allowedTheme, assignmentsForSpeaker, confirmationPatch, congregationIdOf, deriveStatus, eventBlocksLocal, meetingDatesForMonth, missingLocalTalkDates, needsReconfirmation, talkConflicts, themeHistory, watchtowerIssues } from '../src/modules/oradores-domain.ts'
+import { allowedTheme, assignmentsForSpeaker, confirmationPatch, congregationIdOf, deriveStatus, eventBlocksLocal, meetingDatesForMonth, missingLocalTalkDates, needsReconfirmation, talkConflicts, talksForSchedulePdf, themeHistory, watchtowerIssues } from '../src/modules/oradores-domain.ts'
 import { availableSpeakerThemes } from '../src/modules/oradores-documents.ts'
 import { scheduleRows, scheduleToAgendaEvents } from '../src/modules/oradores-documents.ts'
 
@@ -40,6 +40,30 @@ test('Sentinela exige dirigente e substituto locais e diferentes', () => {
   assert.equal(watchtowerIssues({ d: { tipo: 'local', sentinelaDirigente: true, sentinelaSubstituto: true } }).length, 1)
 })
 
+test('editar o proprio compromisso nao gera conflito consigo mesmo', () => {
+  const talk = { data:'2026-09-20', tipo:'discurso_local', oradorId:'a' }
+  assert.deepEqual(talkConflicts('p1', { ...talk }, { p1:talk }, [], {}), [])
+})
+
+test('local e visitante compartilham a vaga, mas saidas de pessoas distintas coexistem', () => {
+  const local = { data:'2026-09-20', tipo:'discurso_local', oradorId:'a' }
+  assert.ok(talkConflicts('p2', { ...local, tipo:'discurso_visitante', oradorId:'b' }, { p1:local }, [], {}).length)
+  const outgoing = { ...local, tipo:'saida_orador' }
+  assert.deepEqual(talkConflicts('p2', { ...outgoing, oradorId:'b' }, { p1:outgoing }, [], {}), [])
+  assert.ok(talkConflicts('p2', { ...outgoing, oradorId:'b' }, { p1:outgoing }, [], { a:{ pessoaId:'master1' }, b:{ pessoaId:'master1' } }).length)
+})
+
+test('PDF limita reunioes ao mes e inclui todas as saidas futuras', () => {
+  const talks = {
+    localMes: { data:'2026-10-03', tipo:'discurso_local' },
+    localDepois: { data:'2026-11-07', tipo:'discurso_visitante' },
+    saidaAntes: { data:'2026-09-26', tipo:'saida_orador' },
+    saidaMes: { data:'2026-10-10', tipo:'saida_orador' },
+    saidaDepois: { data:'2027-02-06', tipo:'saida_orador' },
+  }
+  assert.deepEqual(talksForSchedulePdf(talks, '2026-10').map(([id]) => id), ['localMes', 'saidaMes', 'saidaDepois'])
+})
+
 test('designações futuras seguem o orador registrado no compromisso', () => {
   const talks = {
     normal: { data: '2026-09-20', oradorId: 'a' },
@@ -52,7 +76,7 @@ test('designações futuras seguem o orador registrado no compromisso', () => {
 
 test('PDF de temas disponíveis exclui temas usados ou já agendados', () => {
   const entries = availableSpeakerThemes({
-    speakers: { o1: { nome: 'João', tipo: 'local', temaIds: ['t1', 't2', 't3'] } },
+    speakers: { o1: { nome: 'João', tipo: 'local', temaIds: ['t1', 't2', 't3'] }, o2:{ nome:'Inativo', tipo:'local', ativo:false, temaIds:['t3'] } },
     themes: {
       t1: { numero: 1, titulo: 'Usado' },
       t2: { numero: 2, titulo: 'Agendado' },

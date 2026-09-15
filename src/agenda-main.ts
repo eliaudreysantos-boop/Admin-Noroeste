@@ -1,7 +1,7 @@
 import './style.css'
 import type { MasterPessoa, Usuario } from './types'
 import mountAgenda from './modules/individual'
-import { sanitizeAgendaPeople } from './modules/individual-domain'
+import { normalizeAgendaPeople, sanitizeAgendaPeople } from './modules/individual-domain'
 import { advanceUnlockTap, type UnlockTapState } from './modules/agenda-identity-domain'
 import { refreshServiceWorkerWeekly } from './pwa-sync'
 import { apiJson } from './secure-api.ts'
@@ -36,7 +36,7 @@ function renderPeople(): void {
 }
 
 function cachedPeople(): Record<string, MasterPessoa> {
-  try { return JSON.parse(localStorage.getItem(PEOPLE_KEY) ?? '{}') as Record<string, MasterPessoa> }
+  try { return normalizeAgendaPeople(JSON.parse(localStorage.getItem(PEOPLE_KEY) ?? '{}')) }
   catch { return {} }
 }
 
@@ -81,7 +81,7 @@ async function init(): Promise<void> {
   const locallyPaired = localStorage.getItem(DEVICE_PAIRED_KEY) === 'true'
   if (Object.keys(people).length) {
     renderPeople()
-    if (locallyPaired && saved && people[saved]?.active !== false && shell.classList.contains('hidden')) openAgenda(saved)
+    if (locallyPaired && saved && people[saved] && people[saved].active !== false && shell.classList.contains('hidden')) openAgenda(saved)
   }
   const lastSync = Number(localStorage.getItem(PEOPLE_SYNC_KEY) ?? 0)
   if (locallyPaired && saved && Object.keys(people).length && Date.now() - lastSync < DAILY_SYNC_MS) return
@@ -89,11 +89,11 @@ async function init(): Promise<void> {
   syncingPeople = true
   try {
     const response = await apiJson<{ people: Record<string, MasterPessoa>; masterId: string }>('agenda-device')
-    people = response.people
+    people = normalizeAgendaPeople(response.people)
     localStorage.setItem(PEOPLE_KEY, JSON.stringify(sanitizeAgendaPeople(people)))
     localStorage.setItem(PEOPLE_SYNC_KEY, String(Date.now()))
     renderPeople()
-    if (response.masterId && people[response.masterId]?.active !== false) {
+    if (response.masterId && people[response.masterId] && people[response.masterId].active !== false) {
       localStorage.setItem(DEVICE_PAIRED_KEY, 'true')
       openAgenda(response.masterId)
     } else if (locallyPaired && saved) {

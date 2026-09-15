@@ -132,7 +132,7 @@ export function daysBetween(a: string, b: string): number {
 }
 
 export function activeDates(month: string, daysActive: number[], exclusions: string[] = []): string[] {
-  if (!/^\d{4}-\d{2}$/.test(month)) return []
+  if (!isValidMonth(month)) return []
   const [year, monthNumber] = month.split('-').map(Number)
   const last = new Date(year, monthNumber, 0).getDate()
   const ignored = new Set(exclusions)
@@ -142,6 +142,14 @@ export function activeDates(month: string, daysActive: number[], exclusions: str
     if (daysActive.includes(new Date(year, monthNumber - 1, day).getDay()) && !ignored.has(date)) dates.push(date)
   }
   return dates
+}
+
+export function isValidMonth(month: string): boolean {
+  return /^\d{4}-(0[1-9]|1[0-2])$/.test(month)
+}
+
+export function isPublishedMonth(month: string, latest: string, published: Record<string, boolean>): boolean {
+  return published[month] === true || latest === month
 }
 
 function timeToMinutes(value: string): number {
@@ -154,13 +162,14 @@ function minutesToTime(value: number): string {
 }
 
 export function localSlots(local: EscalaLocal): string[] {
-  if (Array.isArray(local.slots) && local.slots.length) return [...local.slots]
+  const validTime = (value: string) => /^([01]\d|2[0-3]):[0-5]\d$/.test(value)
+  if (Array.isArray(local.slots) && local.slots.length) return [...new Set(local.slots.filter(validTime))].sort()
   const start = String(local.startTime ?? local.start ?? '06:00')
   const end = String(local.endTime ?? local.end ?? '20:00')
-  const step = Number(local.stepMinutes ?? local.intervalMin ?? 120) || 120
+  const step = Number(local.stepMinutes ?? local.intervalMin ?? 120)
   const startMinutes = timeToMinutes(start)
   const endMinutes = timeToMinutes(end)
-  if (!Number.isFinite(startMinutes) || !Number.isFinite(endMinutes) || step < 15 || endMinutes <= startMinutes) return []
+  if (!validTime(start) || !validTime(end) || !Number.isFinite(step) || !Number.isInteger(step) || step < 15 || endMinutes <= startMinutes) return []
   const slots: string[] = []
   for (let value = startMinutes; value < endMinutes; value += step) slots.push(minutesToTime(value))
   return slots
@@ -180,9 +189,11 @@ export function isBlocked(blocks: EscalaBlocks, month: string, localId: string, 
   return has(blocks['__persist__']) || has(blocks[month])
 }
 
-function addCellCount(counts: Record<string, number>, cell?: EscalaCell): void {
-  if (cell?.p1 && counts[cell.p1] !== undefined) counts[cell.p1] += 1
-  if (cell?.p2 && counts[cell.p2] !== undefined) counts[cell.p2] += 1
+function addCellCount(counts: Record<string, number>, cell: EscalaCell | undefined, participants: Record<string, EscalaParticipant>): void {
+  for (const assigned of [cell?.p1, cell?.p2].filter((id): id is string => Boolean(id))) {
+    const master = participants[assigned]?.masterId ?? assigned
+    for (const id of Object.keys(counts)) if ((participants[id]?.masterId ?? id) === master) counts[id] += 1
+  }
 }
 
 export function monthlyCounts(tables: EscalaTables, month: string, participants: Record<string, EscalaParticipant>, excludedLocalId = ''): Record<string, number> {
@@ -190,7 +201,7 @@ export function monthlyCounts(tables: EscalaTables, month: string, participants:
   for (const [localId, byMonth] of Object.entries(tables)) {
     if (localId === excludedLocalId) continue
     for (const row of Object.values(byMonth[month]?.rows ?? {})) {
-      for (const cell of Object.values(row.slots ?? {})) addCellCount(counts, cell)
+      for (const cell of Object.values(row.slots ?? {})) addCellCount(counts, cell, participants)
     }
   }
   return counts
@@ -202,7 +213,7 @@ export function personRule(
   participantId: string,
   person: EscalaParticipant,
   context: { date: string; dow: number; time: string; month: string; localId: string; step: number },
-  input: Pick<EscalaGenerationInput, 'availability' | 'tables' | 'local'>,
+  input: Pick<EscalaGenerationInput, 'availability' | 'tables' | 'local' | 'participants'>,
   counts: Record<string, number>,
   day: DayState,
 ): EscalaRule | null {
@@ -212,30 +223,27 @@ export function personRule(
   if (person.startFromDate && context.date < person.startFromDate) return 'antes_de_iniciar'
   if (person.refFolgaDate && Math.abs(daysBetween(person.refFolgaDate, context.date)) % 2 !== 0) return 'folga'
   if (!input.availability[context.localId]?.[participantId]?.[availabilityKey(context.dow, context.time)]) return 'sem_disponibilidade'
-  if (day.used.has(participantId)) return 'ja_no_dia'
+  const samePerson = (id: string) => (input.participants[id]?.masterId ?? id) === (person.masterId ?? participantId)
+  if ([...day.used].some(samePerson)) return 'ja_no_dia'
 
   const minute = timeToMinutes(context.time)
   for (const neighbor of [minutesToTime(minute - context.step), minutesToTime(minute + context.step)]) {
     const cell = day.slots[neighbor]
-    if (cell && (cell.p1 === participantId || cell.p2 === participantId)) return 'horario_vizinho'
+    if (cell && [cell.p1, cell.p2].filter(Boolean).some(samePerson)) return 'horario_vizinho'
   }
 
-  const slots = localSlots(input.local)
-  const index = slots.indexOf(context.time)
-  const targets = new Set([context.time, slots[index - 1], slots[index + 1]].filter(Boolean))
   for (const [otherLocalId, byMonth] of Object.entries(input.tables)) {
     if (otherLocalId === context.localId) continue
     const row = byMonth[context.month]?.rows?.[context.date]
-    for (const target of targets) {
-      const cell = row?.slots?.[target]
-      if (cell && (cell.p1 === participantId || cell.p2 === participantId)) return 'outro_local'
+    for (const [time, cell] of Object.entries(row?.slots ?? {})) {
+      if (Math.abs(timeToMinutes(time) - minute) <= context.step && [cell.p1, cell.p2].filter(Boolean).some(samePerson)) return 'outro_local'
     }
   }
   return null
 }
 
 export function pairRule(aId: string, a: EscalaParticipant, bId: string, b: EscalaParticipant): EscalaRule | null {
-  if (aId === bId) return 'mesma_pessoa'
+  if (aId === bId || (a.masterId ?? aId) === (b.masterId ?? bId)) return 'mesma_pessoa'
   if (a.withChild && b.withChild) return 'duas_criancas'
   if ((a.sameSexOnly || b.sameSexOnly) && a.sex !== b.sex) return 'mesmo_sexo'
   if (a.onlyWithId && a.onlyWithId !== bId) return 'so_com'
@@ -272,7 +280,7 @@ export function analyzeCell(input: EscalaGenerationInput, date: string, time: st
   for (const [rowDate, row] of Object.entries(table?.rows ?? {})) {
     for (const [slotTime, cell] of Object.entries(row.slots ?? {})) {
       if (rowDate === date && slotTime === time) continue
-      addCellCount(counts, cell)
+      addCellCount(counts, cell, input.participants)
       if (rowDate !== date || (!cell.p1 && !cell.p2)) continue
       day.slots[slotTime] = cell
       if (cell.p1) day.used.add(cell.p1)
@@ -297,7 +305,7 @@ export function generateLocal(input: EscalaGenerationInput): GenerationResult {
   const dates = activeDates(input.month, input.local.daysActive ?? [], input.exclusions)
   const counts = monthlyCounts(input.tables, input.month, input.participants, input.localId)
   const existing = input.tables[input.localId]?.[input.month]?.rows ?? {}
-  for (const row of Object.values(existing)) for (const cell of Object.values(row.slots ?? {})) addCellCount(counts, cell)
+  for (const row of Object.values(existing)) for (const cell of Object.values(row.slots ?? {})) addCellCount(counts, cell, input.participants)
 
   const rows: Record<string, EscalaRow> = {}
   const emptySlots: EmptySlot[] = []
@@ -339,8 +347,7 @@ export function generateLocal(input: EscalaGenerationInput): GenerationResult {
         continue
       }
       rowSlots[time] = { p1: pair[0].id, p2: pair[1].id }
-      counts[pair[0].id] = (counts[pair[0].id] ?? 0) + 1
-      counts[pair[1].id] = (counts[pair[1].id] ?? 0) + 1
+      addCellCount(counts, rowSlots[time], input.participants)
       day.used.add(pair[0].id); day.used.add(pair[1].id)
       day.slots[time] = rowSlots[time]
       summary.filled += 1
@@ -352,10 +359,10 @@ export function generateLocal(input: EscalaGenerationInput): GenerationResult {
 
 export function generateAll(input: Omit<EscalaGenerationInput, 'localId' | 'local'> & { locals: Record<string, EscalaLocal>; onlyLocalId?: string }): { tables: EscalaTables; results: Record<string, GenerationResult>; errors: string[] } {
   const errors: string[] = []
-  if (!/^\d{4}-\d{2}$/.test(input.month)) errors.push('Período inválido')
+  if (!isValidMonth(input.month)) errors.push('Período inválido')
   if (Object.keys(input.participants).filter(id => input.participants[id].active !== false).length < 2) errors.push('São necessárias pelo menos duas pessoas ativas')
   const ordered = Object.entries(input.locals)
-    .filter(([id]) => !input.onlyLocalId || id === input.onlyLocalId)
+    .filter(([id, local]) => local.active !== false && (!input.onlyLocalId || id === input.onlyLocalId))
     .sort((a, b) => Number(a[1].sortOrder ?? 0) - Number(b[1].sortOrder ?? 0))
   if (!ordered.length) errors.push('Nenhum local disponível para gerar')
   if (errors.length) return { tables: input.tables, results: {}, errors }
@@ -375,7 +382,7 @@ export function validatePair(input: EscalaGenerationInput, date: string, time: s
   if (Boolean(p1) !== Boolean(p2)) errors.push('A dupla está incompleta')
   if (p1 && !input.participants[p1]) errors.push('Primeira pessoa não encontrada')
   if (p2 && !input.participants[p2]) errors.push('Segunda pessoa não encontrada')
-  if (p1 && p2) {
+  if (p1 && p2 && input.participants[p1] && input.participants[p2]) {
     const pairError = pairRule(p1, input.participants[p1], p2, input.participants[p2])
     if (pairError) errors.push(ESCALA_RULE_LABELS[pairError])
   }

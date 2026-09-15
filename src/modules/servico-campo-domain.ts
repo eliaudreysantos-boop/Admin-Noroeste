@@ -28,11 +28,11 @@ export interface FieldServicePeriod {
   publishedAt?: string
 }
 
-const validMonth = (month: string): boolean => /^\d{4}-\d{2}$/.test(month)
-const validTime = (time: string): boolean => /^([01]\d|2[0-3]):[0-5]\d$/.test(time)
+export const validFieldServiceMonth = (month: string): boolean => /^\d{4}-(0[1-9]|1[0-2])$/.test(month)
+export const validFieldServiceTime = (time: string): boolean => /^([01]\d|2[0-3]):[0-5]\d$/.test(time)
 
 export function datesForDow(month: string, dow: number): string[] {
-  if (!validMonth(month) || !Number.isInteger(dow) || dow < 0 || dow > 6) return []
+  if (!validFieldServiceMonth(month) || !Number.isInteger(dow) || dow < 0 || dow > 6) return []
   const [year, monthNumber] = month.split('-').map(Number)
   const total = new Date(year, monthNumber, 0).getDate()
   const result: string[] = []
@@ -45,7 +45,7 @@ export function datesForDow(month: string, dow: number): string[] {
 
 function existingCounts(periods: Record<string, FieldServicePeriod>, month: string): Record<string, number> {
   const counts: Record<string, number> = {}
-  Object.values(periods).filter(period => period.month !== month).forEach(period => {
+  Object.values(periods).filter(period => validFieldServiceMonth(period.month) && period.month < month).forEach(period => {
     Object.values(period.assignments ?? {}).forEach(assignment => {
       if (assignment.leaderId) counts[assignment.leaderId] = (counts[assignment.leaderId] ?? 0) + 1
     })
@@ -75,10 +75,14 @@ export function generateFieldServicePeriod(input: {
     const used = usedByDate.get(assignment.date) ?? new Set<string>(); used.add(assignment.leaderId); usedByDate.set(assignment.date, used)
   })
 
-  const templates = Object.values(input.templates).filter(template => template.active !== false && validTime(template.time) && template.location.trim()).sort((a, b) => a.sortOrder - b.sortOrder || a.dow - b.dow || a.time.localeCompare(b.time) || a.location.localeCompare(b.location, 'pt-BR'))
+  const templates = Object.values(input.templates).filter(template => template.active !== false && validFieldServiceTime(template.time) && template.location.trim()).sort((a, b) => (Number.isFinite(a.sortOrder) ? a.sortOrder : 0) - (Number.isFinite(b.sortOrder) ? b.sortOrder : 0) || a.dow - b.dow || a.time.localeCompare(b.time) || a.location.localeCompare(b.location, 'pt-BR'))
+  const generatedKeys = new Set<string>()
   for (const template of templates) {
     const templateLeaders = (template.leaderIds?.length ? template.leaderIds.filter(id => leaders.includes(id)) : leaders)
     for (const date of datesForDow(input.month, template.dow)) {
+      const occurrenceKey = `${date}|${template.time}|${template.location.trim().toLocaleLowerCase('pt-BR')}`
+      if (generatedKeys.has(occurrenceKey)) continue
+      generatedKeys.add(occurrenceKey)
       const id = `${date}-${template.id}`
       const old = previous[id]
       if (old) {
@@ -103,5 +107,5 @@ export function generateFieldServicePeriod(input: {
 export function publishedFieldServiceAssignments(value: unknown): FieldServiceAssignment[] {
   if (!value || typeof value !== 'object') return []
   const periods = (value as { periods?: Record<string, FieldServicePeriod> }).periods ?? {}
-  return Object.values(periods).filter(period => period.published === true).flatMap(period => Object.values(period.assignments ?? {})).filter(assignment => /^\d{4}-\d{2}-\d{2}$/.test(assignment.date) && validTime(assignment.time)).sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time) || a.location.localeCompare(b.location, 'pt-BR'))
+  return Object.values(periods).filter(period => period.published === true && validFieldServiceMonth(period.month)).flatMap(period => Object.values(period.assignments ?? {}).filter(assignment => assignment.date.startsWith(`${period.month}-`))).filter(assignment => /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(assignment.date) && validFieldServiceTime(assignment.time)).sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time) || a.location.localeCompare(b.location, 'pt-BR'))
 }

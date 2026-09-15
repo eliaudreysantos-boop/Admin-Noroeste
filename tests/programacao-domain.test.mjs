@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   assistantNeedsSameSex, candidates, filterPrograms, isOfficialJwUrl,
-  htmlToText, mergeImportedProgram, parseOfficialProgram, permissionForPart, programPendings, programReminderEntries, reminderMessage, suggestAssignments,
+  assignmentConflicts, htmlToText, mergeImportedProgram, parseOfficialProgram, permissionForPart, programPendings, programReminderEntries, reminderMessage, suggestAssignments, validProgramDate,
 } from '../src/modules/programacao-domain.ts'
 
 const page = `
@@ -123,6 +123,13 @@ test('pendências cobrem principal, sexo, conflito, entrega e confirmação', ()
   assert.match(pending, /confirmação pendente/)
 })
 
+test('datas civis inválidas não entram nos filtros', () => {
+  assert.equal(validProgramDate('2026-02-28'), true)
+  assert.equal(validProgramDate('2026-02-31'), false)
+  assert.deepEqual(filterPrograms([{ id: 'x', meetingDate: '2026-02-31', bibleReading: '', parts: [] }], 'month', '2026-02-01'), [])
+  assert.deepEqual(filterPrograms([], 'month', '2026-02-31'), [])
+})
+
 test('pendências indicam a parte para correção e cobrem ausência sem substituto', () => {
   const program = { id: 'week-1', meetingDate: '2026-09-09', bibleReading: '', parts: [
     { id: 'part-1', section: 'ministerio', title: 'Iniciando conversas', durationMinutes: 3, assignedPersonId: 'p1', absent: true },
@@ -163,6 +170,22 @@ test('lembretes incluem substituto e ajudante com WhatsApp sem duplicar destinat
     ['p2', 'principal', 's89'],
     ['p3', 'ajudante', 's89'],
   ])
+})
+
+test('lembretes ignoram partes realizadas e semanas sem reunião normal', () => {
+  const part = { id: 'p', section: 'ministerio', title: 'Iniciando conversas', durationMinutes: 3, assignedPersonId: 'p1' }
+  const programs = [
+    { id: 'done', meetingDate: '2026-09-09', bibleReading: '', parts: [{ ...part, status: 'realizado', realizedPersonId: 'p1' }] },
+    { id: 'assembly', meetingDate: '2026-09-16', bibleReading: '', type: 'assembleia', parts: [part] },
+  ]
+  assert.deepEqual(programReminderEntries(programs, [person()]), [])
+  assert.deepEqual(programPendings(programs, [person()]), [])
+})
+
+test('conflitos impedem repetir principal, ajudante e substituto na mesma parte', () => {
+  const part = { id: 'p', section: 'ministerio', title: 'Iniciando conversas', durationMinutes: 3, assignedPersonId: 'p1', assistantPersonId: 'p1', substitutePersonId: 'p1' }
+  const messages = assignmentConflicts({ id: 'w', meetingDate: '2026-09-09', bibleReading: '', parts: [part] }, part)
+  assert.equal(messages.length, 3)
 })
 
 test('sugestões equilibram histórico, evitam repetição e aguardam salvamento humano', () => {

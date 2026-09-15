@@ -7,6 +7,7 @@ import {
   ASSIGNMENT_PERMISSIONS, assignmentConflicts, assistantNeedsSameSex, bimesters, candidates,
   eligible, filterPrograms, isOfficialJwUrl, mergeImportedProgram, parseOfficialProgram,
   permissionForPart, programPendings, programReminderEntries, reminderMessage, suggestAssignments,
+  validProgramDate,
   type AssignmentPermission, type AssignmentStatus, type MeetingProgram, type ProgramPart, type ProgramPerson, type ProgramReminderEntry, type ProgramSection, type WeekType,
 } from './programacao-domain'
 type Tab = 'indice' | 'programa' | 'apostilas' | 'pessoas' | 'arquivos' | 'lembretes' | 'pendencias' | 'config'
@@ -86,16 +87,17 @@ function joinedPeople(): ProgramPerson[] {
     return {
       id, masterId, name: person?.name || `Cadastro ${masterId}`, whatsapp: String(person?.whatsapp ?? '').replace(/\D/g, ''),
       sex, role: person?.role || 'publicador',
-      active: profile.active !== false && person?.active !== false, permissions: Array.isArray(profile.permissions) ? profile.permissions : [],
+      active: Boolean(person) && profile.active !== false && person?.active !== false, permissions: Array.isArray(profile.permissions) ? profile.permissions : [],
     }
   }).sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
 }
 
-function normalizePrograms(value: Record<string, MeetingProgram>): Record<string, MeetingProgram> {
-  return Object.fromEntries(Object.entries(value).map(([id, raw]) => {
+export function normalizePrograms(value: Record<string, MeetingProgram>): Record<string, MeetingProgram> {
+  return Object.fromEntries(Object.entries(value).flatMap(([id, raw]) => {
     const parts = Array.isArray(raw?.parts) ? raw.parts : Object.values((raw?.parts ?? {}) as Record<string, ProgramPart>)
     const meetingDate = String(raw?.meetingDate ?? (raw as unknown as Record<string, unknown>)?.['data'] ?? id)
-    return [id, { ...raw, id: raw?.id || id, meetingDate, bibleReading: raw?.bibleReading || '', type: raw?.type || 'normal', parts }]
+    if (!validProgramDate(meetingDate)) return []
+    return [[id, { ...raw, id: raw?.id || id, meetingDate, bibleReading: raw?.bibleReading || '', type: raw?.type || 'normal', parts }]]
   }))
 }
 
@@ -117,7 +119,7 @@ async function load(): Promise<void> {
     congregation = congregationData.nome?.trim() || 'Noroeste'
     const meetingData = meetingsSnap.exists() ? meetingsSnap.val() as { meiaDeSemana?: { horario?: string } } : {}
     if (!settings.meetingTime && meetingData.meiaDeSemana?.horario) settings.meetingTime = meetingData.meiaDeSemana.horario
-  } catch (error) { console.error(error); toast('Não foi possível carregar Vida e Ministério') }
+  } catch (error) { console.error(error); root().innerHTML = '<div class="notice warning">Não foi possível carregar Vida e Ministério. Tente novamente.</div>'; toast('Não foi possível carregar Vida e Ministério'); return }
   render()
 }
 
@@ -226,8 +228,8 @@ function permissionOptions(permission: AssignmentPermission, selected: string): 
   return `<option value="">Sem designação</option>${people.map(person => `<option value="${esc(person.id)}" ${person.id === selected ? 'selected' : ''}>${esc(person.name)}${person.active ? '' : ' · inativo (histórico)'}</option>`).join('')}`
 }
 
-function substituteOptions(selected: string): string {
-  let people = joinedPeople().filter(person => person.active)
+function substituteOptions(part: ProgramPart, selected: string): string {
+  let people = candidates(part, joinedPeople())
   const selectedPerson = joinedPeople().find(person => person.id === selected)
   if (selectedPerson && !people.some(person => person.id === selected)) people = [selectedPerson, ...people]
   return `<option value="">Sem substituição</option>${people.map(person => `<option value="${esc(person.id)}" ${person.id === selected ? 'selected' : ''}>${esc(person.name)}${person.active ? '' : ' · inativo (histórico)'}</option>`).join('')}`
@@ -302,7 +304,7 @@ function sectionModal(id: string, section: ProgramSection): void {
 }
 
 function partEditor(part: ProgramPart): string {
-  return `<div class="program-part-editor" data-part="${esc(part.id)}"><div style="display:flex;justify-content:space-between;gap:8px"><strong>${esc(part.title)}</strong><button class="btn btn-ghost" type="button" data-delete-part="${esc(part.id)}">Excluir</button></div><div class="module-form-grid"><div class="form-group"><label class="form-label">Título</label><input class="form-input" data-field="title" value="${esc(part.title)}"></div><div class="form-group"><label class="form-label">Seção</label><select class="form-select" data-field="section"><option value="tesouros" ${part.section === 'tesouros' ? 'selected' : ''}>Tesouros</option><option value="ministerio" ${part.section === 'ministerio' ? 'selected' : ''}>Ministério</option><option value="vida-crista" ${part.section === 'vida-crista' ? 'selected' : ''}>Vida cristã</option></select></div>${part.section === 'ministerio' ? `<div class="form-group"><label class="form-label">Formato didático</label><select class="form-select" data-field="teachingType"><option value="conteudo" ${part.teachingType === 'conteudo' ? 'selected' : ''}>Conteúdo</option><option value="cenas" ${part.teachingType === 'cenas' ? 'selected' : ''}>Cenas</option><option value="videos" ${part.teachingType === 'videos' ? 'selected' : ''}>Uso de vídeos</option></select></div>` : ''}<div class="form-group"><label class="form-label">Duração</label><input class="form-input" data-field="durationMinutes" type="number" min="1" max="90" value="${part.durationMinutes}"></div><div class="form-group"><label class="form-label">Principal · ${esc(permissionLabels[permissionForPart(part)])}</label><select class="form-select" data-field="assignedPersonId">${optionsFor(part, part.assignedPersonId ?? '')}</select><small class="program-recommendation">${esc(recommendationLabel(part))}</small></div>${part.section === 'ministerio' ? `<div class="form-group"><label class="form-label">Ajudante</label><select class="form-select" data-field="assistantPersonId">${optionsFor(part, part.assistantPersonId ?? '', true)}</select><small class="program-recommendation">${esc(recommendationLabel(part, true))}</small></div>` : ''}<div class="form-group"><label class="form-label">Sala</label><select class="form-select" data-field="roomId">${rooms().map(room => `<option value="${esc(room.id)}" ${room.id === (part.roomId ?? 'main') ? 'selected' : ''}>${esc(room.name)}</option>`).join('')}</select></div><div class="form-group"><label class="form-label">Substituto</label><select class="form-select" data-field="substitutePersonId">${substituteOptions(part.substitutePersonId ?? '')}</select></div><div class="form-group"><label class="form-label">Quem realizou</label><select class="form-select" data-field="realizedPersonId"><option value="">Ainda não informado</option>${joinedPeople().map(person => `<option value="${esc(person.id)}" ${person.id === part.realizedPersonId ? 'selected' : ''}>${esc(person.name)}</option>`).join('')}</select></div><div class="form-group"><label class="form-label">Situação</label><select class="form-select" data-field="status">${Object.entries(statusLabels).map(([value, label]) => `<option value="${value}" ${value === (part.status ?? 'programado') ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select></div><label class="program-absence"><input type="checkbox" data-field="absent" ${part.absent ? 'checked' : ''}> Designado(a) ausente</label></div><div class="program-conflicts" data-part-conflicts></div></div>`
+  return `<div class="program-part-editor" data-part="${esc(part.id)}"><div style="display:flex;justify-content:space-between;gap:8px"><strong>${esc(part.title)}</strong><button class="btn btn-ghost" type="button" data-delete-part="${esc(part.id)}">Excluir</button></div><div class="module-form-grid"><div class="form-group"><label class="form-label">Título</label><input class="form-input" data-field="title" value="${esc(part.title)}"></div><div class="form-group"><label class="form-label">Seção</label><select class="form-select" data-field="section"><option value="tesouros" ${part.section === 'tesouros' ? 'selected' : ''}>Tesouros</option><option value="ministerio" ${part.section === 'ministerio' ? 'selected' : ''}>Ministério</option><option value="vida-crista" ${part.section === 'vida-crista' ? 'selected' : ''}>Vida cristã</option></select></div>${part.section === 'ministerio' ? `<div class="form-group"><label class="form-label">Formato didático</label><select class="form-select" data-field="teachingType"><option value="conteudo" ${part.teachingType === 'conteudo' ? 'selected' : ''}>Conteúdo</option><option value="cenas" ${part.teachingType === 'cenas' ? 'selected' : ''}>Cenas</option><option value="videos" ${part.teachingType === 'videos' ? 'selected' : ''}>Uso de vídeos</option></select></div>` : ''}<div class="form-group"><label class="form-label">Duração</label><input class="form-input" data-field="durationMinutes" type="number" min="1" max="90" value="${part.durationMinutes}"></div><div class="form-group"><label class="form-label">Principal · ${esc(permissionLabels[permissionForPart(part)])}</label><select class="form-select" data-field="assignedPersonId">${optionsFor(part, part.assignedPersonId ?? '')}</select><small class="program-recommendation">${esc(recommendationLabel(part))}</small></div>${part.section === 'ministerio' ? `<div class="form-group"><label class="form-label">Ajudante</label><select class="form-select" data-field="assistantPersonId">${optionsFor(part, part.assistantPersonId ?? '', true)}</select><small class="program-recommendation">${esc(recommendationLabel(part, true))}</small></div>` : ''}<div class="form-group"><label class="form-label">Sala</label><select class="form-select" data-field="roomId">${rooms().map(room => `<option value="${esc(room.id)}" ${room.id === (part.roomId ?? 'main') ? 'selected' : ''}>${esc(room.name)}</option>`).join('')}</select></div><div class="form-group"><label class="form-label">Substituto</label><select class="form-select" data-field="substitutePersonId">${substituteOptions(part, part.substitutePersonId ?? '')}</select></div><div class="form-group"><label class="form-label">Quem realizou</label><select class="form-select" data-field="realizedPersonId"><option value="">Ainda não informado</option>${joinedPeople().map(person => `<option value="${esc(person.id)}" ${person.id === part.realizedPersonId ? 'selected' : ''}>${esc(person.name)}</option>`).join('')}</select></div><div class="form-group"><label class="form-label">Situação</label><select class="form-select" data-field="status">${Object.entries(statusLabels).map(([value, label]) => `<option value="${value}" ${value === (part.status ?? 'programado') ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select></div><label class="program-absence"><input type="checkbox" data-field="absent" ${part.absent ? 'checked' : ''}> Designado(a) ausente</label></div><div class="program-conflicts" data-part-conflicts></div></div>`
 }
 
 function bindModalConflicts(overlay: HTMLElement, program: MeetingProgram): void {
@@ -329,6 +331,8 @@ async function saveWeek(id: string): Promise<void> {
   const parts = readPartEditors(document.getElementById('weekEditor')!, program)
   if (parts.some(part => !part.title)) { toast('Todas as partes precisam de título'); return }
   const next: MeetingProgram = { ...program, type: (document.getElementById('weekType') as HTMLSelectElement).value as WeekType, counselorPersonId: (document.getElementById('weekCounselor') as HTMLSelectElement).value || undefined, bibleReading: (document.getElementById('weekBible') as HTMLInputElement).value.trim(), notes: (document.getElementById('weekNotes') as HTMLTextAreaElement).value.trim(), parts, updatedAt: now() }
+  const conflicts = next.type === 'assembleia' || next.type === 'celebracao' ? [] : next.parts.flatMap(part => assignmentConflicts(next, part))
+  if (conflicts.length && !confirm(`Há ${new Set(conflicts).size} conflito(s) de designação. Salvar mesmo assim?`)) return
   try { await update(programacaoRef, { [`programs/${id}`]: next }); programs[id] = next; editingWeek = ''; toast('Programa salvo'); renderPrograms() } catch { toast('Não foi possível salvar o programa') }
 }
 
@@ -385,13 +389,13 @@ async function importSingle(url: string): Promise<void> {
 async function importJson(): Promise<void> {
   try {
     const raw = JSON.parse((document.getElementById('programJson') as HTMLTextAreaElement).value) as MeetingProgram
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(raw.meetingDate) || !Array.isArray(raw.parts)) throw new Error()
+    if (!validProgramDate(raw.meetingDate) || !Array.isArray(raw.parts) || raw.parts.some(part => !part?.id || !part.title?.trim() || !sectionOrder.includes(part.section) || !Number.isFinite(Number(part.durationMinutes)) || Number(part.durationMinutes) <= 0)) throw new Error()
     await saveImported([{ ...raw, id: raw.id || raw.meetingDate }]); toast('Semana salva'); tab = 'programa'; render()
   } catch { toast('JSON inválido. Informe data e partes.') }
 }
 
 async function saveImported(incoming: MeetingProgram[]): Promise<{ imported: number; updated: number; unchanged: number }> {
-  const stamp = now(), patch: Record<string, unknown> = {}
+  const stamp = now(), patch: Record<string, unknown> = {}, nextPrograms = { ...programs }
   let imported = 0, updated = 0, unchanged = 0
   const unique = new Map(incoming.map(program => [program.id, program]))
   unique.forEach(program => {
@@ -401,9 +405,10 @@ async function saveImported(incoming: MeetingProgram[]): Promise<{ imported: num
     if (existing) updated += 1
     else imported += 1
     patch[`programs/${program.id}`] = merged
-    programs[program.id] = merged
+    nextPrograms[program.id] = merged
   })
   if (Object.keys(patch).length) await update(programacaoRef, patch)
+  programs = nextPrograms
   return { imported, updated, unchanged }
 }
 
@@ -415,13 +420,13 @@ function renderPeople(): void {
 }
 
 function linkPersonModal(): void {
-  const used = new Set(Object.values(profiles).map(profile => profile.masterId))
+  const used = new Set(Object.entries(profiles).map(([id, profile]) => profile.masterId || id))
   const available = Object.entries(masterPeople).filter(([id, person]) => person.active && !used.has(id)).sort(([, a], [, b]) => a.name.localeCompare(b.name, 'pt-BR'))
   const overlay = document.createElement('div'); overlay.className = 'modal-overlay'
   overlay.innerHTML = `<div class="modal"><h2>Vincular pessoa</h2><div class="form-group"><label class="form-label">Pessoa cadastrada no Admin</label><select id="masterToLink" class="form-select">${available.map(([id, person]) => `<option value="${esc(id)}">${esc(person.name)}</option>`).join('')}</select></div><div style="display:flex;gap:8px"><button id="cancelLink" class="btn btn-ghost" style="flex:1">Cancelar</button><button id="saveLink" class="btn btn-primary" style="flex:1" ${available.length ? '' : 'disabled'}>Vincular</button></div></div>`
   document.body.appendChild(overlay)
   document.getElementById('cancelLink')!.addEventListener('click', () => overlay.remove())
-  document.getElementById('saveLink')!.addEventListener('click', async () => { const id = (document.getElementById('masterToLink') as HTMLSelectElement).value; if (!id) return; await update(programacaoRef, { [`pessoas/${id}`]: { masterId: id, active: true, permissions: [] } }); profiles[id] = { masterId: id, active: true, permissions: [] }; overlay.remove(); toast('Pessoa vinculada'); renderPeople() })
+  document.getElementById('saveLink')!.addEventListener('click', async () => { const id = (document.getElementById('masterToLink') as HTMLSelectElement).value; if (!id) return; try { await update(programacaoRef, { [`pessoas/${id}`]: { masterId: id, active: true, permissions: [] } }); profiles[id] = { masterId: id, active: true, permissions: [] }; overlay.remove(); toast('Pessoa vinculada'); renderPeople() } catch { toast('Não foi possível vincular a pessoa') } })
 }
 
 function profileModal(id: string): void {
@@ -430,8 +435,8 @@ function profileModal(id: string): void {
   overlay.innerHTML = `<div class="modal"><h2>${esc(person.name)}</h2><div class="form-help" style="margin-bottom:10px">Nome, ID, telefone, sexo e privilégio são editados somente no Admin.</div><label style="display:flex;gap:7px;margin-bottom:12px"><input id="profileActive" type="checkbox" ${profile.active !== false ? 'checked' : ''}> Participa de Vida e Ministério</label><div class="form-label" style="margin-bottom:6px">Permissões específicas</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:7px">${ASSIGNMENT_PERMISSIONS.map(permission => `<label style="font-size:.76rem"><input type="checkbox" data-permission="${permission}" ${profile.permissions?.includes(permission) ? 'checked' : ''}> ${esc(permissionLabels[permission])}</label>`).join('')}</div><div style="display:flex;gap:8px;margin-top:14px"><button id="unlinkProfile" class="btn btn-danger">Desvincular</button><span style="flex:1"></span><button id="cancelProfile" class="btn btn-ghost">Cancelar</button><button id="saveProfile" class="btn btn-primary">Salvar</button></div></div>`
   document.body.appendChild(overlay)
   document.getElementById('cancelProfile')!.addEventListener('click', () => overlay.remove())
-  document.getElementById('saveProfile')!.addEventListener('click', async () => { const permissions = Array.from(document.querySelectorAll<HTMLInputElement>('[data-permission]:checked')).map(box => box.dataset['permission'] as AssignmentPermission); const next = { ...profile, active: (document.getElementById('profileActive') as HTMLInputElement).checked, permissions }; await update(programacaoRef, { [`pessoas/${id}`]: next }); profiles[id] = next; overlay.remove(); toast('Permissões salvas'); renderPeople() })
-  document.getElementById('unlinkProfile')!.addEventListener('click', async () => { if (programList().some(program => program.parts.some(part => [part.assignedPersonId, part.assistantPersonId, part.substitutePersonId, part.realizedPersonId].includes(id)))) { toast('Pessoa usada no histórico; desative em vez de desvincular'); return } if (!confirm(`Desvincular ${person.name}?`)) return; await update(programacaoRef, { [`pessoas/${id}`]: null }); delete profiles[id]; overlay.remove(); renderPeople() })
+  document.getElementById('saveProfile')!.addEventListener('click', async () => { const permissions = Array.from(document.querySelectorAll<HTMLInputElement>('[data-permission]:checked')).map(box => box.dataset['permission'] as AssignmentPermission); const next = { ...profile, active: (document.getElementById('profileActive') as HTMLInputElement).checked, permissions }; try { await update(programacaoRef, { [`pessoas/${id}`]: next }); profiles[id] = next; overlay.remove(); toast('Permissões salvas'); renderPeople() } catch { toast('Não foi possível salvar as permissões') } })
+  document.getElementById('unlinkProfile')!.addEventListener('click', async () => { if (programList().some(program => program.counselorPersonId === id || program.parts.some(part => [part.assignedPersonId, part.assistantPersonId, part.substitutePersonId, part.realizedPersonId].includes(id)))) { toast('Pessoa usada no histórico; desative em vez de desvincular'); return } if (!confirm(`Desvincular ${person.name}?`)) return; try { await update(programacaoRef, { [`pessoas/${id}`]: null }); delete profiles[id]; overlay.remove(); renderPeople() } catch { toast('Não foi possível desvincular a pessoa') } })
 }
 
 function renderFiles(): void {
@@ -474,9 +479,9 @@ function renderReminders(): void {
     s89Button.disabled = !entry || entry.kind !== 's89'
   }
   document.getElementById('reminderEntry')?.addEventListener('change', refresh)
-  document.getElementById('openReminder')?.addEventListener('click', async () => { const entry = selected(); if (!entry?.person.whatsapp) { toast('Cadastre o WhatsApp no Admin'); return } const popup = window.open(`https://wa.me/${entry.person.whatsapp}?text=${encodeURIComponent((document.getElementById('reminderText') as HTMLTextAreaElement).value)}`, '_blank', 'noopener,noreferrer'); if (!popup) { toast('Permita pop-ups para abrir o WhatsApp'); return } const stamp = now(), field = entry.role === 'ajudante' ? 'assistantRemindedAt' : 'remindedAt'; await update(programacaoRef, { [`programs/${entry.program.id}/parts/${entry.program.parts.indexOf(entry.part)}/${field}`]: stamp }); entry.part[field] = stamp; toast('WhatsApp aberto; revise antes de enviar'); refresh() })
+  document.getElementById('openReminder')?.addEventListener('click', async () => { const entry = selected(); if (!entry?.person.whatsapp) { toast('Cadastre o WhatsApp no Admin'); return } window.open(`https://wa.me/${entry.person.whatsapp}?text=${encodeURIComponent((document.getElementById('reminderText') as HTMLTextAreaElement).value)}`, '_blank', 'noopener,noreferrer'); const stamp = now(), field = entry.role === 'ajudante' ? 'assistantRemindedAt' : 'remindedAt'; try { await update(programacaoRef, { [`programs/${entry.program.id}/parts/${entry.program.parts.indexOf(entry.part)}/${field}`]: stamp }); entry.part[field] = stamp; toast('WhatsApp aberto; revise antes de enviar'); refresh() } catch { toast('WhatsApp aberto, mas não foi possível registrar o lembrete') } })
   document.getElementById('downloadReminderS89')?.addEventListener('click', async () => { const entry = selected(); if (!entry || entry.kind !== 's89') { toast('S-89 é usado apenas nas partes do ministério'); return } const { downloadS89 } = await import('./programacao-documents'); const count = await downloadS89({ ...entry.program, parts: [entry.part] }, joinedPeople()); toast(count ? 'Cartão S-89 gerado' : 'Não foi possível gerar o cartão S-89') })
-  document.getElementById('confirmReminder')?.addEventListener('click', async () => { const entry = selected(); if (!entry) return; const stamp = now(); await update(programacaoRef, { [`programs/${entry.program.id}/parts/${entry.program.parts.indexOf(entry.part)}/confirmedAt`]: stamp }); entry.part.confirmedAt = stamp; toast('Confirmação registrada'); refresh() })
+  document.getElementById('confirmReminder')?.addEventListener('click', async () => { const entry = selected(); if (!entry) return; const stamp = now(); try { await update(programacaoRef, { [`programs/${entry.program.id}/parts/${entry.program.parts.indexOf(entry.part)}/confirmedAt`]: stamp }); entry.part.confirmedAt = stamp; toast('Confirmação registrada'); refresh() } catch { toast('Não foi possível registrar a confirmação') } })
   refresh()
 }
 

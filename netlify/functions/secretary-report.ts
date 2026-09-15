@@ -1,5 +1,5 @@
 import type { PublisherCategory, SecretaryReport } from '../../src/modules/secretario-domain.ts'
-import { canonicalReportId, isClosedMonth, isReportLate, matchingReports, records, reportCreatedBy } from '../../src/modules/secretario-domain.ts'
+import { canonicalReportId, isClosedMonth, isReportLate, matchingReports, records, reportCreatedBy, validSecretaryDate } from '../../src/modules/secretario-domain.ts'
 import { adminDatabase } from '../lib/subscription-store.ts'
 import { appSession, deviceSession, json, objectBody, validCsrf } from '../lib/secure-session.ts'
 
@@ -9,7 +9,7 @@ function cleanReport(value: Record<string, unknown>, masterId: string, category:
   const number = (item: unknown, maximum = 1000): number => Math.min(maximum, Math.max(0, Number(item) || 0))
   const today = new Intl.DateTimeFormat('en-CA', { timeZone:'America/Fortaleza', year:'numeric', month:'2-digit', day:'2-digit' }).format(new Date()).replace(/\//g, '-')
   const requestedDate = String(value['recebidoEm'] ?? '')
-  const receivedAt = createdBy === 'secretario' && /^\d{4}-\d{2}-\d{2}$/.test(requestedDate) ? requestedDate : today
+  const receivedAt = createdBy === 'secretario' && validSecretaryDate(requestedDate) ? requestedDate : today
   const id = canonicalReportId(masterId, competence)
   const auxiliary = category === 'pioneiro_auxiliar' || (createdBy === 'secretario' && value['pioneiroAuxiliar'] === true)
   const allowsHours = auxiliary || category === 'pioneiro_regular'

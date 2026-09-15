@@ -1,8 +1,16 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { accountingMonth, activityByServiceYear, archiveCanBeDeleted, attendanceByMonth, canonicalReportId, duplicateReportGroups, isClosedMonth, isReportLate, matchingReports, monthsInServiceYear, normalizePersonalReport, pendingPublishers, preparePersonalReportCommit, publisherReportState, reportCreatedBy, reportLastEditedBy, serviceYearStart, summarizeCongregation } from '../src/modules/secretario-domain.ts'
+import { accountingMonth, activityByServiceYear, archiveCanBeDeleted, attendanceByMonth, canonicalReportId, duplicateReportGroups, isClosedMonth, isReportLate, matchingReports, monthsInServiceYear, normalizePersonalReport, pendingPublishers, preparePersonalReportCommit, publisherReportState, reportCreatedBy, reportLastEditedBy, serviceYearStart, summarizeCongregation, validSecretaryDate, validSecretaryMonth } from '../src/modules/secretario-domain.ts'
 
 const report = (id, overrides = {}) => ({ id, masterId: id, competencia: '2026-08', categoria: 'publicador', participou: true, estudos: 1, horasCampo: 0, horasAtividadeAprovada: 0, creditoHoras: 0, pioneiroAuxiliar: false, observacoes: '', atrasado: false, recebidoEm: '2026-09-03', atualizadoEm: '', ...overrides })
+
+test('valida competências e datas civis sem aceitar normalização automática', () => {
+  assert.equal(validSecretaryMonth('2026-12'), true)
+  assert.equal(validSecretaryMonth('2026-13'), false)
+  assert.equal(validSecretaryDate('2028-02-29'), true)
+  assert.equal(validSecretaryDate('2026-02-29'), false)
+  assert.throws(() => canonicalReportId('m_1', '2026-13'))
+})
 
 test('ano de serviço vai de setembro a agosto', () => {
   assert.equal(serviceYearStart('2026-08'), 2025); assert.equal(serviceYearStart('2026-09'), 2026)

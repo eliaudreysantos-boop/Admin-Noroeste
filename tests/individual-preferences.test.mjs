@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { agendaUiStorageKey, defaultAgendaUiPreferences, parseAgendaUiPreferences } from '../src/modules/individual-preferences.ts'
+import { agendaCacheNeedsSync, agendaUiStorageKey, defaultAgendaUiPreferences, parseAgendaUiPreferences } from '../src/modules/individual-preferences.ts'
 
 test('preferencias invalidas voltam a padroes seguros', () => {
   const parsed = parseAgendaUiPreferences(JSON.stringify({
@@ -27,3 +27,11 @@ test('preferencias ficam isoladas por pessoa e contexto', () => {
   assert.notEqual(agendaUiStorageKey('pessoa-a', 'standalone'), agendaUiStorageKey('pessoa-a', 'admin'))
 })
 
+test('cache ausente, inválido, futuro ou vencido exige sincronização', () => {
+  const now = 2_000_000
+  assert.equal(agendaCacheNeedsSync(undefined, now, 1000), true)
+  assert.equal(agendaCacheNeedsSync('inválido', now, 1000), true)
+  assert.equal(agendaCacheNeedsSync(now + 1, now, 1000), true)
+  assert.equal(agendaCacheNeedsSync(now - 1000, now, 1000), true)
+  assert.equal(agendaCacheNeedsSync(now - 999, now, 1000), false)
+})

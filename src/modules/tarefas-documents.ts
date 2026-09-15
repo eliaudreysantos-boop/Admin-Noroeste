@@ -2,6 +2,7 @@ import { TASK_ROLES, TASK_ROLE_LABELS, assignmentForRole, personName, roleApplie
 import { formatTaskDate, paginateItems, rowsPerPrintPage } from './tarefas-output.ts'
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf-lib/cjs/index.js'
 import { previewPdf } from '../ui/pdf-preview.ts'
+import { A4_PORTRAIT, PDF_INK, PDF_LINE, drawPublicPdfHeader } from '../ui/public-pdf-layout.ts'
 
 const MIN_PT = 8, MAX_PT = 22
 const A4_WIDTH = ((210 - 16) / 25.4) * 96
@@ -53,7 +54,6 @@ export function printTaskSchedule(meetings: TaskMeeting[], congregation: string,
 
 export interface TaskPdfResult { bytes: Uint8Array; pages: number; effectiveFontSize: number }
 
-const A4_PORTRAIT: [number, number] = [595.28, 841.89]
 const PDF_MARGIN = 34
 
 function fitPdfText(font: PDFFont, value: string, size: number, width: number): string {
@@ -63,13 +63,8 @@ function fitPdfText(font: PDFFont, value: string, size: number, width: number): 
   return `${result.trim()}...`
 }
 
-function drawTaskPdfHeader(page: PDFPage, regular: PDFFont, bold: PDFFont, congregation: string, period: string, pageNumber: number): number {
-  page.drawText('Escala de Tarefas', { x:PDF_MARGIN, y:800, size:20, font:bold, color:rgb(.32, .12, .58) })
-  page.drawText(congregation || 'Congregação Noroeste', { x:PDF_MARGIN, y:782, size:9, font:regular, color:rgb(.3, .33, .37) })
-  page.drawText(period, { x:410, y:800, size:9, font:bold, color:rgb(.18, .2, .23) })
-  page.drawText(`Página ${pageNumber}`, { x:492, y:782, size:7, font:regular, color:rgb(.4, .42, .45) })
-  page.drawLine({ start:{ x:PDF_MARGIN, y:770 }, end:{ x:A4_PORTRAIT[0] - PDF_MARGIN, y:770 }, thickness:1.2, color:rgb(.32, .12, .58) })
-  return 750
+function drawTaskPdfHeader(page: PDFPage, regular: PDFFont, bold: PDFFont, congregation: string, period: string): number {
+  return drawPublicPdfHeader(page, bold, regular, { title:'Escala de Tarefas', congregation:congregation || 'Congregação Noroeste', period, margin:PDF_MARGIN })
 }
 
 function drawTaskMeeting(page: PDFPage, regular: PDFFont, bold: PDFFont, meeting: TaskMeeting, people: Record<string, TaskPerson>, x: number, top: number, width: number, fontSize: number): number {
@@ -78,16 +73,16 @@ function drawTaskMeeting(page: PDFPage, regular: PDFFont, bold: PDFFont, meeting
   const rowHeight = Math.max(15, fontSize + 7)
   const height = headerHeight + roles.length * rowHeight
   page.drawRectangle({ x, y:top - height, width, height, borderColor:rgb(.48, .5, .53), borderWidth:.6, color:rgb(1, 1, 1) })
-  page.drawRectangle({ x, y:top - headerHeight, width, height:headerHeight, color:rgb(.32, .12, .58) })
+  page.drawRectangle({ x, y:top - headerHeight, width, height:headerHeight, color:PDF_INK })
   const kind = String(meeting.type).startsWith('midweek') ? 'Meio de semana' : 'Fim de semana'
   page.drawText(fitPdfText(bold, `${formatTaskDate(meeting.date)} · ${kind}`, fontSize, width - 12), { x:x + 6, y:top - 16, size:fontSize, font:bold, color:rgb(1, 1, 1) })
   let y = top - headerHeight
   roles.forEach(role => {
     y -= rowHeight
     const labelWidth = Math.min(96, width * .4)
-    page.drawRectangle({ x, y, width:labelWidth, height:rowHeight, color:rgb(.94, .91, .98) })
-    page.drawLine({ start:{ x, y }, end:{ x:x + width, y }, thickness:.35, color:rgb(.58, .6, .63) })
-    page.drawLine({ start:{ x:x + labelWidth, y }, end:{ x:x + labelWidth, y:y + rowHeight }, thickness:.35, color:rgb(.58, .6, .63) })
+    page.drawRectangle({ x, y, width:labelWidth, height:rowHeight, color:rgb(.96, .96, .95) })
+    page.drawLine({ start:{ x, y }, end:{ x:x + width, y }, thickness:.35, color:PDF_LINE })
+    page.drawLine({ start:{ x:x + labelWidth, y }, end:{ x:x + labelWidth, y:y + rowHeight }, thickness:.35, color:PDF_LINE })
     page.drawText(fitPdfText(bold, TASK_ROLE_LABELS[role], fontSize - 1, labelWidth - 8), { x:x + 4, y:y + 5, size:fontSize - 1, font:bold, color:rgb(.12, .13, .15) })
     page.drawText(fitPdfText(regular, assignmentName(assignmentForRole(meeting, role), people) || 'A definir', fontSize - 1, width - labelWidth - 8), { x:x + labelWidth + 4, y:y + 5, size:fontSize - 1, font:regular, color:rgb(.08, .09, .1) })
   })
@@ -104,21 +99,19 @@ export async function createTaskSchedulePdf(meetings: TaskMeeting[], congregatio
   const columnWidth = (A4_PORTRAIT[0] - PDF_MARGIN * 2 - columnGap) / 2
   const period = ordered.length ? `${formatTaskDate(ordered[0]?.date)} - ${formatTaskDate(ordered[ordered.length - 1]?.date)}` : 'Sem período'
   let page = pdf.addPage(A4_PORTRAIT)
-  let pageNumber = 1
   let column = 0
-  let y = drawTaskPdfHeader(page, regular, bold, congregation, period, pageNumber)
+  let y = drawTaskPdfHeader(page, regular, bold, congregation, period)
   if (!ordered.length) page.drawText('Nenhuma reunião cadastrada.', { x:PDF_MARGIN, y, size:10, font:regular })
   for (const meeting of ordered) {
     const roles = TASK_ROLES.filter(role => roleApplies(role, meeting))
     const estimated = 24 + roles.length * Math.max(15, effectiveFontSize + 7)
     if (y - estimated < 50) {
       if (column === 0) { column = 1; y = 750 }
-      else { page = pdf.addPage(A4_PORTRAIT); pageNumber += 1; column = 0; y = drawTaskPdfHeader(page, regular, bold, congregation, period, pageNumber) }
+      else { page = pdf.addPage(A4_PORTRAIT); column = 0; y = drawTaskPdfHeader(page, regular, bold, congregation, period) }
     }
     const x = PDF_MARGIN + column * (columnWidth + columnGap)
     y -= drawTaskMeeting(page, regular, bold, meeting, people, x, y, columnWidth, effectiveFontSize) + 9
   }
-  pdf.getPages().forEach(item => item.drawText('Gerado pelo sistema Noroeste', { x:PDF_MARGIN, y:25, size:7, font:regular, color:rgb(.45, .47, .5) }))
   return { bytes:Uint8Array.from(await pdf.save()), pages:pdf.getPageCount(), effectiveFontSize }
 }
 

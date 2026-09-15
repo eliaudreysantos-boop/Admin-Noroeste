@@ -66,6 +66,13 @@ const MONTHS: Record<string, number> = {
 
 const normalize = (value: string): string => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim()
 
+export function validProgramDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
+  const [year, month, day] = value.split('-').map(Number)
+  const date = new Date(Date.UTC(year, month - 1, day))
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
+}
+
 export function isOfficialJwUrl(value: string): boolean {
   try {
     const url = new URL(value)
@@ -228,6 +235,8 @@ export function assignmentConflicts(program: MeetingProgram, part: ProgramPart):
   if (used(part.assignedPersonId)) errors.push('O principal também está designado em outra parte.')
   if (used(part.assistantPersonId)) errors.push('O ajudante também está designado em outra parte.')
   if (part.assignedPersonId && part.assignedPersonId === part.assistantPersonId) errors.push('Principal e ajudante não podem ser a mesma pessoa.')
+  if (part.assignedPersonId && part.assignedPersonId === part.substitutePersonId) errors.push('Principal e substituto não podem ser a mesma pessoa.')
+  if (part.assistantPersonId && part.assistantPersonId === part.substitutePersonId) errors.push('Ajudante e substituto não podem ser a mesma pessoa.')
   return errors
 }
 
@@ -236,7 +245,7 @@ export function assistantNeedsSameSex(part: ProgramPart): boolean {
 }
 
 export function filterPrograms(programs: MeetingProgram[], mode: 'week' | 'month' | 'bimester', anchor: string): MeetingProgram[] {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(anchor)) return programs
+  if (!validProgramDate(anchor)) return []
   const date = new Date(`${anchor}T12:00:00`)
   let start: Date
   let end: Date
@@ -249,7 +258,7 @@ export function filterPrograms(programs: MeetingProgram[], mode: 'week' | 'month
     end = new Date(date.getFullYear(), month + (mode === 'bimester' ? 2 : 1), 0, 12)
   }
   const iso = (value: Date) => `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`
-  return programs.filter(program => program.meetingDate >= iso(start) && program.meetingDate <= iso(end))
+  return programs.filter(program => validProgramDate(program.meetingDate) && program.meetingDate >= iso(start) && program.meetingDate <= iso(end))
 }
 
 export interface ProgramPending { id: string; date: string; message: string; programId: string; partId?: string }
@@ -258,6 +267,7 @@ export function programPendings(programs: MeetingProgram[], people: ProgramPerso
   const byId = new Map(people.map(person => [person.id, person]))
   const result: ProgramPending[] = []
   programs.forEach(program => {
+    if (program.type === 'assembleia' || program.type === 'celebracao') return
     if (!program.parts.length) result.push({ id: `${program.id}:empty`, date: program.meetingDate, message: 'Semana sem partes cadastradas.', programId: program.id })
     program.parts.forEach(part => {
       const add = (suffix: string, message: string) => result.push({ id: `${program.id}:${part.id}:${suffix}`, date: program.meetingDate, message: `${part.title}: ${message}`, programId: program.id, partId: part.id })
@@ -267,6 +277,7 @@ export function programPendings(programs: MeetingProgram[], people: ProgramPerso
       }
       if (!part.assignedPersonId) add('principal', 'principal não definido.')
       else if (!byId.get(part.assignedPersonId)?.active) add('invalid', 'principal ausente ou inativo.')
+      else if (!eligible(byId.get(part.assignedPersonId)!, permissionForPart(part))) add('eligibility', 'principal não está elegível para esta designação.')
       if (part.absent && !part.substitutePersonId) add('substitute', 'designado ausente sem substituto.')
       if (part.substitutePersonId && !byId.get(part.substitutePersonId)?.active) add('invalid-substitute', 'substituto ausente ou inativo.')
       if (part.assistantPersonId && !byId.get(part.assistantPersonId)?.active) add('invalid-assistant', 'ajudante ausente ou inativo.')
@@ -293,7 +304,7 @@ export function reminderMessage(person: ProgramPerson, program: MeetingProgram, 
 
 export function programReminderEntries(programs: MeetingProgram[], people: ProgramPerson[]): ProgramReminderEntry[] {
   const byId = new Map(people.filter(person => person.whatsapp.trim()).map(person => [person.id, person]))
-  return programs.flatMap(program => program.parts.flatMap(part => {
+  return programs.filter(program => program.type !== 'assembleia' && program.type !== 'celebracao').flatMap(program => program.parts.filter(part => part.status !== 'realizado').flatMap(part => {
     const kind = part.section === 'ministerio' ? 's89' as const : 'geral' as const
     const principal = byId.get(part.substitutePersonId ?? part.assignedPersonId ?? '')
     const assistant = byId.get(part.assistantPersonId ?? '')

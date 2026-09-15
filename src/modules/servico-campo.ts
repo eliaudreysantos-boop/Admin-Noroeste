@@ -2,7 +2,7 @@ import type { AppContext, ConfigCongregacao, MasterPessoa, RawPessoas } from '..
 import { configCongregacaoRef, get, pessoasRef, servicoCampoRef, update } from '../firebase'
 import { renderMenuCards, type ItemMenu } from '../ui/menu-cards'
 import { moduleBackButton, moduleTitle } from '../ui/module-header'
-import { generateFieldServicePeriod, type FieldServiceAssignment, type FieldServicePeriod, type FieldServiceTemplate } from './servico-campo-domain'
+import { generateFieldServicePeriod, validFieldServiceMonth, validFieldServiceTime, type FieldServiceAssignment, type FieldServicePeriod, type FieldServiceTemplate } from './servico-campo-domain'
 import { PublicationPreviewGate } from './pdf-publication-preview'
 import { mountModuleMessageSettings } from './module-message-settings'
 
@@ -21,6 +21,7 @@ let people: RawPessoas = {}
 let congregation: ConfigCongregacao = { nome:'Noroeste', cidade:'', circuito:'', idioma:'pt-BR' }
 let selectedMonth = localStorage.getItem(MONTH_KEY) ?? new Date().toISOString().slice(0, 7)
 let editingTemplateId = ''
+let changingPublication = false
 const fieldServicePdfPreview = new PublicationPreviewGate()
 
 function fieldServicePdfInput(assignments = Object.values(currentPeriod()?.assignments ?? {})): Parameters<typeof import('./servico-campo-documents').createFieldServicePdf>[0] {
@@ -57,7 +58,7 @@ async function load(): Promise<void> {
     data = serviceSnapshot.exists() ? serviceSnapshot.val() as ServiceRoot : {}
     people = peopleSnapshot.exists() ? peopleSnapshot.val() as RawPessoas : {}
     if (congregationSnapshot.exists()) congregation = { ...congregation, ...congregationSnapshot.val() as ConfigCongregacao }
-  } catch { toast('Não foi possível carregar Serviço de Campo') }
+  } catch { root().innerHTML = `${moduleTitle('Serviço de Campo')}<p class="empty-state">Não foi possível carregar os dados. Volte ao módulo e tente novamente.</p>`; toast('Não foi possível carregar Serviço de Campo'); return }
   render()
 }
 
@@ -84,7 +85,7 @@ function bindPeriod(): void {
   const move = (delta: number): void => { const [year, month] = selectedMonth.split('-').map(Number), date = new Date(Date.UTC(year, month - 1 + delta, 1)); selectedMonth = date.toISOString().slice(0, 7); localStorage.setItem(MONTH_KEY, selectedMonth); render() }
   document.getElementById('servicePrev')?.addEventListener('click', () => move(-1))
   document.getElementById('serviceNext')?.addEventListener('click', () => move(1))
-  document.getElementById('serviceMonth')?.addEventListener('change', event => { const value = (event.currentTarget as HTMLInputElement).value; if (/^\d{4}-\d{2}$/.test(value)) { selectedMonth = value; localStorage.setItem(MONTH_KEY, value); render() } })
+  document.getElementById('serviceMonth')?.addEventListener('change', event => { const value = (event.currentTarget as HTMLInputElement).value; if (validFieldServiceMonth(value)) { selectedMonth = value; localStorage.setItem(MONTH_KEY, value); render() } })
 }
 
 function leaderOptions(selected = ''): string {
@@ -97,7 +98,7 @@ function assignmentRow(assignment: FieldServiceAssignment, locked: boolean): str
 
 function renderSchedule(): void {
   const period = currentPeriod(), assignments = Object.values(period?.assignments ?? {}).sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time) || a.location.localeCompare(b.location, 'pt-BR')), locked = period?.published === true
-  const blank = assignments.filter(item => !item.leaderId).length
+  const eligible = new Set(leaderIds()), blank = assignments.filter(item => !item.leaderId || !eligible.has(item.leaderId)).length
   root().innerHTML = `${sectionTitle('Programação de Serviço de Campo')}${periodControl()}${locked ? '<div class="notice">Este mês está publicado no Quadro e bloqueado para edição.</div>' : ''}<div class="service-summary"><div><strong>${assignments.length}</strong><span>Saídas</span></div><div><strong>${new Set(assignments.map(item => item.date)).size}</strong><span>Dias</span></div><div><strong>${blank}</strong><span>Sem dirigente</span></div><div><strong>${leaderIds().length}</strong><span>No rodízio</span></div></div><div class="service-actions"><button id="serviceGenerate" class="btn btn-primary" type="button" ${locked ? 'disabled' : ''}>${assignments.length ? 'Completar mês' : 'Gerar rodízio'}</button><button id="servicePdf" class="btn btn-ghost" type="button" ${assignments.length ? '' : 'disabled'}>Prévia PDF</button>${locked ? '<button id="serviceReopen" class="btn btn-ghost" type="button">Reabrir mês</button>' : `<button id="servicePublish" class="btn btn-ghost" type="button" ${assignments.length && !blank ? '' : 'disabled'}>Publicar mês</button>`}</div>${locked ? '' : manualAssignmentForm()}<div class="service-assignment-list">${assignments.map(item => assignmentRow(item, locked)).join('') || '<p class="empty-state">Configure as saídas e gere o rodízio deste mês.</p>'}</div>`
   bindPeriod()
   document.getElementById('serviceGenerate')?.addEventListener('click', () => void generatePeriod())
@@ -127,7 +128,8 @@ async function changeLeader(assignmentId: string, leaderId: string): Promise<voi
 
 async function addManualAssignment(form: HTMLFormElement): Promise<void> {
   const values = new FormData(form), date = String(values.get('date') ?? ''), time = String(values.get('time') ?? ''), location = String(values.get('location') ?? '').trim(), assignmentId = id('saida')
-  if (!date.startsWith(selectedMonth) || !location || !/^\d{2}:\d{2}$/.test(time)) { toast('Preencha uma saída válida dentro do mês selecionado'); return }
+  if (!date.startsWith(`${selectedMonth}-`) || !location || !validFieldServiceTime(time)) { toast('Preencha uma saída válida dentro do mês selecionado'); return }
+  if (Object.values(currentPeriod()?.assignments ?? {}).some(item => item.date === date && item.time === time && item.location.trim().localeCompare(location, 'pt-BR', { sensitivity:'base' }) === 0)) { toast('Esta saída já existe na programação'); return }
   const assignment: FieldServiceAssignment = { id:assignmentId, templateId:'', date, time, location, label:String(values.get('label') ?? '').trim() || 'Saída de campo', leaderId:String(values.get('leaderId') ?? ''), manual:true }
   const current = currentPeriod() ?? { month:selectedMonth, assignments:{}, published:false }
   try { await update(servicoCampoRef, { [`periods/${selectedMonth}/month`]:selectedMonth, [`periods/${selectedMonth}/published`]:false, [`periods/${selectedMonth}/assignments/${assignmentId}`]:assignment }); current.assignments[assignmentId] = assignment; data.periods = { ...periods(), [selectedMonth]:current }; toast('Saída adicionada'); render() } catch { toast('Não foi possível adicionar a saída') }
@@ -140,23 +142,38 @@ async function deleteAssignment(assignmentId: string): Promise<void> {
 }
 
 async function publishPeriod(): Promise<void> {
+  if (changingPublication) return
   const period = currentPeriod(), assignments = Object.values(period?.assignments ?? {})
-  if (!period || !assignments.length || assignments.some(item => !item.leaderId)) { toast('Defina um dirigente para todas as saídas'); return }
+  const eligible = new Set(leaderIds())
+  if (!period || !assignments.length || assignments.some(item => !item.leaderId || !eligible.has(item.leaderId))) { toast('Defina um dirigente ativo para todas as saídas'); return }
   if (!fieldServicePdfPreview.matches(fieldServicePdfInput(assignments))) { toast('Abra a prévia atual do PDF antes de publicar'); return }
+  const month = selectedMonth, pdfInput = structuredClone(fieldServicePdfInput(assignments))
   const publishedAt = new Date().toISOString()
+  changingPublication = true
   try {
     const { createFieldServicePdf } = await import('./servico-campo-documents')
-    const { publishAgendaModulePdf } = await import('./agenda-documents')
-    const bytes = await createFieldServicePdf(fieldServicePdfInput(assignments))
-    const lastDay = new Date(Number(selectedMonth.slice(0, 4)), Number(selectedMonth.slice(5, 7)), 0).getDate()
-    await publishAgendaModulePdf(bytes, { modulo:'servicoCampo', periodo:selectedMonth, inicio:`${selectedMonth}-01`, fim:`${selectedMonth}-${lastDay}`, origemPeriodoId:selectedMonth, nome:`servico-de-campo-${selectedMonth}.pdf` })
-    await update(servicoCampoRef, { [`periods/${selectedMonth}/published`]:true, [`periods/${selectedMonth}/publishedAt`]:publishedAt }); period.published = true; period.publishedAt = publishedAt; toast('Mês publicado na Minha Agenda e no Quadro'); render()
+    const { publishAgendaModulePdf, unpublishAgendaModulePdf } = await import('./agenda-documents')
+    const bytes = await createFieldServicePdf(pdfInput)
+    const lastDay = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate()
+    await publishAgendaModulePdf(bytes, { modulo:'servicoCampo', periodo:month, inicio:`${month}-01`, fim:`${month}-${lastDay}`, origemPeriodoId:month, nome:`servico-de-campo-${month}.pdf` })
+    try { await update(servicoCampoRef, { [`periods/${month}/published`]:true, [`periods/${month}/publishedAt`]:publishedAt }) }
+    catch (error) { try { await unpublishAgendaModulePdf('servicoCampo', month) } catch { toast('Publicação incompleta. Confira o PDF no Quadro.'); return } throw error }
+    period.published = true; period.publishedAt = publishedAt; toast('Mês publicado na Minha Agenda e no Quadro'); render()
   } catch { toast('Não foi possível publicar o mês') }
+  finally { changingPublication = false }
 }
 
 async function reopenPeriod(): Promise<void> {
-  const period = currentPeriod(); if (!period || !confirm(`Reabrir ${monthLabel(selectedMonth)} para edição?`)) return
-  try { const { unpublishAgendaModulePdf } = await import('./agenda-documents'); await unpublishAgendaModulePdf('servicoCampo', selectedMonth); await update(servicoCampoRef, { [`periods/${selectedMonth}/published`]:false, [`periods/${selectedMonth}/publishedAt`]:null }); period.published = false; delete period.publishedAt; toast('Mês reaberto'); render() } catch { toast('Não foi possível reabrir o mês') }
+  const period = currentPeriod(); if (!period || changingPublication || !confirm(`Reabrir ${monthLabel(selectedMonth)} para edição?`)) return
+  const month = selectedMonth
+  changingPublication = true
+  try {
+    await update(servicoCampoRef, { [`periods/${month}/published`]:false, [`periods/${month}/publishedAt`]:null })
+    try { const { unpublishAgendaModulePdf } = await import('./agenda-documents'); await unpublishAgendaModulePdf('servicoCampo', month) }
+    catch (error) { try { await update(servicoCampoRef, { [`periods/${month}/published`]:true, [`periods/${month}/publishedAt`]:period.publishedAt ?? true }) } catch { toast('Falha ao restaurar a publicação. Confira o período.'); return } throw error }
+    period.published = false; delete period.publishedAt; toast('Mês reaberto'); render()
+  } catch { toast('Não foi possível reabrir o mês') }
+  finally { changingPublication = false }
 }
 
 async function openPdf(): Promise<void> {
@@ -181,7 +198,7 @@ function renderConfiguration(): void {
 
 async function saveTemplate(form: HTMLFormElement): Promise<void> {
   const values = new FormData(form), templateId = String(values.get('templateId') ?? '') || id('modelo'), time = String(values.get('time') ?? ''), location = String(values.get('location') ?? '').trim()
-  if (!/^\d{2}:\d{2}$/.test(time) || !location) { toast('Preencha horário e local'); return }
+  if (!validFieldServiceTime(time) || !location) { toast('Preencha horário e local'); return }
   const item: FieldServiceTemplate = { id:templateId, label:String(values.get('label') ?? '').trim() || 'Saída de campo', dow:Number(values.get('dow')), time, location, active:values.get('active') === 'on', sortOrder:Number(values.get('sortOrder')) || 0, leaderIds:values.getAll('templateLeader').map(String).filter(Boolean) }
   try { await update(servicoCampoRef, { [`templates/${templateId}`]:item }); data.templates = { ...templates(), [templateId]:item }; editingTemplateId = ''; toast('Saída recorrente salva'); render() } catch { toast('Não foi possível salvar a saída') }
 }

@@ -2,7 +2,7 @@ import type { AppContext, RawPessoas } from '../types'
 import { get, pessoasRef, update, tarefasDiscursosRef, tarefasEventosRef, tarefasOradoresPublicacoesRef, tarefasPlanejamentoRef, tarefasScaleRef } from '../firebase'
 import { renderMenuCards, type ItemMenu } from '../ui/menu-cards'
 import { moduleBackButton, moduleTitle } from '../ui/module-header'
-import { allowedTheme, assignmentsForSpeaker, confirmationPatch, deriveStatus, eventBlocksLocal, meetingDatesForMonth, missingLocalTalkDates, needsReconfirmation, talkConflicts, themeHistory, watchtowerIssues, type Congregation, type Speaker, type Talk, type Theme } from './oradores-domain'
+import { allowedTheme, assignmentsForSpeaker, confirmationPatch, deriveStatus, eventBlocksLocal, meetingDatesForMonth, missingLocalTalkDates, needsReconfirmation, talkConflicts, talksForSchedulePdf, themeHistory, watchtowerIssues, type Congregation, type Speaker, type Talk, type Theme } from './oradores-domain'
 import { availableSpeakerThemes, createSchedulePdf, downloadSchedulePdf, downloadThemeCatalogPdf, type SchedulePdfRow, type ThemeCatalogRow } from './oradores-documents'
 import { PublicationPreviewGate } from './pdf-publication-preview'
 import { mountModuleMessageSettings } from './module-message-settings'
@@ -28,6 +28,7 @@ let oradoresPlanning: { meetingDays?: { weekendDow?: number }; weekendDow?: numb
 type OradoresTab = 'indice' | 'resumo' | 'cadastro' | 'programacao' | 'designacoes' | 'emergencia' | 'temas' | 'congregacoes' | 'intercambios' | 'eventos' | 'pendencias' | 'config'
 let activeTab: OradoresTab = 'indice'
 const speakerSchedulePreview = new PublicationPreviewGate()
+let changingPublication = false
 
 function speakerSchedulePreviewInput(rows: SchedulePdfRow[]): unknown {
   return { congregation:localCongregationName(), period:selectedProgramacaoPeriod, rows }
@@ -42,11 +43,15 @@ let selectedProgramacaoPeriod = localStorage.getItem(ORADORES_PERIOD_KEY) ?? tod
 let onlyFutureProgramacao = localStorage.getItem(ORADORES_FUTURE_KEY) === 'true'
 let selectedCongregationId = localStorage.getItem(ORADORES_CONGREGATION_KEY) ?? ''
 let availableDaysHorizon = Number(localStorage.getItem(ORADORES_AVAILABLE_DAYS_KEY) ?? '90')
-let programTypeFilter: 'todos' | 'discurso_local' | 'discurso_visitante' | 'saida_orador' = 'todos'
-let programStatusFilter: 'todos' | 'confirmado' | 'por_confirmar' | 'por_definir' = 'todos'
-let themeFilter: 'disponiveis' | 'usados' | 'todos' = 'todos'
-let pendingFilter: 'todas' | 'programacao' | 'cadastro' | 'congregacoes' | 'confirmacoes' = 'todas'
-let showIgnoredPending = false
+function savedFilter<T extends string>(key: string, options: readonly T[], fallback: T): T {
+  const value = localStorage.getItem(`noroeste:oradores:${key}`) as T
+  return options.includes(value) ? value : fallback
+}
+let programTypeFilter = savedFilter('type', ['todos', 'discurso_local', 'discurso_visitante', 'saida_orador'] as const, 'todos')
+let programStatusFilter = savedFilter('status', ['todos', 'confirmado', 'por_confirmar', 'por_definir'] as const, 'todos')
+let themeFilter = savedFilter('themes', ['disponiveis', 'usados', 'todos'] as const, 'todos')
+let pendingFilter = savedFilter('pending', ['todas', 'programacao', 'cadastro', 'congregacoes', 'confirmacoes'] as const, 'todas')
+let showIgnoredPending = localStorage.getItem('noroeste:oradores:show-ignored') === 'true'
 
 function toast(msg: string, ms = 2600): void {
   const el = document.getElementById('toast')
@@ -96,6 +101,9 @@ async function loadOradores(): Promise<void> {
     oradoresPlanning = planningSnap.exists() ? planningSnap.val() as typeof oradoresPlanning : {}
   } catch {
     toast('Erro ao carregar Oradores')
+    const root = document.getElementById('oradoresRoot')
+    if (root) root.innerHTML = '<p class="empty-state">Não foi possível carregar Oradores. Volte aos módulos e tente novamente.</p>'
+    return
   }
   render()
 }
@@ -166,8 +174,8 @@ function render(): void {
     localStorage.setItem(ORADORES_FUTURE_KEY, String(onlyFutureProgramacao))
     render()
   })
-  el.querySelector<HTMLSelectElement>('[data-programacao-type]')?.addEventListener('change', event => { programTypeFilter = (event.target as HTMLSelectElement).value as typeof programTypeFilter; render() })
-  el.querySelector<HTMLSelectElement>('[data-programacao-status]')?.addEventListener('change', event => { programStatusFilter = (event.target as HTMLSelectElement).value as typeof programStatusFilter; render() })
+  el.querySelector<HTMLSelectElement>('[data-programacao-type]')?.addEventListener('change', event => { programTypeFilter = (event.target as HTMLSelectElement).value as typeof programTypeFilter; localStorage.setItem('noroeste:oradores:type', programTypeFilter); render() })
+  el.querySelector<HTMLSelectElement>('[data-programacao-status]')?.addEventListener('change', event => { programStatusFilter = (event.target as HTMLSelectElement).value as typeof programStatusFilter; localStorage.setItem('noroeste:oradores:status', programStatusFilter); render() })
   el.querySelectorAll<HTMLButtonElement>('[data-edit-programacao]').forEach(button => {
     button.addEventListener('click', () => openProgramacaoModal(button.dataset['editProgramacao'] ?? null))
   })
@@ -183,7 +191,7 @@ function render(): void {
   el.querySelectorAll<HTMLButtonElement>('[data-programacao-unconfirm]').forEach(button => button.addEventListener('click', () => void undoProgramacaoConfirmation(button.dataset['programacaoUnconfirm'] ?? '')))
   el.querySelectorAll<HTMLButtonElement>('[data-programacao-request]').forEach(button => button.addEventListener('click', () => openProgramacaoConfirmationDraft(button.dataset['programacaoRequest'] ?? '')))
   el.querySelector<HTMLButtonElement>('[data-add-tema]')?.addEventListener('click', () => openTemaModal(null))
-  el.querySelector<HTMLSelectElement>('[data-theme-filter]')?.addEventListener('change', event => { themeFilter = (event.target as HTMLSelectElement).value as typeof themeFilter; render() })
+  el.querySelector<HTMLSelectElement>('[data-theme-filter]')?.addEventListener('change', event => { themeFilter = (event.target as HTMLSelectElement).value as typeof themeFilter; localStorage.setItem('noroeste:oradores:themes', themeFilter); render() })
   el.querySelectorAll<HTMLButtonElement>('[data-edit-tema]').forEach(button => {
     button.addEventListener('click', () => openTemaModal(button.dataset['editTema'] ?? null))
   })
@@ -197,13 +205,13 @@ function render(): void {
     render()
   })
   el.querySelectorAll<HTMLButtonElement>('[data-pendencia-resolver]').forEach(button => {
-    resolvePending(button.dataset['pendenciaResolver'] ?? '')
+    button.addEventListener('click', () => resolvePending(button.dataset['pendenciaResolver'] ?? ''))
   })
   el.querySelectorAll<HTMLButtonElement>('[data-pendencia-ignore]').forEach(button => {
-    void ignorePending(button.dataset['pendenciaIgnore'] ?? '')
+    button.addEventListener('click', () => void ignorePending(button.dataset['pendenciaIgnore'] ?? ''))
   })
   el.querySelectorAll<HTMLButtonElement>('[data-pendencia-reactivate]').forEach(button => {
-    void reactivatePending(button.dataset['pendenciaReactivate'] ?? '')
+    button.addEventListener('click', () => void reactivatePending(button.dataset['pendenciaReactivate'] ?? ''))
   })
   el.querySelector<HTMLSelectElement>('[data-available-days]')?.addEventListener('change', event => {
     availableDaysHorizon = Number((event.target as HTMLSelectElement).value)
@@ -214,8 +222,8 @@ function render(): void {
   el.querySelector<HTMLButtonElement>('[data-send-exchanges]')?.addEventListener('click', openExchangeDraft)
   el.querySelectorAll<HTMLButtonElement>('[data-exchange-confirm]').forEach(button => button.addEventListener('click', () => void setProgramacaoConfirmation(button.dataset['exchangeConfirm'] ?? '', false)))
   el.querySelectorAll<HTMLButtonElement>('[data-exchange-unconfirm]').forEach(button => button.addEventListener('click', () => void undoProgramacaoConfirmation(button.dataset['exchangeUnconfirm'] ?? '')))
-  el.querySelector<HTMLSelectElement>('[data-pending-filter]')?.addEventListener('change', event => { pendingFilter = (event.target as HTMLSelectElement).value as typeof pendingFilter; render() })
-  el.querySelector<HTMLInputElement>('[data-show-ignored]')?.addEventListener('change', event => { showIgnoredPending = (event.target as HTMLInputElement).checked; render() })
+  el.querySelector<HTMLSelectElement>('[data-pending-filter]')?.addEventListener('change', event => { pendingFilter = (event.target as HTMLSelectElement).value as typeof pendingFilter; localStorage.setItem('noroeste:oradores:pending', pendingFilter); render() })
+  el.querySelector<HTMLInputElement>('[data-show-ignored]')?.addEventListener('change', event => { showIgnoredPending = (event.target as HTMLInputElement).checked; localStorage.setItem('noroeste:oradores:show-ignored', String(showIgnoredPending)); render() })
   el.querySelectorAll<HTMLButtonElement>('[data-edit-congregacao]').forEach(button => {
     button.addEventListener('click', () => openCongregacaoModal(button.dataset['editCongregacao'] ?? null))
   })
@@ -439,7 +447,8 @@ async function copyApprovedSpeakersText(): Promise<void> {
 }
 
 function emergencyThemesText(): string {
-  return availableSpeakerThemes({ speakers: discursos.oradores ?? {}, themes: discursos.temas ?? {}, talks: discursos.programacao ?? {}, today: todayStr() })
+  const speakers = Object.fromEntries(Object.entries(discursos.oradores ?? {}).map(([id, speaker]) => [id, { ...speaker, nome:oradorNome(id, speaker), ativo:speaker.ativo !== false && pessoas[speaker.pessoaId ?? '']?.active !== false }]))
+  return availableSpeakerThemes({ speakers, themes: discursos.temas ?? {}, talks: discursos.programacao ?? {}, today: todayStr() })
     .map(entry => `${entry.nome}: ${entry.temas.map(theme => String(theme.numero).padStart(3, '0')).join(', ')}`)
     .join('\n')
 }
@@ -590,9 +599,7 @@ function localCongregationName(): string {
 }
 
 function programacaoPdfRows(): SchedulePdfRow[] {
-  return Object.entries(discursos.programacao ?? {})
-    .filter(([, talk]) => !talk.data || talk.data.startsWith(selectedProgramacaoPeriod))
-    .sort(([, a], [, b]) => String(a.data ?? '').localeCompare(String(b.data ?? '')))
+  return talksForSchedulePdf(discursos.programacao ?? {}, selectedProgramacaoPeriod)
     .map(([, talk]) => {
     const speaker = talk.oradorId ? discursos.oradores?.[talk.oradorId] : undefined
     const congregation = discursos.congregacoes?.[talk.tipo === 'saida_orador' ? talk.congregacaoDestinoId ?? talk.congregacaoId ?? '' : talk.congregacaoOrigemId ?? talk.congregacaoId ?? '']
@@ -610,28 +617,44 @@ async function downloadProgramacaoPdf(): Promise<void> {
 }
 
 async function toggleProgramacaoPublication(): Promise<void> {
-  const published = Boolean(oradoresPlanning.oradoresPublicacoes?.[selectedProgramacaoPeriod])
+  if (changingPublication) return
+  const period = selectedProgramacaoPeriod
+  const previous = oradoresPlanning.oradoresPublicacoes?.[period]
+  const rows = programacaoPdfRows()
+  const congregation = localCongregationName()
+  const previewMatches = speakerSchedulePreview.matches(speakerSchedulePreviewInput(rows))
+  changingPublication = true
   try {
     const { publishAgendaModulePdf, unpublishAgendaModulePdf } = await import('./agenda-documents')
-    if (published) {
-      await unpublishAgendaModulePdf('oradores', selectedProgramacaoPeriod)
-      await update(tarefasOradoresPublicacoesRef, { [selectedProgramacaoPeriod]:null })
-      delete oradoresPlanning.oradoresPublicacoes?.[selectedProgramacaoPeriod]
+    if (previous) {
+      await update(tarefasOradoresPublicacoesRef, { [period]:null })
+      try { await unpublishAgendaModulePdf('oradores', period) }
+      catch (error) {
+        try { await update(tarefasOradoresPublicacoesRef, { [period]:previous }) }
+        catch { toast('Falha ao restaurar o estado da publicação. Reabra o módulo para conferir.', 6000); return }
+        throw error
+      }
+      delete oradoresPlanning.oradoresPublicacoes?.[period]
       toast('Programação retirada do Quadro')
     } else {
-      const rows = programacaoPdfRows()
       if (!rows.length) { toast('Nenhuma programação neste período'); return }
-      if (!speakerSchedulePreview.matches(speakerSchedulePreviewInput(rows))) { toast('Abra a prévia atual do PDF antes de publicar'); return }
-      const result = await createSchedulePdf({ congregation:localCongregationName(), periodLabel:selectedProgramacaoPeriod, rows })
-      const lastDay = new Date(Number(selectedProgramacaoPeriod.slice(0, 4)), Number(selectedProgramacaoPeriod.slice(5, 7)), 0).getDate()
-      await publishAgendaModulePdf(result.bytes, { modulo:'oradores', periodo:selectedProgramacaoPeriod, inicio:`${selectedProgramacaoPeriod}-01`, fim:`${selectedProgramacaoPeriod}-${lastDay}`, origemPeriodoId:selectedProgramacaoPeriod, nome:`programacao-oradores-${selectedProgramacaoPeriod}.pdf` })
+      if (!previewMatches) { toast('Abra a prévia atual do PDF antes de publicar'); return }
+      const result = await createSchedulePdf({ congregation, periodLabel:period, rows })
+      const lastDay = new Date(Number(period.slice(0, 4)), Number(period.slice(5, 7)), 0).getDate()
+      await publishAgendaModulePdf(result.bytes, { modulo:'oradores', periodo:period, inicio:`${period}-01`, fim:`${period}-${lastDay}`, origemPeriodoId:period, nome:`programacao-oradores-${period}.pdf` })
       const publicadoEm = new Date().toISOString()
-      await update(tarefasOradoresPublicacoesRef, { [selectedProgramacaoPeriod]:{ publicadoEm } })
-      oradoresPlanning.oradoresPublicacoes ??= {}; oradoresPlanning.oradoresPublicacoes[selectedProgramacaoPeriod] = { publicadoEm }
+      try { await update(tarefasOradoresPublicacoesRef, { [period]:{ publicadoEm } }) }
+      catch (error) {
+        try { await unpublishAgendaModulePdf('oradores', period) }
+        catch { toast('Publicação incompleta. Reabra o módulo e confira o PDF no Quadro.', 6000); return }
+        throw error
+      }
+      oradoresPlanning.oradoresPublicacoes ??= {}; oradoresPlanning.oradoresPublicacoes[period] = { publicadoEm }
       toast('Programação publicada no Quadro')
     }
     render()
   } catch { toast('Não foi possível alterar a publicação') }
+  finally { changingPublication = false }
 }
 
 async function setProgramacaoConfirmation(id: string, reconfirmacao: boolean): Promise<void> {
@@ -670,8 +693,10 @@ function openWhatsappDraft(title: string, message: string, phone: string, onOpen
   document.getElementById('oradoresWhatsappClose')?.addEventListener('click', () => overlay.remove())
   document.getElementById('oradoresWhatsappCopy')?.addEventListener('click', async () => { try { await navigator.clipboard.writeText((document.getElementById('oradoresWhatsappDraft') as HTMLTextAreaElement).value); toast('Texto copiado') } catch { toast('Não foi possível copiar') } })
   document.getElementById('oradoresWhatsappOpen')?.addEventListener('click', async () => {
-    const popup = window.open(`https://wa.me/${number}?text=${encodeURIComponent((document.getElementById('oradoresWhatsappDraft') as HTMLTextAreaElement).value)}`, '_blank', 'noopener,noreferrer')
+    const popup = window.open('about:blank', '_blank')
     if (!popup) { toast('Permita pop-ups para abrir o WhatsApp'); return }
+    popup.opener = null
+    popup.location.replace(`https://wa.me/${number}?text=${encodeURIComponent((document.getElementById('oradoresWhatsappDraft') as HTMLTextAreaElement).value)}`)
     try { await onOpen?.(); toast('WhatsApp aberto para revisão') } catch { toast('WhatsApp abriu, mas o registro de abertura falhou') }
   })
   overlay.addEventListener('click', event => { if (event.target === overlay) overlay.remove() })
@@ -685,7 +710,7 @@ function openProgramacaoConfirmationDraft(id: string): void {
   const congregation = discursos.congregacoes?.[congregationId ?? '']
   const phone = canonicalTalkType(talk.tipo) === 'discurso_visitante' ? congregation?.telefone ?? '' : speakerPhone(speaker)
   const recipient = canonicalTalkType(talk.tipo) === 'discurso_visitante' ? congregation?.contato || talk.oradorNome : oradorNome(talk.oradorId ?? '', speaker)
-  const message = `Olá, ${recipient || 'irmão'}. Poderia confirmar o discurso de ${formatDate(talk.data)}${talk.horarioLocal ? ` às ${talk.horarioLocal}` : ''}? Tema ${talk.temaNumero ? String(talk.temaNumero).padStart(3, '0') : ''} ${talk.temaTitulo ?? 'a definir'}. Obrigado.`
+  const message = `${recipient ? `Olá, ${recipient}.` : 'Olá.'} Poderia confirmar o discurso de ${formatDate(talk.data)}${talk.horarioLocal ? ` às ${talk.horarioLocal}` : ''}? Tema ${talk.temaNumero ? String(talk.temaNumero).padStart(3, '0') : ''} ${talk.temaTitulo ?? 'a definir'}. Agradecemos pela atenção.`
   openWhatsappDraft('Pedir confirmação', message, phone, async () => {
     const stamp = new Date().toISOString()
     await update(tarefasDiscursosRef, { [`programacao/${id}/confirmacao/whatsappAbertoEm`]: stamp })
@@ -699,7 +724,7 @@ function openAvailableDatesDraft(): void {
   if (!congregation) { toast('Selecione uma congregação'); return }
   const local = Object.values(discursos.congregacoes ?? {}).find(item => item.tipo === 'local')
   const dates = availableCongregationDates()
-  const message = `Olá, ${congregation.contato || 'irmãos'}. Seguem datas livres para discurso público na ${local?.nome || localCongregationName()}:\n${dates.map(date => `- ${formatDate(date)}`).join('\n') || '- Nenhuma data livre neste período'}\n\nHorário: ${local?.horario || 'a confirmar'}\nEndereço: ${local?.observacoes || 'a confirmar'}`
+  const message = `${congregation.contato ? `Olá, ${congregation.contato}.` : 'Olá.'} Seguem datas livres para discurso público na ${local?.nome || localCongregationName()}:\n${dates.map(date => `- ${formatDate(date)}`).join('\n') || '- Nenhuma data livre neste período'}\n\nHorário: ${local?.horario || 'a confirmar'}\nEndereço: ${local?.observacoes || 'a confirmar'}`
   openWhatsappDraft('Enviar datas livres', message, congregation.telefone ?? '', async () => {
     const stamp = new Date().toISOString()
     await update(tarefasDiscursosRef, { [`congregacoes/${selectedCongregationId}/datasLivresAvisadasEm`]: stamp })
@@ -716,7 +741,7 @@ function openExchangeDraft(): void {
     const congregationId = canonicalTalkType(talk.tipo) === 'saida_orador' ? talk.congregacaoDestinoId ?? talk.congregacaoId : talk.congregacaoOrigemId ?? talk.congregacaoId
     return congregationId === selectedCongregationId
   }).sort(([, a], [, b]) => String(a.data).localeCompare(String(b.data)))
-  const message = `Olá, ${congregation.contato || 'irmãos'}. Segue nosso acompanhamento de intercâmbios:\n${entries.map(([, talk]) => `- ${formatDate(talk.data)} · ${canonicalTalkType(talk.tipo) === 'saida_orador' ? 'Saída' : 'Entrada'} · ${talk.oradorNome ?? oradorNome(talk.oradorId ?? '', discursos.oradores?.[talk.oradorId ?? ''])} · ${deriveStatus(talk) === 'confirmado' ? 'confirmado' : 'a confirmar'}`).join('\n') || '- Nenhum intercâmbio futuro'}`
+  const message = `${congregation.contato ? `Olá, ${congregation.contato}.` : 'Olá.'} Segue nosso acompanhamento de intercâmbios:\n${entries.map(([, talk]) => `- ${formatDate(talk.data)} · ${canonicalTalkType(talk.tipo) === 'saida_orador' ? 'Saída' : 'Entrada'} · ${talk.oradorNome ?? oradorNome(talk.oradorId ?? '', discursos.oradores?.[talk.oradorId ?? ''])} · ${deriveStatus(talk) === 'confirmado' ? 'confirmado' : 'a confirmar'}`).join('\n') || '- Nenhum intercâmbio futuro'}`
   openWhatsappDraft(`Intercâmbios - ${congregation.nome ?? ''}`, message, congregation.telefone ?? '', async () => {
     const stamp = new Date().toISOString(), patch: Record<string, unknown> = {}
     entries.forEach(([id, talk]) => { patch[`programacao/${id}/intercambioAvisadoEm`] = stamp; talk.intercambioAvisadoEm = stamp })
@@ -812,7 +837,7 @@ async function saveProgramacao(id: string | null, overlay: HTMLElement): Promise
   }
   if (!record.data) { toast('Preencha a data'); return }
   const finalId = id ?? `p_${Date.now().toString(36)}`
-  if (tipo === 'discurso_local' && eventBlocksLocal(discursos.eventos ?? {}, record.data)) { toast('Há um evento especial nesta data; não pode haver discurso local'); return }
+  if (tipo !== 'saida_orador' && eventBlocksLocal(discursos.eventos ?? {}, record.data)) { toast('Há um evento especial nesta data; não pode haver discurso local ou visitante'); return }
   if ((tipo === 'discurso_visitante' || tipo === 'saida_orador') && !congregacaoId) { toast('Selecione a congregação de origem ou destino'); return }
   if (tipo !== 'discurso_visitante' && !oradorId && oradorManual) { toast('Nome manual é permitido somente para visitante'); return }
   if (tipo === 'saida_orador' && orador?.aprovadoParaSaida === false) { toast('Este orador não está aprovado para saídas'); return }
@@ -909,10 +934,10 @@ function allPendingItems(): PendingItem[] {
     if (!talk.temaId) items.push({ id: `tema_${id}`, priority: 1, title: 'Programação sem tema', detail: `${formatDate(talk.data)} ainda não tem tema definido.`, target: 'programacao', recordId: id })
     const exchangeCongregationId = canonicalTalkType(talk.tipo) === 'saida_orador' ? talk.congregacaoDestinoId ?? talk.congregacaoId : talk.congregacaoOrigemId ?? talk.congregacaoId
     if (canonicalTalkType(talk.tipo) !== 'discurso_local' && !exchangeCongregationId) items.push({ id: `intercambio_${id}`, priority: 1, title: 'Intercâmbio sem congregação', detail: `${formatDate(talk.data)} precisa de congregação de origem ou destino.`, target: 'programacao', recordId: id })
-    if (deriveStatus(talk) !== 'confirmado') items.push({ id: `confirmar_${id}`, priority: needsReconfirmation(talk, today) ? 1 : 2, title: needsReconfirmation(talk, today) ? 'Reconfirmação necessária' : 'Aguardando confirmação', detail: `${formatDate(talk.data)} precisa de confirmação.`, target: 'programacao', recordId: id })
+    if (deriveStatus(talk) !== 'confirmado' || needsReconfirmation(talk, today)) items.push({ id: `confirmar_${id}`, priority: needsReconfirmation(talk, today) ? 1 : 2, title: needsReconfirmation(talk, today) ? 'Reconfirmação necessária' : 'Aguardando confirmação', detail: `${formatDate(talk.data)} precisa de confirmação.`, target: 'programacao', recordId: id })
   })
   Object.entries(discursos.oradores ?? {}).forEach(([id, speaker]) => {
-    if (!speaker.pessoaId) items.push({ id: `vinculo_${id}`, priority: 2, title: 'Orador sem vínculo central', detail: `${oradorNome(id, speaker)} precisa ser vinculado a uma pessoa do Admin.`, target: 'cadastro', recordId: id })
+    if (!speaker.pessoaId || !pessoas[speaker.pessoaId]) items.push({ id: `vinculo_${id}`, priority: 2, title: 'Orador sem vínculo central válido', detail: `${oradorNome(id, speaker)} precisa ser vinculado a uma pessoa do Admin.`, target: 'cadastro', recordId: id })
     if (!(speaker.temaIds?.length)) items.push({ id: `repertorio_${id}`, priority: 2, title: 'Orador sem repertório', detail: `${oradorNome(id, speaker)} ainda não tem temas aprovados.`, target: 'cadastro', recordId: id })
     if (speaker.pessoaId && pessoas[speaker.pessoaId]?.active === false) items.push({ id: `inativo_${id}`, priority: 2, title: 'Orador vinculado a pessoa inativa', detail: `${oradorNome(id, speaker)} está inativo no cadastro do Admin.`, target: 'cadastro', recordId: id })
   })

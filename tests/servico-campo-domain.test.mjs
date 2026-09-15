@@ -1,6 +1,14 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { datesForDow, generateFieldServicePeriod, publishedFieldServiceAssignments } from '../src/modules/servico-campo-domain.ts'
+import { datesForDow, generateFieldServicePeriod, publishedFieldServiceAssignments, validFieldServiceMonth, validFieldServiceTime } from '../src/modules/servico-campo-domain.ts'
+
+test('valida competência e horário sem aceitar normalizações do Date', () => {
+  assert.equal(validFieldServiceMonth('2026-12'), true)
+  assert.equal(validFieldServiceMonth('2026-13'), false)
+  assert.equal(validFieldServiceTime('23:59'), true)
+  assert.equal(validFieldServiceTime('24:00'), false)
+  assert.deepEqual(datesForDow('2026-99', 0), [])
+})
 
 test('gera todas as ocorrências mensais e permite várias saídas no mesmo dia', () => {
   const period = generateFieldServicePeriod({
@@ -39,4 +47,22 @@ test('cada saída recorrente pode ter seu próprio rodízio', () => {
     leaderIds:['m1', 'm2'],
   })
   assert.equal(Object.values(period.assignments).every(item => item.leaderId === 'm2'), true)
+})
+
+test('meses futuros não alteram o rodízio de um mês anterior', () => {
+  const template = { id:'a', label:'Saída', dow:1, time:'18:00', location:'Salão', active:true, sortOrder:0 }
+  const future = { month:'2026-10', published:true, assignments:{ f:{ id:'f', templateId:'a', date:'2026-10-05', time:'18:00', location:'Salão', label:'Saída', leaderId:'m1' } } }
+  const period = generateFieldServicePeriod({ month:'2026-09', templates:{ a:template }, leaderIds:['m1', 'm2'], periods:{ future } })
+  assert.equal(period.assignments['2026-09-07-a'].leaderId, 'm1')
+})
+
+test('não duplica saídas idênticas, mas permite horários ou locais diferentes no mesmo dia', () => {
+  const base = { label:'Saída', dow:0, time:'08:30', location:'Salão', active:true, sortOrder:0 }
+  const period = generateFieldServicePeriod({ month:'2026-09', templates:{ a:{ ...base, id:'a' }, b:{ ...base, id:'b', sortOrder:1 }, c:{ ...base, id:'c', time:'09:30', sortOrder:2 } }, leaderIds:['m1', 'm2'] })
+  assert.equal(Object.values(period.assignments).filter(item => item.date === '2026-09-06').length, 2)
+})
+
+test('adapter público ignora item fora da competência declarada', () => {
+  const values = publishedFieldServiceAssignments({ periods:{ september:{ month:'2026-09', published:true, assignments:{ wrong:{ id:'wrong', templateId:'t', date:'2026-10-05', time:'18:00', location:'Salão', label:'Saída', leaderId:'m1' } } } } })
+  assert.deepEqual(values, [])
 })

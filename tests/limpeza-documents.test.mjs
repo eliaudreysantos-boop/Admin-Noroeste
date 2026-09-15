@@ -12,12 +12,12 @@ const period = generateCleaningPeriod('2026-09-01', 'bimester', {
   ativa: true, grupos: 4, inicioRotacao: '2026-09-02', gruposConfig: groups,
 }, { meiaDeSemana: { diaSemana: 3, horario: '19:00' }, fimDeSemana: { diaSemana: 0, horario: '18:00' } }, {}, 'Noroeste', '2026-09-01T12:00:00Z')
 
-test('gera PDF A4 real em uma página e reduz fonte quando necessário', async () => {
+test('gera PDF A4 tabular em uma página com fonte legível', async () => {
   const result = await createCleaningPdf(period, { requestedFontSize: 22 })
   assert.equal(new TextDecoder().decode(result.bytes.slice(0, 4)), '%PDF')
   assert.equal(result.pages, 1)
-  assert.ok(result.effectiveFontSize < 22)
-  assert.ok(result.effectiveFontSize > 12)
+  assert.ok(result.effectiveFontSize <= 11)
+  assert.ok(result.effectiveFontSize >= 8)
   const document = await PDFDocument.load(result.bytes)
   assert.equal(document.getPageCount(), 1)
   const { width, height } = document.getPage(0).getSize()

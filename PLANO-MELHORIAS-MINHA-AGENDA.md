@@ -1,6 +1,6 @@
 # Plano de melhorias e conclusao da Minha Agenda
 
-Atualizado em 12/09/2026.
+Atualizado em 15/09/2026.
 
 Este documento concentra as melhorias de interface, persistencia local,
 sincronizacao e homologacao que ainda faltam na Minha Agenda. As regras aqui
@@ -18,7 +18,31 @@ descritas devem orientar a implementacao sem alterar os contratos de identidade,
 - Assinaturas pessoais e do Quadro usam tokens independentes por instalacao.
 - O Quadro possui texto por data, PDFs dos modulos separados dos documentos do
   Admin e assinatura atualizavel.
-- Suite completa com 160 testes e build aprovados.
+- Suite completa e build aprovados.
+
+## Auditoria local final - 15/09/2026
+
+- [x] As quatro telas `Pessoal`, `Geral`, `Relatorio` e `Quadro` foram
+  percorridas em 1440x900 e 390x844 sem rolagem horizontal ou erro de pagina.
+- [x] O Quadro conserva os paineis expansivos e mostra cinco botoes separados
+  de PDF, um para cada modulo publico.
+- [x] Tela ativa, paineis, periodos, filtros e selecoes persistem por pessoa e
+  contexto depois de recarregar.
+- [x] Datas civis e horarios impossiveis deixam de entrar na Agenda e no ICS.
+- [x] Cache sem `savedAt` valido, vencido ou com data futura exige nova
+  sincronizacao; cache recente continua abrindo sem requisicao desnecessaria.
+- [x] Primeiro acesso sem lista de pessoas valida mostra o estado de conexao em
+  vez de interromper a tela; resposta sem a pessoa pareada nao trava o aparelho.
+- [x] Mudancas nos modulos da assinatura do Quadro sao serializadas e uma falha
+  restaura tambem a preferencia local.
+- [x] Durante o envio definitivo do relatorio, campos e fechamento do modal
+  permanecem bloqueados ate a resposta do servidor; o rascunho continua local
+  se houver falha.
+- [x] Quarenta e um testes especificos de Minha Agenda e build de producao
+  passaram.
+
+Permanecem somente as homologacoes externas descritas na Fase 8, com dados,
+calendarios, navegadores e aparelhos reais.
 
 ## Regra obrigatoria de persistencia da interface
 
@@ -253,6 +277,11 @@ outros modulos; conserva apenas as preferencias do Quadro.
 Regras:
 
 - salvar o link em configuracao propria do modulo;
+- manter Tarefas, Oradores e Servico de Campo com suas regras de elegibilidade
+  masculina; a redacao neutra das mensagens nao altera quem pode ser designado;
+- preencher automaticamente mensagens educadas e neutras quando ainda nao
+  existir texto salvo ou quando o campo for deixado vazio;
+- preservar qualquer texto personalizado que ja esteja salvo no modulo;
 - usar esse link nos botoes `WhatsApp` daquele modulo dentro do Quadro;
 - nao assumir que Tarefas, Oradores, Limpeza, Escala TPL, Vida e Ministerio e
   Servico de Campo usam o mesmo grupo;

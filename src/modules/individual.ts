@@ -5,7 +5,7 @@ import { moduleTitle } from '../ui/module-header'
 import { agendaMessage, agendaToIcs, announcementMessage, boardMeetingDates, boardMeetingEvents, collectAgendaEvents, collectAnnouncementEvents, upcomingAgendaEvents, type AgendaEvent, type AgendaSource, type AgendaStatus, type AnnouncementEvent } from './individual-domain'
 import { CATEGORY_LABELS, isClosedMonth, matchingReports, records, reportCreatedBy, reportLastEditedBy, serviceYearStart, type SecretaryPublisher, type SecretaryReport } from './secretario-domain'
 import type { AgendaConfig, AgendaPublicDocument, AgendaSubscription, MasterPessoa } from '../types'
-import { agendaUiStorageKey, defaultAgendaUiPreferences, parseAgendaUiPreferences, type AgendaScreen, type BoardPanel, type PersonalPanel } from './individual-preferences.ts'
+import { agendaCacheNeedsSync, agendaUiStorageKey, defaultAgendaUiPreferences, parseAgendaUiPreferences, type AgendaScreen, type BoardPanel, type PersonalPanel } from './individual-preferences.ts'
 import { groupPublicDocuments, publicDocumentMonths, PUBLIC_PDF_MODULES, type PublicPdfModule } from './agenda-documents-domain.ts'
 
 let ctx: AppContext | null = null
@@ -24,6 +24,7 @@ let subscriptionPersonId = ''
 let loadingAssignments = true
 let offlinePersonalEvents: AgendaEvent[] | null = null
 let offlineAnnouncementEvents: AnnouncementEvent[] | null = null
+let boardSubscriptionBusy = false
 
 const OFFLINE_CACHE_KEY = 'noroeste_agenda_offline_v2'
 const REPORT_DRAFT_KEY = 'noroeste_relatorio_rascunho_v1'
@@ -72,6 +73,7 @@ export default function mount(context: AppContext): void {
   loadingAssignments = true
   offlinePersonalEvents = null
   offlineAnnouncementEvents = null
+  boardSubscriptionBusy = false
   const root = document.getElementById('appContent')
   if (!root) return
   root.innerHTML = '<div id="individualRoot"><p class="empty-state">Carregando sua agenda...</p></div>'
@@ -80,7 +82,7 @@ export default function mount(context: AppContext): void {
     offlinePersonalEvents = cached.events
     offlineAnnouncementEvents = cached.announcements
     data = { master:{ pessoas:cached.person ? { [cached.masterId]:cached.person } : {} }, secretario:cached.secretary, agenda:cached.agenda } as RawRoot
-    loadingAssignments = Date.now() - cached.savedAt >= DAILY_SYNC_MS
+    loadingAssignments = agendaCacheNeedsSync(cached.savedAt, Date.now(), DAILY_SYNC_MS)
     render()
     if (!loadingAssignments) return
   }
@@ -496,7 +498,7 @@ async function openModuleDocumentWhatsapp(module: PublicPdfModule, item: AgendaP
   const groupLink = current?.groupLink?.trim()
   if (!groupLink) return
   const label = documentSourceLabels[module]
-  const template = current?.documentText?.trim() || 'Olá, irmãos. O arquivo de {modulo} referente a {periodo} está disponível para consulta:\n\n{link_ou_orientacao}\n\nObrigado.'
+  const template = current?.documentText?.trim() || 'Olá. O arquivo de {modulo} referente a {periodo} está disponível para consulta:\n\n{link_ou_orientacao}\n\nAgradecemos pela atenção.'
   const message = template
     .split('{modulo}').join(label)
     .split('{periodo}').join(item.periodo)
@@ -528,12 +530,18 @@ function bindBoardSubscription(): void {
   const current = Object.values(subscriptions()).find(item => item.tipo === 'quadro' && item.ativo)
   document.querySelectorAll<HTMLInputElement>('[data-board-module]').forEach(input => input.addEventListener('change', async () => {
     const source = input.dataset['boardModule'] as AgendaSource
+    if (boardSubscriptionBusy) { input.checked = boardSubscriptionModules.has(source); return }
     input.checked ? boardSubscriptionModules.add(source) : boardSubscriptionModules.delete(source)
+    if (!boardSubscriptionModules.size) { input.checked = true; boardSubscriptionModules.add(source); persistUiPreferences(); alert('A assinatura precisa manter ao menos um módulo.'); return }
     persistUiPreferences()
     if (!current) return
-    if (!boardSubscriptionModules.size) { input.checked = true; boardSubscriptionModules.add(source); alert('A assinatura precisa manter ao menos um módulo.'); return }
     const modulos = [...boardSubscriptionModules]
-    try { Object.assign(current, await updateBoardSubscription(current.token, modulos)) } catch { input.checked = !input.checked; input.checked ? boardSubscriptionModules.add(source) : boardSubscriptionModules.delete(source); alert('Não foi possível atualizar os módulos da assinatura.') }
+    boardSubscriptionBusy = true
+    const controls = Array.from(document.querySelectorAll<HTMLInputElement>('[data-board-module]'))
+    controls.forEach(control => { control.disabled = true })
+    try { Object.assign(current, await updateBoardSubscription(current.token, modulos)) }
+    catch { input.checked = !input.checked; input.checked ? boardSubscriptionModules.add(source) : boardSubscriptionModules.delete(source); persistUiPreferences(); alert('Não foi possível atualizar os módulos da assinatura.') }
+    finally { boardSubscriptionBusy = false; controls.forEach(control => { control.disabled = false }) }
   }))
   document.getElementById('createBoardSubscription')?.addEventListener('click', async () => {
     if (!boardSubscriptionModules.size) { alert('Selecione ao menos um módulo.'); return }
@@ -582,11 +590,12 @@ function openReport(): void {
   document.body.appendChild(overlay)
   const form = document.getElementById('personalReport') as HTMLFormElement, cancel = document.getElementById('reportCancel') as HTMLButtonElement, submit = document.getElementById('reportSubmit') as HTMLButtonElement
   let timer: ReturnType<typeof setInterval> | null = null
+  let submitting = false
   const currentDraft = (): PersonalReportDraft => { const values = new FormData(form); return { competencia:month, participou:values.get('participou') === 'on', estudos:Math.max(0, Number(values.get('estudos')) || 0), horasCampo:Math.max(0, Number(values.get('horasCampo')) || 0), observacoes:String(values.get('observacoes') ?? '').trim().slice(0, 250) } }
   const setFormDisabled = (disabled: boolean): void => form.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('input[name], textarea[name]').forEach(input => { input.disabled = disabled })
   const stopCountdown = (): void => { if (timer) clearInterval(timer); timer = null; setFormDisabled(false); cancel.textContent = 'Fechar'; submit.disabled = false; submit.textContent = 'Enviar relatório' }
   form.addEventListener('input', () => saveReportDraft(masterId, currentDraft()))
-  cancel.addEventListener('click', () => { if (timer) { stopCountdown(); return }; overlay.remove() })
+  cancel.addEventListener('click', () => { if (submitting) return; if (timer) { stopCountdown(); return }; overlay.remove() })
   form.addEventListener('submit', event => {
     event.preventDefault()
     if (timer) return
@@ -596,7 +605,8 @@ function openReport(): void {
       remaining -= 1; submit.textContent = remaining > 0 ? `Enviando em ${remaining}s` : 'Enviando...'
       if (remaining > 0) return
       if (timer) clearInterval(timer); timer = null
-      void submitPersonalReport(masterId, pendingDraft, overlay).catch(() => { setFormDisabled(false); cancel.textContent = 'Fechar'; submit.disabled = false; submit.textContent = 'Tentar novamente'; alert('Não foi possível enviar. O rascunho continua salvo neste aparelho.') })
+      submitting = true; cancel.disabled = true; cancel.textContent = 'Enviando...'
+      void submitPersonalReport(masterId, pendingDraft, overlay).catch(() => { submitting = false; setFormDisabled(false); cancel.disabled = false; cancel.textContent = 'Fechar'; submit.disabled = false; submit.textContent = 'Tentar novamente'; alert('Não foi possível enviar. O rascunho continua salvo neste aparelho.') })
     }, 1000)
   })
 }

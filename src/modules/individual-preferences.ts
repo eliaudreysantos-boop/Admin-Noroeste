@@ -1,4 +1,4 @@
-import type { AgendaSource, AgendaStatus } from './individual-domain.ts'
+import { validAgendaDate, type AgendaSource, type AgendaStatus } from './individual-domain.ts'
 
 export type AgendaScreen = 'agenda' | 'geral' | 'relatorio' | 'quadro'
 export type AgendaUiContext = 'standalone' | 'admin'
@@ -43,7 +43,7 @@ const DEFAULT_SUBSCRIPTION_MODULES: AgendaSource[] = ['tarefas', 'escala', 'orad
 const record = (value: unknown): Record<string, unknown> => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
 const oneOf = <T extends string>(value: unknown, allowed: readonly T[], fallback: T): T => typeof value === 'string' && allowed.includes(value as T) ? value as T : fallback
 const monthValue = (value: unknown, fallback: string): string => typeof value === 'string' && /^\d{4}-(0[1-9]|1[0-2])$/.test(value) ? value : fallback
-const dateValue = (value: unknown): string => typeof value === 'string' && /^\d{4}-(0[1-9]|1[0-2])-([012]\d|3[01])$/.test(value) ? value : ''
+const dateValue = (value: unknown): string => typeof value === 'string' && validAgendaDate(value) ? value : ''
 const stringList = <T extends string>(value: unknown, allowed: readonly T[]): T[] => Array.isArray(value) ? [...new Set(value.filter((item): item is T => typeof item === 'string' && allowed.includes(item as T)))] : []
 
 export function defaultAgendaUiPreferences(currentMonth: string): AgendaUiPreferences {
@@ -94,4 +94,9 @@ export function parseAgendaUiPreferences(raw: string | null, currentMonth: strin
 
 export function agendaUiStorageKey(masterId: string, context: AgendaUiContext): string {
   return `noroeste_agenda_ui_v1:${masterId}:${context}`
+}
+
+export function agendaCacheNeedsSync(savedAt: unknown, currentTime: number, intervalMs = 24 * 60 * 60 * 1000): boolean {
+  const timestamp = Number(savedAt)
+  return !Number.isFinite(timestamp) || timestamp <= 0 || timestamp > currentTime || currentTime - timestamp >= intervalMs
 }

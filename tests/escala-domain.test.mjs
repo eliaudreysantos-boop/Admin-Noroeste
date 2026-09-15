@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   activeDates, analyzeCell, availabilityKey, choosePair, generateAll, generateLocal,
-  isBlocked, localSlots, pairRule, participantDirectoryForHistory, validatePair,
+  isBlocked, isPublishedMonth, localSlots, pairRule, participantDirectoryForHistory, validatePair,
 } from '../src/modules/escala-domain.ts'
 import {
   assignmentsForPerson, confirmationMessage, personMessage,
@@ -107,6 +107,35 @@ test('geração é determinística e não altera os dados de entrada', () => {
   assert.deepEqual(first, second)
   assert.deepEqual(input, before)
   assert.ok(Object.values(first.table.rows).some(row => Object.values(row.slots).some(cell => cell.p1 && cell.p2)))
+})
+
+test('meses publicados anteriores continuam bloqueados e periodos impossiveis sao rejeitados', () => {
+  assert.equal(isPublishedMonth('2026-08', '2026-09', { '2026-08':true }), true)
+  assert.equal(isPublishedMonth('2026-09', '2026-09', {}), true)
+  assert.equal(isPublishedMonth('2026-07', '2026-09', {}), false)
+  assert.deepEqual(activeDates('2026-13', [4]), [])
+  assert.deepEqual(activeDates('2026-00', [4]), [])
+})
+
+test('horarios invalidos e duplicados nao entram na geracao', () => {
+  assert.deepEqual(localSlots({ slots:['10:00','08:00','08:00','25:00','08:99'] }), ['08:00','10:00'])
+  for (const stepMinutes of [0, Infinity, NaN, 15.5]) assert.deepEqual(localSlots({ startTime:'08:00', endTime:'18:00', stepMinutes }), [])
+})
+
+test('local inativo nao gera e dupla com vinculo duplicado e rejeitada', () => {
+  const generated = generateAll({ ...base({ a:person(), b:person() }), locals:{ l1:{ ...local, active:false } } })
+  assert.ok(generated.errors.length)
+  assert.equal(pairRule('a', person({ masterId:'m1' }), 'b', person({ masterId:'m1' })), 'mesma_pessoa')
+  assert.doesNotThrow(() => validatePair(base({ a:person() }), '2026-09-03', '08:00', 'a', 'removido'))
+  assert.ok(validatePair(base({ a:person() }), '2026-09-03', '08:00', 'a', 'removido').includes('Segunda pessoa não encontrada'))
+})
+
+test('IDs distintos da mesma pessoa respeitam o dia e horarios sobrepostos entre locais', () => {
+  const participants = { a:person({ masterId:'m1' }), duplicado:person({ masterId:'m1' }), b:person() }
+  const tables = { l1:{ '2026-09':{ slots:['08:00','10:00'], rows:{ '2026-09-03':{ dow:4, slots:{ '08:00':{ p1:'a',p2:'b' } } } } } } }
+  assert.equal(analyzeCell(base(participants, { tables }), '2026-09-03','10:00').blocked.find(item => item.id === 'duplicado')?.rule, 'ja_no_dia')
+  const other = { l2:{ '2026-09':{ slots:['09:00'], rows:{ '2026-09-10':{ dow:4, slots:{ '09:00':{ p1:'a',p2:'b' } } } } } } }
+  assert.equal(analyzeCell(base(participants, { tables:other }), '2026-09-10','08:00').blocked.find(item => item.id === 'duplicado')?.rule, 'outro_local')
 })
 
 test('prioridade de pioneiro e equilíbrio podem ser desligados sem alterar regras da dupla', () => {

@@ -47,7 +47,8 @@ export function occupiesLocalSlot(talk: Talk): boolean {
   return talk.tipo === 'discurso_local' || talk.tipo === 'discurso_visitante'
 }
 export function findDuplicate(talks: Record<string, Talk>, candidate: Talk, ignoredId = ''): string {
-  return Object.entries(talks).find(([id, talk]) => id !== ignoredId && talk.data === candidate.data && talk.tipo === candidate.tipo)?.[0] ?? ''
+  return Object.entries(talks).find(([id, talk]) => id !== ignoredId && talk.data === candidate.data
+    && occupiesLocalSlot(talk) && occupiesLocalSlot(candidate))?.[0] ?? ''
 }
 export function eventBlocksLocal(events: Record<string, { data?: string; tipo?: string }>, date: string): boolean {
   const blocking = new Set(['congresso_assembleia', 'visita_superintendente', 'reuniao_especial', 'celebracao'])
@@ -72,15 +73,26 @@ export function missingLocalTalkDates(talks: Record<string, Talk>, dates: string
     .map(talk => talk.data!))
   return dates.filter(date => !occupied.has(date))
 }
+export function talksForSchedulePdf(talks: Record<string, Talk>, period: string): Array<[string, Talk]> {
+  const start = `${period}-01`
+  return Object.entries(talks)
+    .filter(([, talk]) => {
+      if (!talk.data) return true
+      if (talk.tipo === 'saida_orador') return talk.data >= start
+      return talk.data.startsWith(period)
+    })
+    .sort(([, a], [, b]) => String(a.data ?? '').localeCompare(String(b.data ?? '')))
+}
 export function talkConflicts(talkId: string, talk: Talk, talks: Record<string, Talk>, taskMeetings: { date?: string; assignments?: Record<string, unknown> }[], speakers: Record<string, Speaker>): string[] {
   const errors: string[] = []
   if (!talk.data) errors.push('Data não informada')
   if (findDuplicate(talks, talk, talkId)) errors.push('Já existe programação deste tipo na data')
   const ids = [talk.oradorId].filter((id): id is string => Boolean(id))
-  for (const other of Object.values(talks)) {
-    if (other === talk || other.data !== talk.data) continue
+  for (const [otherId, other] of Object.entries(talks)) {
+    if (otherId === talkId || other.data !== talk.data) continue
     const otherIds = [other.oradorId]
-    if (ids.some(id => otherIds.includes(id))) errors.push('Orador com outro discurso na mesma data')
+    if (ids.some(id => otherIds.includes(id) || Boolean(speakers[id]?.pessoaId
+      && speakers[id]?.pessoaId === speakers[other.oradorId ?? '']?.pessoaId))) errors.push('Orador com outro discurso na mesma data')
   }
   for (const id of ids) {
     const personId = speakers[id]?.pessoaId

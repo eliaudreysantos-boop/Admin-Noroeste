@@ -1238,7 +1238,7 @@ function renderConfigAgenda(): void {
   const quadroLink = quadroWhatsApp.groupLink ?? agendaConfig.quadroWhatsAppLink ?? ''
 
   el.innerHTML = `
-    <div><h3 style="margin-top:0">WhatsApp do Quadro</h3><p class="form-help">As mensagens dos módulos são configuradas dentro de cada módulo. Aqui fica somente o grupo usado pelo Quadro de anúncios.</p><div class="form-group"><label class="form-label" for="agendaWhatsLink_quadro">Link do grupo</label><input id="agendaWhatsLink_quadro" class="form-input" type="url" value="${escapeHtml(quadroLink)}" placeholder="https://chat.whatsapp.com/..."></div><div class="form-group"><label class="form-label" for="agendaWhatsMeeting_quadro">Mensagem do Quadro</label><textarea id="agendaWhatsMeeting_quadro" class="form-input" rows="5">${escapeHtml(quadroWhatsApp.meetingText ?? 'Olá, irmãos. Seguem as informações da nossa reunião:\n\n{dados_da_reuniao}\n\nObrigado.')}</textarea></div></div>
+    <div><h3 style="margin-top:0">WhatsApp do Quadro</h3><p class="form-help">As mensagens dos módulos são configuradas dentro de cada módulo. Aqui fica somente o grupo usado pelo Quadro de anúncios.</p><div class="form-group"><label class="form-label" for="agendaWhatsLink_quadro">Link do grupo</label><input id="agendaWhatsLink_quadro" class="form-input" type="url" value="${escapeHtml(quadroLink)}" placeholder="https://chat.whatsapp.com/..."></div><div class="form-group"><label class="form-label" for="agendaWhatsMeeting_quadro">Mensagem do Quadro</label><textarea id="agendaWhatsMeeting_quadro" class="form-input" rows="5">${escapeHtml(quadroWhatsApp.meetingText?.trim() || 'Olá. Seguem as informações da nossa reunião:\n\n{dados_da_reuniao}\n\nAgradecemos pela atenção.')}</textarea></div></div>
     <div style="margin-top:18px">
       <div style="font-size:.8rem;font-weight:600;color:var(--ink-2);margin-bottom:4px;text-transform:uppercase;letter-spacing:.05em">Lembretes do calendário</div>
       <p class="form-help" style="margin-top:0">Cada coluna adiciona um lembrete ao arquivo .ics. Deixe uma ou ambas como “Sem lembrete” quando aquele módulo não precisar avisar.</p>
@@ -1315,7 +1315,7 @@ async function saveConfigAgenda(): Promise<void> {
   moduleWhatsApp.quadro = {
     ...(moduleWhatsApp.quadro ?? {}),
     groupLink,
-    meetingText:(document.getElementById('agendaWhatsMeeting_quadro') as HTMLTextAreaElement).value.trim(),
+    meetingText:(document.getElementById('agendaWhatsMeeting_quadro') as HTMLTextAreaElement).value.trim() || 'Olá. Seguem as informações da nossa reunião:\n\n{dados_da_reuniao}\n\nAgradecemos pela atenção.',
   }
   const icsReminders: AgendaConfig['icsReminders'] = {}
   AGENDA_REMINDER_MODULES.forEach(module => {
