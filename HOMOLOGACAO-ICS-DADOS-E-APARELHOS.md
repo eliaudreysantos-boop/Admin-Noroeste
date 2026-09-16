@@ -215,6 +215,12 @@ Usar uma competencia de teste ainda aberta e dois clientes diferentes.
 
 ## Registro de evidencias
 
+Validacao local de 16/09/2026: `tests/agenda-pwa-browser.mjs` aprovado no Edge
+em 1440x900 e 390x844 com build e service worker reais, APIs ficticias e perfil
+persistente. Confirmados Salvar sem senha, reinicio offline, rascunho preservado,
+reenvio apos resposta perdida e desbloqueio com isolamento de pessoa. Esse
+resultado nao substitui os casos abaixo em aparelhos e servicos reais.
+
 | Caso | Aparelho/conta | Data e hora | Resultado | Observacao |
 | --- | --- | --- | --- | --- |
 | Google Calendar no computador |  |  | Pendente |  |

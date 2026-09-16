@@ -109,7 +109,7 @@ async function init(): Promise<void> {
   }
 }
 
-continueButton.addEventListener('click', () => openIdentityPair())
+continueButton.addEventListener('click', () => void saveSelectedPerson())
 bottomUser.addEventListener('click', () => {
   const result = advanceUnlockTap(unlockTaps, Date.now())
   unlockTaps = result.state
@@ -155,33 +155,23 @@ function openIdentityUnlock(): void {
   password.focus()
 }
 
-function openIdentityPair(): void {
+async function saveSelectedPerson(): Promise<void> {
   const masterId = select.value, person = people[masterId]
   if (!person) return
-  const overlay = document.createElement('div')
-  overlay.className = 'modal-overlay'
-  overlay.innerHTML = `<form class="modal" id="agendaPairForm"><h2>Confirmar pessoa</h2><p class="form-help">Este aparelho ficará vinculado a ${person.name.replace(/[&<>"']/g, '')}. Informe a senha de um Admin para confirmar.</p><label class="form-field"><span>Senha Admin</span><input id="agendaPairPassword" class="form-input" type="password" autocomplete="current-password" required></label><p id="agendaPairError" class="login-error" role="alert"></p><div class="secretary-actions"><button id="agendaPairCancel" class="btn btn-ghost" type="button">Cancelar</button><button id="agendaPairConfirm" class="btn btn-primary" type="submit">Vincular aparelho</button></div></form>`
-  document.body.appendChild(overlay)
-  const form = document.getElementById('agendaPairForm') as HTMLFormElement
-  const password = document.getElementById('agendaPairPassword') as HTMLInputElement
-  const message = document.getElementById('agendaPairError')!
-  const button = document.getElementById('agendaPairConfirm') as HTMLButtonElement
-  const close = (): void => overlay.remove()
-  document.getElementById('agendaPairCancel')?.addEventListener('click', close)
-  overlay.addEventListener('click', event => { if (event.target === overlay) close() })
-  form.addEventListener('submit', async event => {
-    event.preventDefault(); button.disabled = true; button.textContent = 'Vinculando...'
-    try {
-      await apiJson('agenda-device', { method:'POST', body:JSON.stringify({ masterId, installationId:installationId(), adminPassword:password.value }) })
-      clearIdentityCache()
-      localStorage.setItem(DEVICE_PAIRED_KEY, 'true')
-      close(); openAgenda(masterId)
-    } catch (reason) {
-      message.textContent = reason instanceof Error ? reason.message : 'Não foi possível vincular o aparelho.'
-      password.value = ''; password.focus()
-    } finally { button.disabled = false; button.textContent = 'Vincular aparelho' }
-  })
-  password.focus()
+  continueButton.disabled = true
+  continueButton.textContent = 'Salvando...'
+  error.textContent = ''
+  try {
+    await apiJson('agenda-device', { method:'POST', body:JSON.stringify({ masterId, installationId:installationId() }) })
+    clearIdentityCache()
+    localStorage.setItem(DEVICE_PAIRED_KEY, 'true')
+    openAgenda(masterId)
+  } catch (reason) {
+    error.textContent = reason instanceof Error ? reason.message : 'Não foi possível salvar esta pessoa.'
+  } finally {
+    continueButton.disabled = select.disabled
+    continueButton.textContent = 'Salvar'
+  }
 }
 
 void init()

@@ -36,6 +36,7 @@ const ADMIN_PERSON_KEY = 'noroeste_agenda_admin_person_v1'
 const DAILY_SYNC_MS = 24 * 60 * 60 * 1000
 
 interface PersonalReportDraft {
+  submissionId?: string
   competencia: string
   participou: boolean
   estudos: number
@@ -619,7 +620,7 @@ function openReport(): void {
   const form = document.getElementById('personalReport') as HTMLFormElement, cancel = document.getElementById('reportCancel') as HTMLButtonElement, submit = document.getElementById('reportSubmit') as HTMLButtonElement
   let timer: ReturnType<typeof setInterval> | null = null
   let submitting = false
-  const currentDraft = (): PersonalReportDraft => { const values = new FormData(form); return { competencia:month, participou:values.get('participou') === 'on', estudos:Math.max(0, Number(values.get('estudos')) || 0), horasCampo:Math.max(0, Number(values.get('horasCampo')) || 0), observacoes:String(values.get('observacoes') ?? '').trim().slice(0, 250) } }
+  const currentDraft = (): PersonalReportDraft => { const values = new FormData(form); return { submissionId:readReportDraft(masterId, month)?.submissionId, competencia:month, participou:values.get('participou') === 'on', estudos:Math.max(0, Number(values.get('estudos')) || 0), horasCampo:Math.max(0, Number(values.get('horasCampo')) || 0), observacoes:String(values.get('observacoes') ?? '').trim().slice(0, 250) } }
   const setFormDisabled = (disabled: boolean): void => form.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('input[name], textarea[name]').forEach(input => { input.disabled = disabled })
   const stopCountdown = (): void => { if (timer) clearInterval(timer); timer = null; setFormDisabled(false); cancel.textContent = 'Fechar'; submit.disabled = false; submit.textContent = 'Enviar relatório' }
   form.addEventListener('input', () => saveReportDraft(masterId, currentDraft()))
@@ -642,9 +643,12 @@ function openReport(): void {
 
 async function submitPersonalReport(masterId: string, draft: PersonalReportDraft, overlay: HTMLElement): Promise<void> {
   try {
+    // Persist before sending so retries after a lost response or reload stay idempotent.
+    if (!draft.submissionId || !/^[A-Za-z0-9_-]{1,120}$/.test(draft.submissionId)) draft.submissionId = crypto.randomUUID?.() ?? randomToken()
+    saveReportDraft(masterId, draft)
     const response = await apiJson<{ report: SecretaryReport }>('secretary-report', {
       method:'POST',
-      body:JSON.stringify({ report:{ ...draft, submissionId:crypto.randomUUID?.() ?? randomToken() } }),
+      body:JSON.stringify({ report:draft }),
     })
     const secretary = records(data.secretario), nextReports = { ...records<SecretaryReport>(secretary['relatorios']), [response.report.id]:response.report }
     data.secretario = { ...secretary, relatorios:nextReports }

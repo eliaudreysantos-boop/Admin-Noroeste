@@ -359,3 +359,69 @@ aparelhos reais.
   `npm run test:individual` com 44 testes aprovados, `npm run test:all` com
   216 testes aprovados e `npm run build` aprovado. O build manteve apenas o
   aviso conhecido de chunks acima de 500 kB.
+
+## Concorrencia, identidade e PWA - continuidade de 16/09/2026
+
+- Primeiro vinculo da Minha Agenda usa `Salvar`, sem senha. O desbloqueio
+  continua exigindo senha Admin. O servidor rejeita POST que tente trocar a
+  pessoa ou a instalacao de uma sessao ja vinculada; repetir o mesmo vinculo
+  retorna sucesso sem recriar a sessao nem revogar suas assinaturas.
+- Acrescentados testes de envios simultaneos da Agenda e do Secretario com
+  repeticao da transacao: ambas as ordens de chegada, reenvio idempotente,
+  fechamento durante o envio e reenvio depois de revisao pelo Secretario.
+  Nenhum desses testes escreve no Firebase real.
+- Teste executando o service worker com cache/rede simulados reproduziu uma
+  falha: um asset com HTTP 503 permitia substituir o HTML e apagar a versao
+  anterior. Corrigido para baixar todos os arquivos necessarios antes de
+  substituir o shell. Cobertos cache offline, primeiro acesso pela rede,
+  atualizacao incompleta e atualizacao completa.
+- `tests/individual-browser.mjs` aprovado no Edge em 1440x900 e 390x844:
+  quatro telas, cinco botoes de PDF, aba/painel restaurados apos reload,
+  sem erro de pagina nem estouro horizontal. APIs simuladas e service worker
+  bloqueado nesse roteiro; nao equivale a homologacao do PWA instalado.
+- `npm run test:all` aprovado, incluindo 31 testes de Secretario e 51 de
+  Minha Agenda. `npm run build` aprovado com o aviso conhecido de chunks.
+- Alteracoes desta rodada permanecem locais, sem commit, push ou deploy.
+- Proxima etapa: validar no ambiente de testes o primeiro Salvar, reabertura
+  direta, desbloqueio, rascunho apos fechar/reabrir o PWA, offline/reconexao
+  e concorrencia em duas sessoes reais. Depois homologar ICS em Google,
+  Android e Apple conforme `HOMOLOGACAO-ICS-DADOS-E-APARELHOS.md`.
+
+## Fluxo completo do PWA em navegador - 16/09/2026
+
+- Novo roteiro `tests/agenda-pwa-browser.mjs` serve o build `dist` com APIs
+  ficticias locais e executa o service worker de producao no Edge. Como o app
+  desabilita o registro automatico em localhost, o roteiro registra o worker
+  explicitamente. Nao acessa o Firebase nem o site publicado.
+- Aprovado em 1440x900 e 390x844: primeiro Salvar sem senha, reabertura direta,
+  encerramento e reinicio do navegador offline com perfil persistente,
+  restauracao da aba Relatorio e dos campos estudos, horas e observacao.
+- Nenhum rascunho foi enviado automaticamente. Reconexao, envio explicito,
+  resposta perdida depois de gravar e nova tentativa apos reload foram testados.
+- O roteiro encontrou e reproduziu um defeito: cada tentativa gerava uma nova
+  submissionId. Corrigido para persistir o identificador no rascunho antes da
+  requisicao e reaproveita-lo ao tentar novamente, inclusive apos reload.
+  Confirmacao de sucesso remove o rascunho e mantem um unico registro oficial.
+- Sete toques abrem o desbloqueio; senha incorreta mantem a pessoa; senha de
+  teste correta limpa o cache pessoal e permite escolher outra pessoa, sem
+  reaproveitar o rascunho anterior.
+- Screenshots offline inspecionadas em `.netlify/agenda-pwa-offline-1440.png`
+  e `.netlify/agenda-pwa-offline-390.png`; sem estouro horizontal ou erro JS.
+- Build e 51 testes de Minha Agenda aprovados apos a correcao. Para repetir o
+  roteiro: executar o build, disponibilizar Playwright localmente ou indicar
+  seu package.json em PLAYWRIGHT_PACKAGE_JSON, e executar
+  `node tests/agenda-pwa-browser.mjs` com Microsoft Edge instalado.
+- Pendente: publicar estas alteracoes no ambiente de testes e validar aparelhos
+  reais, integracao com Functions/Firebase, concorrencia real e calendarios ICS.
+  Esta rodada nao realizou commit, push, deploy nem alterou dados reais.
+
+## Publicacao para homologacao - autorizacao de 16/09/2026
+
+- Admin autorizou seguir com a publicacao do conjunto validado em `teste/main`
+  e no projeto Netlify `noroeste-testes`. O remoto `origin` permanece intacto.
+- Conjunto: Salvar sem senha, protecao do vinculo existente, atualizacao do
+  cache offline, identificador persistente de reenvio e testes de regressao.
+- Validacoes anteriores aprovadas: suite completa; apos a ultima correcao,
+  build, 51 testes de Minha Agenda e roteiro PWA no Edge desktop/celular.
+- A confirmacao do deploy e os testes HTTP posteriores serao registrados no
+  resultado da tarefa; aparelhos reais e calendarios externos seguem pendentes.

@@ -10,10 +10,12 @@ async function refreshShell() {
   const html = await response.clone().text()
   const assets = [...html.matchAll(/(?:src|href)="([^"#]+)"/g)].map(match => match[1]).filter(path => path.startsWith('/'))
   const currentShell = [...new Set([...SHELL, ...assets.filter(cacheableAsset)])]
-  await Promise.allSettled(currentShell.filter(path => path !== '/agenda/').map(async path => {
+  const downloaded = await Promise.all(currentShell.filter(path => path !== '/agenda/').map(async path => {
     const asset = await fetch(path, { cache:'no-store' })
-    if (asset.ok) await cache.put(path, asset)
+    if (!asset.ok) throw new Error(`Shell asset unavailable: ${path}`)
+    return [path, asset]
   }))
+  await Promise.all(downloaded.map(([path, asset]) => cache.put(path, asset)))
   await cache.put('/agenda/', response)
   const keep = new Set(currentShell.map(path => new URL(path, self.location.origin).href))
   const keys = await cache.keys()

@@ -22,27 +22,26 @@ async function revokeInstallationSubscriptions(installationId: string): Promise<
   if (Object.keys(patch).length) await root.update(patch)
 }
 
-export default async (request: Request): Promise<Response> => {
+export async function agendaDeviceResponse(request: Request, resolveSession = deviceSession): Promise<Response> {
   if (request.method === 'GET') {
     try {
-      const [people, paired] = await Promise.all([publicPeople(), deviceSession(request)])
+      const [people, paired] = await Promise.all([publicPeople(), resolveSession(request)])
       const masterId = paired && people[paired.masterId] ? paired.masterId : ''
       return json(200, { people, masterId })
     } catch { return json(503, { error:'Não foi possível carregar as pessoas.' }) }
   }
   if (request.method === 'POST') {
     const body = await objectBody(request)
-    const masterId = String(body['masterId'] ?? ''), installationId = String(body['installationId'] ?? ''), password = String(body['adminPassword'] ?? '')
+    const masterId = String(body['masterId'] ?? ''), installationId = String(body['installationId'] ?? '')
     if (!/^m_[A-Za-z0-9_-]+$/.test(masterId) || !/^[a-f0-9]{32,64}$/.test(installationId)) return json(400, { error:'Identidade ou instalação inválida.' })
     try {
-      const scope = 'agenda-admin'
-      if (!await loginAttemptAllowed(request, scope)) return json(429, { error:'Muitas tentativas. Aguarde 30 segundos.' })
-      if (!await verifyAdminPassword(password)) { await recordLoginFailure(request, scope); return json(401, { error:'Senha Admin inválida.' }) }
-      await clearLoginFailures(request, scope)
+      const previous = await resolveSession(request)
+      if (previous) {
+        if (previous.masterId === masterId && previous.installationId === installationId) return json(200, { masterId })
+        return json(409, { error:'Desbloqueie o aparelho com a senha Admin antes de trocar a pessoa.' })
+      }
       const person = await adminDatabase().ref(`master/pessoas/${masterId}`).get()
       if (!person.exists() || (person.val() as MasterPessoa).active === false) return json(404, { error:'Pessoa indisponível.' })
-      const previous = await deviceSession(request)
-      if (previous) await revokeInstallationSubscriptions(previous.installationId)
       await revokeInstallationSubscriptions(installationId)
       await destroyDeviceSession(request)
       const created = await createDeviceSession(masterId, installationId)
@@ -56,7 +55,7 @@ export default async (request: Request): Promise<Response> => {
       if (!await loginAttemptAllowed(request, scope)) return json(429, { error:'Muitas tentativas. Aguarde 30 segundos.' })
       if (!await verifyAdminPassword(String(body['adminPassword'] ?? ''))) { await recordLoginFailure(request, scope); return json(401, { error:'Senha Admin inválida.' }) }
       await clearLoginFailures(request, scope)
-      const previous = await deviceSession(request)
+      const previous = await resolveSession(request)
       if (previous) await revokeInstallationSubscriptions(previous.installationId)
       await destroyDeviceSession(request)
       return json(200, { ok:true }, { 'set-cookie':clearDeviceCookie() })
@@ -64,3 +63,5 @@ export default async (request: Request): Promise<Response> => {
   }
   return json(405, { error:'Método não permitido.' })
 }
+
+export default (request: Request): Promise<Response> => agendaDeviceResponse(request)
