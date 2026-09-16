@@ -346,6 +346,15 @@ aparelhos reais.
   `auth-users` continuou retornando 503 no site publicado, o proximo passo e
   redeployar somente o projeto de testes para carregar as variaveis novas nas
   Functions.
+- Deploy de testes autorizado e concluido: primeiro commit `1de918a` avancou
+  Relatorios da Minha Agenda, mas o Netlify bloqueou por secret scan ao
+  encontrar a URL do Firebase gravada em arquivos versionados. O commit
+  `af89371` removeu a URL literal da auditoria e de scripts auxiliares,
+  exigindo `FIREBASE_DATABASE_URL` via ambiente.
+- Deploy `6aaaecc32912c9000881d8a4` publicado em `noroeste-testes` as
+  16/09/2026 19:24 UTC, com 11 Functions implantadas e secret scan sem
+  achados. `https://noroeste-testes.netlify.app/agenda/` respondeu HTTP 200 e
+  `/.netlify/functions/auth-users` respondeu HTTP 200 com 2 usuarios ativos.
 - Validacao local: `npm run test:secretario` com 26 testes aprovados,
   `npm run test:individual` com 44 testes aprovados, `npm run test:all` com
   216 testes aprovados e `npm run build` aprovado. O build manteve apenas o
