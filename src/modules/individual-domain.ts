@@ -205,6 +205,17 @@ export function collectAnnouncementEvents(rootValue: unknown, allowed: Partial<R
 const icsEscape = (value: string): string => value.replace(/\\/g, '\\\\').replace(/\r?\n/g, '\\n').replace(/,/g, '\\,').replace(/;/g, '\\;')
 const utcStamp = (value: string): string => value.replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z')
 const validReminder = (value: string): boolean => /^P(?:\d+D)?(?:T\d+[HM])?$/.test(value) && value !== 'P'
+function foldIcsLine(line: string): string {
+  const encoder = new TextEncoder()
+  let result = '', length = 0
+  for (const character of line) {
+    const size = encoder.encode(character).length
+    if (length + size > 75) { result += '\r\n '; length = 1 }
+    result += character
+    length += size
+  }
+  return result
+}
 function nextCivilDate(value: string): string {
   const date = new Date(`${value}T12:00:00Z`)
   date.setUTCDate(date.getUTCDate() + 1)
@@ -218,7 +229,8 @@ export function agendaToIcs(events: AgendaEvent[], generatedAt: string, options:
     const alarms = [...new Set(options.reminders?.[event.source] ?? [])].filter(validReminder).slice(0, 2).flatMap(offset => ['BEGIN:VALARM', 'ACTION:DISPLAY', `DESCRIPTION:${icsEscape(`Lembrete: ${event.title}`)}`, `TRIGGER:-${offset}`, 'END:VALARM'])
     return ['BEGIN:VEVENT', `UID:${icsEscape(event.id)}@${namespace}`, `DTSTAMP:${utcStamp(generatedAt)}`, start, end, `SUMMARY:${icsEscape(event.title)}`, `DESCRIPTION:${icsEscape(details)}`, ...(event.location ? [`LOCATION:${icsEscape(event.location)}`] : []), ...alarms, 'END:VEVENT'].join('\r\n')
   }).join('\r\n')
-  return `BEGIN:VCALENDAR\r\nVERSION:2.0\r\nCALSCALE:GREGORIAN\r\nMETHOD:PUBLISH\r\nPRODID:-//Noroeste//Minha agenda//PT-BR\r\nX-WR-CALNAME:${icsEscape(options.calendarName || 'Minha agenda Noroeste')}\r\nX-WR-TIMEZONE:America/Fortaleza\r\n${body}\r\nEND:VCALENDAR\r\n`
+  const timezone = ['BEGIN:VTIMEZONE', 'TZID:America/Fortaleza', 'BEGIN:STANDARD', 'DTSTART:19700101T000000', 'TZOFFSETFROM:-0300', 'TZOFFSETTO:-0300', 'TZNAME:BRT', 'END:STANDARD', 'END:VTIMEZONE']
+  return ['BEGIN:VCALENDAR', 'VERSION:2.0', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH', 'PRODID:-//Noroeste//Minha agenda//PT-BR', `X-WR-CALNAME:${icsEscape(options.calendarName || 'Minha agenda Noroeste')}`, 'X-WR-TIMEZONE:America/Fortaleza', ...timezone, ...(body ? body.split('\r\n') : []), 'END:VCALENDAR'].map(foldIcsLine).join('\r\n') + '\r\n'
 }
 
 export function eventsInFeedWindow<T extends AgendaEvent>(events: T[], today: string): T[] {

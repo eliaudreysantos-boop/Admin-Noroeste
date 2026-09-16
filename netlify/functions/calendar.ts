@@ -35,7 +35,7 @@ async function loadAgendaRoot(fetcher: typeof fetch, databaseURL: string): Promi
     'tarefas/discursos/oradores', 'tarefas/discursos/programacao', 'tarefas/discursos/congregacoes',
     'limpeza/periodos',
     'escala/participants', 'escala/scales', 'escala/tables', 'escala/publishedMonth', 'escala/publishedMonths', 'escala/publishedSnapshots',
-    'programacao', 'agenda/config', 'servicoCampo',
+    'programacao', 'agenda/config', 'servicoCampo', 'master/config', 'escala/settings',
   ] as const
   const values = await Promise.all(paths.map(async path => {
     const response = await fetcher(`${databaseURL}/${path}.json`)
@@ -44,7 +44,7 @@ async function loadAgendaRoot(fetcher: typeof fetch, databaseURL: string): Promi
   }))
   const value = (index: number): unknown => values[index] ?? undefined
   return {
-    master:{ pessoas:value(0) },
+    master:{ pessoas:value(0), config:value(16) },
     tarefas:{
       people:value(1),
       scale:{ periods:value(2) },
@@ -52,7 +52,7 @@ async function loadAgendaRoot(fetcher: typeof fetch, databaseURL: string): Promi
     },
     limpeza:{ periodos:value(6) },
     escala:{
-      participants:value(7), scales:value(8), tables:value(9), publishedMonth:value(10),
+      participants:value(7), scales:value(8), tables:value(9), settings:value(17), publishedMonth:value(10),
       publishedMonths:value(11), publishedSnapshots:value(12),
     },
     programacao:value(13),
@@ -67,15 +67,15 @@ async function loadPrivateAgendaRoot(): Promise<Record<string, unknown>> {
     'tarefas/discursos/oradores', 'tarefas/discursos/programacao', 'tarefas/discursos/congregacoes',
     'limpeza/periodos',
     'escala/participants', 'escala/scales', 'escala/tables', 'escala/publishedMonth', 'escala/publishedMonths', 'escala/publishedSnapshots',
-    'programacao', 'agenda/config', 'servicoCampo',
+    'programacao', 'agenda/config', 'servicoCampo', 'master/config', 'escala/settings',
   ] as const
   const values = await Promise.all(paths.map(path => adminDatabase().ref(path).get().then(snapshot => snapshot.exists() ? snapshot.val() as unknown : undefined)))
   const value = (index: number): unknown => values[index]
   return {
-    master:{ pessoas:value(0) },
+    master:{ pessoas:value(0), config:value(16) },
     tarefas:{ people:value(1), scale:{ periods:value(2) }, discursos:{ oradores:value(3), programacao:value(4), congregacoes:value(5) } },
     limpeza:{ periodos:value(6) },
-    escala:{ participants:value(7), scales:value(8), tables:value(9), publishedMonth:value(10), publishedMonths:value(11), publishedSnapshots:value(12) },
+    escala:{ participants:value(7), scales:value(8), tables:value(9), settings:value(17), publishedMonth:value(10), publishedMonths:value(11), publishedSnapshots:value(12) },
     programacao:value(13), agenda:{ config:value(14) }, servicoCampo:value(15),
   }
 }

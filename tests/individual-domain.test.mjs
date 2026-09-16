@@ -2,6 +2,21 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { agendaMessage, agendaToIcs, announcementMessage, boardMeetingDates, boardMeetingEvents, collectAgendaEvents, collectAnnouncementEvents, eventsInFeedWindow, normalizeAgendaPeople, sanitizeAgendaPeople, upcomingAgendaEvents, validAgendaDate, validAgendaTime } from '../src/modules/individual-domain.ts'
 
+test('ICS inclui fuso e dobra linhas UTF-8 sem perder texto nem identificador', () => {
+  const title = 'Reunião com designação e oração '.repeat(12)
+  const event = { id:'programacao:parte1', source:'programacao', date:'2026-09-17', time:'19:30', title, detail:'Detalhes', status:'futuro' }
+  const first = agendaToIcs([event], '2026-09-16T12:00:00.000Z')
+  assert.match(first, /BEGIN:VTIMEZONE\r\nTZID:America\/Fortaleza/)
+  assert.match(first, /TZOFFSETTO:-0300/)
+  assert.ok(first.split('\r\n').every(line => Buffer.byteLength(line) <= 75))
+  assert.ok(first.replace(/\r\n /g, '').includes(`SUMMARY:${title}\r\n`))
+  assert.match(first, /DTSTART;TZID=America\/Fortaleza:20260917T193000/)
+  const updated = agendaToIcs([{ ...event, title:'Atualizado' }], '2026-09-17T12:00:00.000Z')
+  assert.equal(first.match(/UID:[^\r]+/)[0], updated.match(/UID:[^\r]+/)[0])
+  const empty = agendaToIcs([], '2026-09-16T12:00:00.000Z')
+  assert.doesNotMatch(empty, /\r\n\r\n/)
+})
+
 const root = {
   master: { pessoas:{ m1:{ name:'Ana', active:true }, m2:{ name:'Bruno', active:true } } },
   tarefas: {

@@ -6,8 +6,8 @@ import { A4_PORTRAIT as A4, PDF_INK, PDF_LINE, PDF_MUTED, drawPublicPdfHeader } 
 
 const MARGIN = 42
 const ROW_HEIGHT = 17
-const SCHEDULE_COLUMNS = [MARGIN, 78, 207, 418]
-const SCHEDULE_COLUMN_WIDTHS = [28, 121, 203, 127]
+const SCHEDULE_COLUMNS = [MARGIN, 82, 207, 418]
+const SCHEDULE_COLUMN_WIDTHS = [32, 117, 203, 127]
 
 export interface AvailableSpeakerThemes {
   nome: string
@@ -184,13 +184,8 @@ export async function downloadAvailableThemesPdf(params: {
 }
 
 export function formatScheduleDay(value: string): string {
-  const match = /^\d{4}-\d{2}-(\d{2})$/.exec(value)
-  return match?.[1] ?? value
-}
-
-function scheduleMonthLabel(value: string): string {
-  const date = new Date(`${value}-01T12:00:00`)
-  return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat('pt-BR', { month:'long', year:'numeric' }).format(date)
+  const match = /^\d{4}-(\d{2})-(\d{2})$/.exec(value)
+  return match ? `${match[2]}/${match[1]}` : value
 }
 
 function drawScheduleRows(page: PDFPage, regular: PDFFont, bold: PDFFont, title: string, rows: string[][][], y: number): number {
@@ -229,17 +224,10 @@ export async function createSchedulePdf(params: {
   const pdf = await PDFDocument.create()
   const regular = await pdf.embedFont(StandardFonts.Helvetica)
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold)
-  const locais = params.rows.filter(row => row.tipo !== 'saida_orador')
-  const saidas = params.rows.filter(row => row.tipo === 'saida_orador')
-  const saidasPorMes = new Map<string, SchedulePdfRow[]>()
-  saidas.forEach(row => {
-    const month = /^\d{4}-\d{2}/.exec(row.data)?.[0] ?? params.periodLabel
-    saidasPorMes.set(month, [...(saidasPorMes.get(month) ?? []), row])
-  })
-  const sections: Array<[string, SchedulePdfRow[]]> = [['Local e visitantes', locais]]
-  if (saidasPorMes.size) {
-    saidasPorMes.forEach((rows, month) => sections.push([`Saídas - ${scheduleMonthLabel(month)}`, rows]))
-  } else sections.push(['Saídas', []])
+  const ordered = [...params.rows].sort((a, b) => a.data.localeCompare(b.data))
+  const locais = ordered.filter(row => row.tipo !== 'saida_orador')
+  const saidas = ordered.filter(row => row.tipo === 'saida_orador')
+  const sections: Array<[string, SchedulePdfRow[]]> = [['Arranjo Local', locais], ['Arranjo Externo', saidas]]
   let page!: PDFPage
   let y = 0
   const addPage = () => {

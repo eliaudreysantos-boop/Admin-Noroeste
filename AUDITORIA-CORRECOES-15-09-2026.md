@@ -209,3 +209,25 @@ aparelhos reais.
 - [x] `tests/escala-browser.mjs`: desktop e celular sem erro, com rollback,
   bloqueio historico e layout responsivo.
 - [ ] Commit e deploy, somente apos autorizacao do Admin.
+
+## Atualizacao de 16/09: layouts e calendario
+
+- S-3 retirado da interface do Secretario; modelos S-21/S-88 preservados.
+- Tarefas: previa ao lado de Publicar; PDF A4 retrato em dois blocos por
+  tipo de reuniao, nomes completos com quebra de linha e paginacao de excessos.
+- Oradores: Arranjo Local/Externo, tabela externa continua e datas DD/MM.
+  Arranjos externos continuam incluindo o mes selecionado em diante.
+  Acoes recolhiveis no celular, com preferencia local por registro.
+- ICS: definicao de fuso e dobra UTF-8; carregamento dos horarios centrais
+  e locais TPL alinhado entre feed, agenda-data e Minha Agenda administrativa.
+- Comandos de assinatura passaram a usar apiJson, enviando validacao da sessao
+  que estava faltando no acesso pelos modulos. Google e Apple tem links separados.
+- Link real consultado sem login: HTTP 200, 13 eventos, 13 UIDs distintos.
+  Versao publicada ainda sem VTIMEZONE, com dez linhas longas e sem VALARM.
+  Causa exata da falha no aparelho nao comprovada. Homologacao depende de
+  publicar as correcoes autorizadamente e testar nos calendarios reais.
+- test:all, testes focados e build aprovados. PDFs renderizados e inspecionados.
+  Browser desktop/celular com APIs simuladas; sem alterar Firebase real.
+- Detalhes em C:/Users/eliau/Downloads/AUDITORIA-TRANSVERSAL-AJUSTES.md.
+  Permanecem auditoria mobile global, latencia e reproducao da falha de
+  publicacao em producao. Sem commit, push ou deploy nesta rodada.

@@ -2,6 +2,16 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { PDFDocument } from 'pdf-lib/cjs/index.js'
 import { createTaskSchedulePdf } from '../src/modules/tarefas-documents.ts'
+import { TASK_ROLES } from '../src/modules/tarefas-domain.ts'
+
+test('mes com cinco reunioes de cada tipo cabe em uma folha com nomes completos', async () => {
+  const people = { p:{ name:'Joao da Silva Santos' } }
+  const meetings = Array.from({ length:10 }, (_, index) => ({ date:`2026-10-${String(index + 1).padStart(2, '0')}`, type:index % 2 ? 'weekend' : 'midweek', assignments:Object.fromEntries(TASK_ROLES.map(role => [role, 'p'])) }))
+  const result = await createTaskSchedulePdf(meetings, 'Noroeste', people, 14)
+  assert.equal(result.pages, 1)
+  const long = await createTaskSchedulePdf(meetings, 'Noroeste', { p:{ name:'Nome muito extenso '.repeat(20) } }, 14)
+  assert.ok(long.pages > 1)
+})
 
 test('Tarefas gera PDF real em A4 retrato com linhas de escala', async () => {
   const meetings = [{ date:'2026-09-12', type:'weekend', assignments:{ presidente:'p1', operador1:'p2', operador2:'p3', leitor:'p4', entrada:'p5', auditorio:'p6', mic1:'p7', mic2:'p8' } }]

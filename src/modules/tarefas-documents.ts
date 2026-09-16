@@ -56,37 +56,18 @@ export interface TaskPdfResult { bytes: Uint8Array; pages: number; effectiveFont
 
 const PDF_MARGIN = 34
 
-function fitPdfText(font: PDFFont, value: string, size: number, width: number): string {
-  if (font.widthOfTextAtSize(value, size) <= width) return value
-  let result = value
-  while (result.length > 1 && font.widthOfTextAtSize(`${result}...`, size) > width) result = result.slice(0, -1)
-  return `${result.trim()}...`
-}
-
-function drawTaskPdfHeader(page: PDFPage, regular: PDFFont, bold: PDFFont, congregation: string, period: string): number {
-  return drawPublicPdfHeader(page, bold, regular, { title:'Escala de Tarefas', congregation:congregation || 'Congregação Noroeste', period, margin:PDF_MARGIN })
-}
-
-function drawTaskMeeting(page: PDFPage, regular: PDFFont, bold: PDFFont, meeting: TaskMeeting, people: Record<string, TaskPerson>, x: number, top: number, width: number, fontSize: number): number {
-  const roles = TASK_ROLES.filter(role => roleApplies(role, meeting))
-  const headerHeight = 24
-  const rowHeight = Math.max(15, fontSize + 7)
-  const height = headerHeight + roles.length * rowHeight
-  page.drawRectangle({ x, y:top - height, width, height, borderColor:rgb(.48, .5, .53), borderWidth:.6, color:rgb(1, 1, 1) })
-  page.drawRectangle({ x, y:top - headerHeight, width, height:headerHeight, color:PDF_INK })
-  const kind = String(meeting.type).startsWith('midweek') ? 'Meio de semana' : 'Fim de semana'
-  page.drawText(fitPdfText(bold, `${formatTaskDate(meeting.date)} · ${kind}`, fontSize, width - 12), { x:x + 6, y:top - 16, size:fontSize, font:bold, color:rgb(1, 1, 1) })
-  let y = top - headerHeight
-  roles.forEach(role => {
-    y -= rowHeight
-    const labelWidth = Math.min(96, width * .4)
-    page.drawRectangle({ x, y, width:labelWidth, height:rowHeight, color:rgb(.96, .96, .95) })
-    page.drawLine({ start:{ x, y }, end:{ x:x + width, y }, thickness:.35, color:PDF_LINE })
-    page.drawLine({ start:{ x:x + labelWidth, y }, end:{ x:x + labelWidth, y:y + rowHeight }, thickness:.35, color:PDF_LINE })
-    page.drawText(fitPdfText(bold, TASK_ROLE_LABELS[role], fontSize - 1, labelWidth - 8), { x:x + 4, y:y + 5, size:fontSize - 1, font:bold, color:rgb(.12, .13, .15) })
-    page.drawText(fitPdfText(regular, assignmentName(assignmentForRole(meeting, role), people) || 'A definir', fontSize - 1, width - labelWidth - 8), { x:x + labelWidth + 4, y:y + 5, size:fontSize - 1, font:regular, color:rgb(.08, .09, .1) })
-  })
-  return height
+function wrapTaskPdfText(font: PDFFont, value: string, size: number, width: number): string[] {
+  const lines: string[] = []
+  let line = ''
+  for (const word of value.split(/\s+/)) {
+    if (line && font.widthOfTextAtSize(`${line} ${word}`, size) > width) { lines.push(line); line = '' }
+    for (const character of (line ? ' ' : '') + word) {
+      if (line && font.widthOfTextAtSize(line + character, size) > width) { lines.push(line); line = '' }
+      line += character
+    }
+  }
+  if (line) lines.push(line)
+  return lines.length ? lines : ['']
 }
 
 export async function createTaskSchedulePdf(meetings: TaskMeeting[], congregation: string, people: Record<string, TaskPerson>, preferredFontPt: number): Promise<TaskPdfResult> {
@@ -94,23 +75,63 @@ export async function createTaskSchedulePdf(meetings: TaskMeeting[], congregatio
   const regular = await pdf.embedFont(StandardFonts.Helvetica)
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold)
   const ordered = [...meetings].sort((a, b) => String(a.date ?? '').localeCompare(String(b.date ?? '')))
-  const effectiveFontSize = Math.min(11, Math.max(7, Math.round(preferredFontPt * .68)))
-  const columnGap = 12
-  const columnWidth = (A4_PORTRAIT[0] - PDF_MARGIN * 2 - columnGap) / 2
+  const effectiveFontSize = Math.min(10, Math.max(8, Math.round(preferredFontPt * .68)))
+  const lineHeight = effectiveFontSize + 2
+  const width = A4_PORTRAIT[0] - PDF_MARGIN * 2, labelWidth = 102
   const period = ordered.length ? `${formatTaskDate(ordered[0]?.date)} - ${formatTaskDate(ordered[ordered.length - 1]?.date)}` : 'Sem período'
-  let page = pdf.addPage(A4_PORTRAIT)
-  let column = 0
-  let y = drawTaskPdfHeader(page, regular, bold, congregation, period)
+  let page!: PDFPage, y = 0
+  const addPage = () => {
+    page = pdf.addPage(A4_PORTRAIT)
+    y = drawPublicPdfHeader(page, bold, regular, { title:'Escala de Tarefas', congregation:congregation || 'Congregação Noroeste', period, margin:PDF_MARGIN })
+  }
+  addPage()
   if (!ordered.length) page.drawText('Nenhuma reunião cadastrada.', { x:PDF_MARGIN, y, size:10, font:regular })
-  for (const meeting of ordered) {
-    const roles = TASK_ROLES.filter(role => roleApplies(role, meeting))
-    const estimated = 24 + roles.length * Math.max(15, effectiveFontSize + 7)
-    if (y - estimated < 50) {
-      if (column === 0) { column = 1; y = 750 }
-      else { page = pdf.addPage(A4_PORTRAIT); column = 0; y = drawTaskPdfHeader(page, regular, bold, congregation, period) }
+  const sections: Array<[string, TaskMeeting[]]> = [
+    ['Meio de semana', ordered.filter(meeting => String(meeting.type).startsWith('midweek'))],
+    ['Fim de semana', ordered.filter(meeting => !String(meeting.type).startsWith('midweek'))],
+  ]
+  for (const [title, section] of sections) {
+    for (let offset = 0; offset < section.length; offset += 5) {
+      const dates = section.slice(offset, offset + 5)
+      const cellWidth = (width - labelWidth) / dates.length
+      const roles = TASK_ROLES.filter(role => dates.some(meeting => roleApplies(role, meeting)))
+      const prepared = roles.map(role => [
+        wrapTaskPdfText(bold, TASK_ROLE_LABELS[role], effectiveFontSize, labelWidth - 10),
+        ...dates.map(meeting => wrapTaskPdfText(regular, roleApplies(role, meeting) ? assignmentName(assignmentForRole(meeting, role), people) || 'A definir' : '-', effectiveFontSize, cellWidth - 10)),
+      ])
+      const fullHeight = 44 + prepared.reduce((sum, cells) => sum + Math.max(...cells.map(lines => lines.length)) * lineHeight + 10, 0)
+      if (y - Math.min(fullHeight, 650) < PDF_MARGIN) addPage()
+      const header = () => {
+        page.drawText(title, { x:PDF_MARGIN, y, size:11, font:bold, color:PDF_INK })
+        y -= 12
+        page.drawRectangle({ x:PDF_MARGIN, y:y - 23, width, height:23, color:PDF_INK })
+        page.drawText('Tarefa', { x:PDF_MARGIN + 5, y:y - 15, size:effectiveFontSize, font:bold, color:rgb(1, 1, 1) })
+        dates.forEach((meeting, index) => page.drawText(formatTaskDate(meeting.date), { x:PDF_MARGIN + labelWidth + index * cellWidth + 5, y:y - 15, size:effectiveFontSize, font:bold, color:rgb(1, 1, 1) }))
+        y -= 23
+      }
+      header()
+      for (const cells of prepared) {
+        let cursor = 0
+        const count = Math.max(...cells.map(lines => lines.length))
+        while (cursor < count) {
+          const availableLines = Math.floor((y - PDF_MARGIN - 10) / lineHeight)
+          if (availableLines < 1 || (cursor === 0 && count <= 40 && count > availableLines)) { addPage(); header(); continue }
+          const lines = Math.min(count - cursor, availableLines)
+          const height = lines * lineHeight + 10
+          page.drawRectangle({ x:PDF_MARGIN, y:y - height, width:labelWidth, height, color:rgb(.96, .96, .96) })
+          cells.forEach((cell, column) => {
+            const x = PDF_MARGIN + (column ? labelWidth + (column - 1) * cellWidth : 0)
+            cell.slice(cursor, cursor + lines).forEach((text, index) => page.drawText(text, { x:x + 5, y:y - 5 - effectiveFontSize - index * lineHeight, size:effectiveFontSize, font:column ? regular : bold, color:PDF_INK }))
+            page.drawLine({ start:{ x, y }, end:{ x, y:y - height }, thickness:.35, color:PDF_LINE })
+          })
+          page.drawLine({ start:{ x:PDF_MARGIN + width, y }, end:{ x:PDF_MARGIN + width, y:y - height }, thickness:.35, color:PDF_LINE })
+          y -= height
+          page.drawLine({ start:{ x:PDF_MARGIN, y }, end:{ x:PDF_MARGIN + width, y }, thickness:.35, color:PDF_LINE })
+          cursor += lines
+        }
+      }
+      y -= 24
     }
-    const x = PDF_MARGIN + column * (columnWidth + columnGap)
-    y -= drawTaskMeeting(page, regular, bold, meeting, people, x, y, columnWidth, effectiveFontSize) + 9
   }
   return { bytes:Uint8Array.from(await pdf.save()), pages:pdf.getPageCount(), effectiveFontSize }
 }

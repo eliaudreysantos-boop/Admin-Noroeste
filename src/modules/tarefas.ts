@@ -313,6 +313,7 @@ function renderEscala(): void {
       </div>
       <div class="scale-actions" style="margin-top:8px">
         <button id="btnGenerateScale" class="btn btn-primary" type="button" ${locked ? 'disabled' : ''}>Gerar escala · ${activeRules} regras</button>
+        <button id="btnTarefasPdf" class="btn btn-ghost" type="button">Abrir prévia</button>
         <button id="btnToggleTaskLock" class="btn btn-ghost" type="button">${locked ? 'Reabrir escala' : 'Publicar escala'}</button>
         <button id="btnClearTaskScale" class="btn btn-danger" type="button" ${locked || !allPeriodMeetings.length ? 'disabled' : ''}>Limpar escala</button>
       </div>
@@ -323,7 +324,7 @@ function renderEscala(): void {
           <div class="scale-actions" style="align-items:end"><button id="btnGenerateTaskRole" class="btn btn-ghost" type="button" ${locked ? 'disabled' : ''}>Gerar função</button><button id="btnClearTaskRole" class="btn btn-danger" type="button" ${locked ? 'disabled' : ''}>Limpar função</button></div>
         </div>
         <label style="display:flex;align-items:center;gap:7px;margin-top:12px;font-size:.84rem;color:var(--ink-2)"><input id="tarefasOnlyPending" type="checkbox" ${onlyPendingMeetings ? 'checked' : ''}> Apenas datas pendentes</label>
-        <div style="display:flex;gap:8px;align-items:center;margin-top:12px"><label class="form-label" for="tarefasPrintFont" style="margin:0;white-space:nowrap">Letra do PDF</label><input id="tarefasPrintFont" class="form-input" type="range" min="${PRINT_MIN_PT}" max="${PRINT_MAX_PT}" step="1" value="${font}" style="padding:0;flex:1"><span id="tarefasPrintFontValue" style="min-width:42px;text-align:right;font-size:.82rem;font-weight:700;color:var(--ink-2)">${font} pt</span><button id="btnTarefasPdf" class="btn btn-ghost" type="button">Abrir prévia</button></div>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:12px"><label class="form-label" for="tarefasPrintFont" style="margin:0;white-space:nowrap">Letra do PDF</label><input id="tarefasPrintFont" class="form-input" type="range" min="${PRINT_MIN_PT}" max="${PRINT_MAX_PT}" step="1" value="${font}" style="padding:0;flex:1"><span id="tarefasPrintFontValue" style="min-width:42px;text-align:right;font-size:.82rem;font-weight:700;color:var(--ink-2)">${font} pt</span></div>
       </details>
     </div>
     <div class="task-desktop-scale">${taskDesktopTable(allPeriodMeetings)}</div>

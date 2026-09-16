@@ -17,8 +17,8 @@ test('gera programação de oradores em uma A4 quando local e saída cabem', asy
   await assertPdf(await createSchedulePdf({ congregation:'Noroeste', periodLabel:'2026-09', rows }), 1)
 })
 
-test('PDF mensal mostra somente o dia na coluna de data', () => {
-  assert.equal(formatScheduleDay('2026-10-03'), '03')
+test('PDF continuo mostra dia e mes na coluna de data', () => {
+  assert.equal(formatScheduleDay('2026-10-03'), '03/10')
   assert.equal(formatScheduleDay('data inválida'), 'data inválida')
 })
 

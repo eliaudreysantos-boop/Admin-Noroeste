@@ -10,7 +10,7 @@ const paths = [
   'tarefas/discursos/programacao', 'tarefas/discursos/congregacoes', 'limpeza/periodos',
   'escala/participants', 'escala/scales', 'escala/tables', 'escala/publishedMonth',
   'escala/publishedMonths', 'escala/publishedSnapshots', 'programacao', 'secretario',
-  'agenda/config', 'agenda/documentos', 'servicoCampo',
+  'agenda/config', 'agenda/documentos', 'servicoCampo', 'master/config', 'escala/settings',
 ] as const
 
 export default async (request: Request): Promise<Response> => {
@@ -30,10 +30,10 @@ export default async (request: Request): Promise<Response> => {
     const ownPublishers = Object.fromEntries(Object.entries(publishers).filter(([, item]) => item.masterId === masterId))
     const ownReports = Object.fromEntries(Object.entries(reports).filter(([, item]) => item.masterId === masterId))
     const root: RawRoot = {
-      master:{ pessoas:safePeople },
+      master:{ pessoas:safePeople, config:values[18] as NonNullable<RawRoot['master']>['config'] },
       tarefas:{ people:values[1], scale:{ periods:values[2] }, discursos:{ oradores:values[3], programacao:values[4], congregacoes:values[5] } },
       limpeza:{ periodos:values[6] },
-      escala:{ participants:values[7], scales:values[8], tables:values[9], publishedMonth:values[10], publishedMonths:values[11], publishedSnapshots:values[12] },
+      escala:{ participants:values[7], scales:values[8], tables:values[9], settings:values[19], publishedMonth:values[10], publishedMonths:values[11], publishedSnapshots:values[12] },
       programacao:values[13] as Record<string, unknown>,
       secretario:{ publicadores:ownPublishers, relatorios:ownReports, fechamentos:secretary['fechamentos'] ?? {} },
       agenda:{ config:values[15], documentos:values[16] },

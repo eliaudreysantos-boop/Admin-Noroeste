@@ -1,4 +1,5 @@
 import type { AppContext, RawRoot } from '../types'
+import { configRef, escalaSettingsRef } from '../firebase'
 import { agendaConfigRef, agendaDocumentsRef, escalaParticipantsRef, escalaPublishedMonthRef, escalaPublishedMonthsRef, escalaPubSnapshotsRef, escalaScalesRef, escalaTablesRef, get, limpezaPeriodosRef, pessoasRef, programacaoRef, secretarioRef, servicoCampoRef, tarefasCongregacoesRef, tarefasOradoresRef, tarefasPeopleRef, tarefasProgramacaoOradoresRef, tarefasScaleRef } from '../firebase'
 import { apiJson, ApiError } from '../secure-api.ts'
 import { moduleTitle } from '../ui/module-header'
@@ -205,15 +206,15 @@ async function load(): Promise<void> {
       tarefasOradoresRef, tarefasProgramacaoOradoresRef, tarefasCongregacoesRef,
       limpezaPeriodosRef, escalaParticipantsRef, escalaScalesRef, escalaTablesRef,
       escalaPublishedMonthRef, escalaPublishedMonthsRef, escalaPubSnapshotsRef,
-      programacaoRef, secretarioRef, agendaConfigRef, agendaDocumentsRef, servicoCampoRef,
+      programacaoRef, secretarioRef, agendaConfigRef, agendaDocumentsRef, servicoCampoRef, configRef, escalaSettingsRef,
     ]
     const values = await Promise.all(references.map(readValue))
     const value = (index: number): unknown => values[index]
     data = {
-      master:{ pessoas:(masterPeople ?? {}) as Record<string, MasterPessoa> },
+      master:{ pessoas:(masterPeople ?? {}) as Record<string, MasterPessoa>, config:value(17) },
       tarefas:{ people:value(0), scale:{ periods:value(1) }, discursos:{ oradores:value(2), programacao:value(3), congregacoes:value(4) } },
       limpeza:{ periodos:value(5) },
-      escala:{ participants:value(6), scales:value(7), tables:value(8), publishedMonth:value(9), publishedMonths:value(10), publishedSnapshots:value(11) },
+      escala:{ participants:value(6), scales:value(7), tables:value(8), settings:value(18), publishedMonth:value(9), publishedMonths:value(10), publishedSnapshots:value(11) },
       programacao:value(12), secretario:value(13), agenda:{ config:value(14), documentos:value(15) }, servicoCampo:value(16),
     } as RawRoot
     synchronized = true
@@ -356,9 +357,19 @@ function webcalUrl(token: string): string {
   return feedUrl(token).replace(/^https?:/, 'webcal:')
 }
 
+async function copySubscriptionLink(token: string): Promise<void> {
+  const url = feedUrl(token)
+  try {
+    await navigator.clipboard.writeText(url)
+    alert('Link copiado. No Google Agenda, adicione por URL usando o navegador de um computador.')
+  } catch {
+    window.prompt('Copie o link da assinatura:', url)
+  }
+}
+
 function personalSubscriptionPanel(): string {
   const current = Object.values(subscriptions()).find(item => item.tipo === 'pessoal' && item.masterId === subscriptionPersonId && item.ativo)
-  return `<details class="form-panel agenda-board-card agenda-personal-panel" data-agenda-panel="sharing" ${uiPreferences.personal.openPanels.includes('sharing') ? 'open' : ''}><summary><strong>Calendário e compartilhamento</strong><span>${current ? 'Assinatura ativa' : 'Opções'}</span></summary><div class="agenda-board-body"><div class="agenda-actions agenda-sharing-actions"><button class="btn btn-primary" id="agendaIcsMonth" type="button">Baixar mês</button><button class="btn btn-ghost" id="agendaIcsUpcoming" type="button">Baixar próximos</button><button class="btn btn-ghost" id="agendaShare" type="button">Compartilhar</button></div>${current ? `<div class="notice">Link de calendário ativo.</div><div class="agenda-actions"><button class="btn btn-primary" id="copyPersonalSubscription" type="button">Copiar link</button><a class="btn btn-ghost" href="${esc(webcalUrl(current.token))}">Assinar calendário</a><button class="btn btn-danger" id="revokePersonalSubscription" type="button">Revogar</button></div>` : '<button class="btn btn-primary" id="createPersonalSubscription" type="button">Gerar link de assinatura</button>'}<p class="form-help">Downloads são arquivos pontuais; a assinatura acompanha alterações futuras.</p></div></details>`
+  return `<details class="form-panel agenda-board-card agenda-personal-panel" data-agenda-panel="sharing" ${uiPreferences.personal.openPanels.includes('sharing') ? 'open' : ''}><summary><strong>Calendário e compartilhamento</strong><span>${current ? 'Assinatura ativa' : 'Opções'}</span></summary><div class="agenda-board-body"><div class="agenda-actions agenda-sharing-actions"><button class="btn btn-primary" id="agendaIcsMonth" type="button">Baixar mês</button><button class="btn btn-ghost" id="agendaIcsUpcoming" type="button">Baixar próximos</button><button class="btn btn-ghost" id="agendaShare" type="button">Compartilhar</button></div>${current ? `<div class="notice">Link de calendário ativo.</div><div class="agenda-actions"><button class="btn btn-primary" id="copyPersonalSubscription" type="button">Copiar link</button><a class="btn btn-ghost" href="${esc(webcalUrl(current.token))}">Assinar no iPhone / Apple</a><a class="btn btn-ghost" href="https://calendar.google.com/calendar/u/0/r/settings/addbyurl" target="_blank" rel="noopener noreferrer">Google Agenda</a><button class="btn btn-danger" id="revokePersonalSubscription" type="button">Revogar</button></div>` : '<button class="btn btn-primary" id="createPersonalSubscription" type="button">Gerar link de assinatura</button>'}<p class="form-help">Google Agenda: copie o link e adicione por URL no navegador de um computador. No iPhone, use a assinatura Apple. Downloads são arquivos pontuais.</p></div></details>`
 }
 
 function randomToken(): string {
@@ -367,31 +378,26 @@ function randomToken(): string {
 }
 
 async function createSubscription(item: Omit<AgendaSubscription, 'token' | 'ativo' | 'criadoEm'>): Promise<void> {
-  const response = await fetch('/.netlify/functions/calendar-subscriptions', {
-    method:'POST', headers:{ 'content-type':'application/json' }, credentials:'include',
+  const record = await apiJson<AgendaSubscription>('calendar-subscriptions', {
+    method:'POST',
     body:JSON.stringify({ ...item, installationId:installationId() }),
   })
-  if (!response.ok) throw new Error('Não foi possível criar a assinatura.')
-  const record = await response.json() as AgendaSubscription
   const current = subscriptions(); current[record.token] = record; saveSubscriptions(current)
 }
 
 async function revokeSubscription(token: string): Promise<void> {
-  const response = await fetch('/.netlify/functions/calendar-subscriptions', {
-    method:'DELETE', headers:{ 'content-type':'application/json' }, credentials:'include',
+  await apiJson('calendar-subscriptions', {
+    method:'DELETE',
     body:JSON.stringify({ token, installationId:installationId() }),
   })
-  if (!response.ok) throw new Error('Não foi possível revogar a assinatura.')
   const current = subscriptions(); delete current[token]; saveSubscriptions(current)
 }
 
 async function updateBoardSubscription(token: string, modulos: AgendaSource[]): Promise<AgendaSubscription> {
-  const response = await fetch('/.netlify/functions/calendar-subscriptions', {
-    method:'PATCH', headers:{ 'content-type':'application/json' }, credentials:'include',
+  const record = await apiJson<AgendaSubscription>('calendar-subscriptions', {
+    method:'PATCH',
     body:JSON.stringify({ token, installationId:installationId(), modulos }),
   })
-  if (!response.ok) throw new Error('Não foi possível atualizar a assinatura.')
-  const record = await response.json() as AgendaSubscription
   const current = subscriptions(); current[token] = record; saveSubscriptions(current)
   return record
 }
@@ -399,7 +405,7 @@ async function updateBoardSubscription(token: string, modulos: AgendaSource[]): 
 function bindPersonalSubscription(): void {
   document.getElementById('createPersonalSubscription')?.addEventListener('click', async () => { try { await createSubscription({ tipo:'pessoal', masterId:subscriptionPersonId }); render() } catch { alert('Não foi possível gerar o link de assinatura.') } })
   const current = Object.values(subscriptions()).find(item => item.tipo === 'pessoal' && item.masterId === subscriptionPersonId && item.ativo)
-  document.getElementById('copyPersonalSubscription')?.addEventListener('click', async () => { if (current) await navigator.clipboard.writeText(feedUrl(current.token)) })
+  document.getElementById('copyPersonalSubscription')?.addEventListener('click', async () => { if (current) await copySubscriptionLink(current.token) })
   document.getElementById('revokePersonalSubscription')?.addEventListener('click', async () => { if (!current || !confirm('Revogar este link de assinatura?')) return; try { await revokeSubscription(current.token); render() } catch { alert('Não foi possível revogar o link.') } })
 }
 
@@ -523,7 +529,7 @@ function boardSubscriptionPanel(): string {
   const selected = current?.modulos?.filter(module => module !== 'quadro') as AgendaSource[] | undefined
   if (selected?.length) { boardSubscriptionModules.clear(); selected.forEach(module => boardSubscriptionModules.add(module)) }
   const checks = (Object.entries(sourceLabels) as [AgendaSource, string][]).map(([id, label]) => `<label class="agenda-module-check"><input type="checkbox" data-board-module="${id}" ${boardSubscriptionModules.has(id) ? 'checked' : ''}> ${esc(label)}</label>`).join('')
-  return `<details class="form-panel agenda-board-card" data-agenda-panel="subscription" ${uiPreferences.board.openPanels.includes('subscription') ? 'open' : ''}><summary><strong>Assinar o quadro</strong><span>${boardSubscriptionModules.size} módulos · ${current ? 'ativa' : 'não criada'}</span></summary><div class="agenda-board-body"><div class="agenda-module-options">${checks}</div>${current ? `<div class="notice">Esta assinatura recebe automaticamente os módulos selecionados.</div><div class="agenda-actions"><button class="btn btn-primary" id="copyBoardSubscription" type="button">Copiar link</button><a class="btn btn-ghost" href="${esc(webcalUrl(current.token))}">Assinar calendário</a><button class="btn btn-danger" id="revokeBoardSubscription" type="button">Revogar</button></div>` : '<button class="btn btn-primary" id="createBoardSubscription" type="button">Gerar link de assinatura</button>'}<p class="form-help">O link contém um token revogável e não expõe o identificador de nenhuma pessoa.</p></div></details>`
+  return `<details class="form-panel agenda-board-card" data-agenda-panel="subscription" ${uiPreferences.board.openPanels.includes('subscription') ? 'open' : ''}><summary><strong>Assinar o quadro</strong><span>${boardSubscriptionModules.size} módulos · ${current ? 'ativa' : 'não criada'}</span></summary><div class="agenda-board-body"><div class="agenda-module-options">${checks}</div>${current ? `<div class="notice">Esta assinatura recebe automaticamente os módulos selecionados.</div><div class="agenda-actions"><button class="btn btn-primary" id="copyBoardSubscription" type="button">Copiar link</button><a class="btn btn-ghost" href="${esc(webcalUrl(current.token))}">Assinar no iPhone / Apple</a><a class="btn btn-ghost" href="https://calendar.google.com/calendar/u/0/r/settings/addbyurl" target="_blank" rel="noopener noreferrer">Google Agenda</a><button class="btn btn-danger" id="revokeBoardSubscription" type="button">Revogar</button></div>` : '<button class="btn btn-primary" id="createBoardSubscription" type="button">Gerar link de assinatura</button>'}<p class="form-help">Google Agenda: copie o link e adicione por URL no navegador de um computador. No iPhone, use a assinatura Apple.</p></div></details>`
 }
 
 function bindBoardSubscription(): void {
@@ -547,7 +553,7 @@ function bindBoardSubscription(): void {
     if (!boardSubscriptionModules.size) { alert('Selecione ao menos um módulo.'); return }
     try { await createSubscription({ tipo:'quadro', modulos:[...boardSubscriptionModules] }); render() } catch { alert('Não foi possível gerar o link de assinatura.') }
   })
-  document.getElementById('copyBoardSubscription')?.addEventListener('click', async () => { if (current) await navigator.clipboard.writeText(feedUrl(current.token)) })
+  document.getElementById('copyBoardSubscription')?.addEventListener('click', async () => { if (current) await copySubscriptionLink(current.token) })
   document.getElementById('revokeBoardSubscription')?.addEventListener('click', async () => { if (!current || !confirm('Revogar esta assinatura do quadro?')) return; try { await revokeSubscription(current.token); render() } catch { alert('Não foi possível revogar o link.') } })
 }
 

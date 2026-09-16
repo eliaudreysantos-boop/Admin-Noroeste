@@ -6,7 +6,9 @@ const token = 'a'.repeat(48)
 process.env.FIREBASE_DATABASE_URL = 'https://database.test'
 const root = {
   agenda:{ config:{ icsReminders:{ tarefas:['P1D'], servicoCampo:['P1D'], quadro:['P1D'] } } },
-  master:{ pessoas:{ m1:{ name:'Ana', active:true }, m2:{ name:'Bruno', active:true } } },
+  master:{ pessoas:{ m1:{ name:'Ana', active:true }, m2:{ name:'Bruno', active:true } }, config:{ reunioes:{ meiaDeSemana:{ horario:'19:00' } } } },
+  programacao:{ pessoas:{ m1:{ masterId:'m1' } }, programs:{ w:{ meetingDate:'2026-09-16', parts:[{ id:'p', title:'Leitura da Bíblia', assignedPersonId:'m1', confirmedAt:'2026-09-01' }] } } },
+  escala:{ participants:{ e1:{ masterId:'m1' } }, publishedMonths:{ '2026-09':true }, settings:{ locals:{ l1:{ name:'Praça Central' } } }, tables:{ l1:{ '2026-09':{ rows:{ '2026-09-19':{ slots:{ '08:00':{ p1:'e1' } } } } } } } },
   tarefas:{
     people:{ p1:{ masterId:'m1' }, p2:{ masterId:'m2' } },
     scale:{ periods:{ '2026-09':{ locked:true, meetings:{ r:{ date:'2026-09-11', type:'midweek', assignments:{ leitor:'p1', mic1:'p2' } } } } } },
@@ -32,6 +34,9 @@ test('feed pessoal valida token e devolve apenas a agenda vinculada', async () =
   assert.match(body, /SUMMARY:Leitor/)
   assert.doesNotMatch(body, /SUMMARY:Microfone 1/)
   assert.match(body, /TRIGGER:-P1D/)
+  assert.match(body, /DTSTART;TZID=America\/Fortaleza:20260916T190000/)
+  assert.match(body, /LOCATION:Praça Central/)
+  assert.match(response.headers.get('content-disposition'), /inline.*\.ics/)
 })
 
 test('feed do quadro respeita os módulos escolhidos', async () => {
