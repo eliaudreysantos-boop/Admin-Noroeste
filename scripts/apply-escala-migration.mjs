@@ -1,6 +1,9 @@
 import { planEscalaIdMigration } from '../src/modules/escala-migration.ts'
 
-const DATABASE_URL = 'https://oradoress2-default-rtdb.firebaseio.com'
+const DATABASE_URL = process.env.FIREBASE_DATABASE_URL
+if (!DATABASE_URL) {
+  throw new Error('Defina FIREBASE_DATABASE_URL para executar a migracao.')
+}
 const EXPECTED = {
   legacyProfiles: 57,
   canonicalProfiles: 54,

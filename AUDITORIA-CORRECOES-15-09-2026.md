@@ -341,11 +341,11 @@ aparelhos reais.
   passou a listar `FIREBASE_DATABASE_URL` e `FIREBASE_SERVICE_ACCOUNT_JSON`.
   O CLI mascara valores marcados como secretos, entao a URL aparecia como
   `****************.com` nas leituras por contexto/escopo. Com o arquivo local
-  de conta de servico baixado do Firebase e a URL
-  `https://oradoress2-default-rtdb.firebaseio.com`, a leitura local de
-  `usuarios` funcionou e retornou 2 usuarios ativos. Como `auth-users`
-  continuou retornando 503 no site publicado, o proximo passo e redeployar
-  somente o projeto de testes para carregar as variaveis novas nas Functions.
+  de conta de servico baixado do Firebase e a URL real configurada em ambiente,
+  a leitura local de `usuarios` funcionou e retornou 2 usuarios ativos. Como
+  `auth-users` continuou retornando 503 no site publicado, o proximo passo e
+  redeployar somente o projeto de testes para carregar as variaveis novas nas
+  Functions.
 - Validacao local: `npm run test:secretario` com 26 testes aprovados,
   `npm run test:individual` com 44 testes aprovados, `npm run test:all` com
   216 testes aprovados e `npm run build` aprovado. O build manteve apenas o

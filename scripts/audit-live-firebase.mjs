@@ -1,6 +1,9 @@
 import { readFile } from 'node:fs/promises'
 
-const base = process.env.FIREBASE_DATABASE_URL ?? 'https://oradoress2-default-rtdb.firebaseio.com'
+const base = process.env.FIREBASE_DATABASE_URL
+if (!base) {
+  throw new Error('Defina FIREBASE_DATABASE_URL para auditar o Firebase ao vivo.')
+}
 const roots = ['master', 'usuarios', 'tarefas', 'limpeza', 'oradores', 'escala', 'programacao', 'secretario', 'servicoCampo', 'agenda/config', 'agenda/documentos', 'agenda/assinaturas']
 const filePath = process.argv[2]
 const expectedPath = process.argv[3]
