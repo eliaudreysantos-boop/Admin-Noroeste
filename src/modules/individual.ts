@@ -3,7 +3,7 @@ import { configRef, escalaSettingsRef } from '../firebase'
 import { agendaConfigRef, agendaDocumentsRef, escalaParticipantsRef, escalaPublishedMonthRef, escalaPublishedMonthsRef, escalaPubSnapshotsRef, escalaScalesRef, escalaTablesRef, get, limpezaPeriodosRef, pessoasRef, programacaoRef, secretarioRef, servicoCampoRef, tarefasCongregacoesRef, tarefasOradoresRef, tarefasPeopleRef, tarefasProgramacaoOradoresRef, tarefasScaleRef } from '../firebase'
 import { apiJson, ApiError } from '../secure-api.ts'
 import { moduleTitle } from '../ui/module-header'
-import { agendaMessage, agendaToIcs, announcementMessage, boardMeetingDates, boardMeetingEvents, collectAgendaEvents, collectAnnouncementEvents, upcomingAgendaEvents, type AgendaEvent, type AgendaSource, type AgendaStatus, type AnnouncementEvent } from './individual-domain'
+import { agendaMessage, agendaToIcs, boardCleaningMessage, boardMeetingDates, boardMeetingEvents, boardMeetingMessage, boardMeetingWhatsappMessage, collectAgendaEvents, collectAnnouncementEvents, upcomingAgendaEvents, type AgendaEvent, type AgendaSource, type AgendaStatus, type AnnouncementEvent } from './individual-domain'
 import { CATEGORY_LABELS, isClosedMonth, matchingReports, records, reportCreatedBy, reportLastEditedBy, serviceYearStart, type SecretaryPublisher, type SecretaryReport } from './secretario-domain'
 import type { AgendaConfig, AgendaPublicDocument, AgendaSubscription, MasterPessoa } from '../types'
 import { agendaCacheNeedsSync, agendaUiStorageKey, defaultAgendaUiPreferences, parseAgendaUiPreferences, type AgendaScreen, type BoardPanel, type PersonalPanel } from './individual-preferences.ts'
@@ -26,6 +26,7 @@ let loadingAssignments = true
 let offlinePersonalEvents: AgendaEvent[] | null = null
 let offlineAnnouncementEvents: AnnouncementEvent[] | null = null
 let boardSubscriptionBusy = false
+let reportSendFailure = ''
 
 const OFFLINE_CACHE_KEY = 'noroeste_agenda_offline_v2'
 const REPORT_DRAFT_KEY = 'noroeste_relatorio_rascunho_v1'
@@ -409,6 +410,28 @@ function bindPersonalSubscription(): void {
   document.getElementById('revokePersonalSubscription')?.addEventListener('click', async () => { if (!current || !confirm('Revogar este link de assinatura?')) return; try { await revokeSubscription(current.token); render() } catch { alert('Não foi possível revogar o link.') } })
 }
 
+function reportDraftSummary(draft: PersonalReportDraft, publisher: SecretaryPublisher): string {
+  const hours = ['pioneiro_auxiliar', 'pioneiro_regular'].includes(publisher.categoria) ? ` · ${draft.horasCampo} hora(s)` : ''
+  return `${draft.participou ? 'Participou no ministério' : 'Não participou'} · ${draft.estudos} estudo(s) bíblico(s)${hours}`
+}
+
+function currentReportCard(options: {
+  month: string
+  publisher: SecretaryPublisher
+  current?: SecretaryReport
+  state: { label: string; badge: string; style: string } | null
+  closed: boolean
+  draft: PersonalReportDraft | null
+  viewingAsAdmin: boolean
+}): string {
+  const failure = reportSendFailure ? `<div class="notice warning agenda-report-failure"><strong>Falha no envio</strong><br>${esc(reportSendFailure)}</div>` : ''
+  if (options.viewingAsAdmin) return `<div class="agenda-report-current"><span>Competência ${esc(options.month)}</span><strong>Consulta administrativa</strong><p>Use o módulo Secretário para lançar ou ajustar o relatório desta pessoa.</p></div>`
+  if (options.current && options.state) return `<div class="agenda-report-current ${esc(options.state.style)}"><span>Competência ${esc(options.month)}</span><strong>${esc(options.state.badge)}</strong><p>${esc(options.state.label)}. Este mês já possui um relatório oficial e está bloqueado para edição pela pessoa.</p></div>`
+  if (options.closed) return `<div class="agenda-report-current realizado"><span>Competência ${esc(options.month)}</span><strong>Mês fechado</strong><p>Esta competência foi fechada pelo Secretário.</p></div>`
+  if (options.draft) return `${failure}<div class="agenda-report-current confirmacao-pendente"><span>Competência ${esc(options.month)}</span><strong>Rascunho local</strong><p>${esc(reportDraftSummary(options.draft, options.publisher))}</p><button class="btn btn-primary agenda-report-primary" id="openPersonalReport" type="button">Continuar rascunho</button></div>`
+  return `${failure}<div class="agenda-report-current"><span>Competência ${esc(options.month)}</span><strong>Disponível para envio</strong><p>Preencha o relatório deste mês quando tiver os dados prontos.</p><button class="btn btn-primary agenda-report-primary" id="openPersonalReport" type="button">Preencher relatório</button></div>`
+}
+
 function renderReportScreen(root: HTMLElement): void {
   const masterId = selectedMasterId(), secretary = (data.secretario ?? {}) as Record<string, unknown>, publisher = Object.values((secretary['publicadores'] ?? {}) as Record<string, SecretaryPublisher>).find(item => item.masterId === masterId && item.ativo)
   const allReports = (secretary['relatorios'] ?? {}) as Record<string, SecretaryReport>, reports = Object.values(allReports).filter(report => report.masterId === masterId)
@@ -419,12 +442,9 @@ function renderReportScreen(root: HTMLElement): void {
   const pioneerProgress = publisher?.categoria === 'pioneiro_regular' ? `<div><strong>${regularHours}/600</strong><span>Horas no ano</span></div>` : ''
   const viewingAsAdmin = isAdmin() && !ctx!.usuario.masterId, current = matchingReports(allReports, masterId, month)[0]?.[1], closed = isClosedMonth(month, secretary['fechamentos'])
   const state = current ? reportPresentation(current, closed) : null
-  const reportAction = viewingAsAdmin ? '<div class="notice">Use o módulo Secretário para lançar ou ajustar o relatório desta pessoa.</div>'
-      : state ? `<div class="notice"><strong>${esc(state.label)}</strong><br>Este mês já possui um relatório oficial e está bloqueado para edição pela pessoa.</div>`
-        : closed ? '<div class="notice warning">Esta competência foi fechada pelo secretário.</div>'
-          : `<button class="btn btn-primary" id="openPersonalReport" type="button">${readReportDraft(masterId, month) ? 'Continuar rascunho' : 'Preencher relatório'}</button>`
+  const draft = !current && !closed && !viewingAsAdmin ? readReportDraft(masterId, month) : null
   const emptySummary = serviceReports.length === 0 && studies === 0 && regularHours === 0
-  const reportPanel = publisher ? `<div class="form-panel"><h3 style="margin-top:0">Relatório de serviço</h3><p class="form-help">${esc(CATEGORY_LABELS[publisher.categoria])}. ${viewingAsAdmin ? 'Consulta administrativa do ano de serviço.' : 'O rascunho fica somente neste aparelho até você confirmar o envio.'}</p>${reportAction}</div>` : '<div class="notice warning">Este cadastro ainda não foi vinculado como publicador pelo Secretário.</div>'
+  const reportPanel = publisher ? `<div class="form-panel agenda-report-panel"><h3 style="margin-top:0">Relatório de serviço</h3><p class="form-help">${esc(CATEGORY_LABELS[publisher.categoria])}. ${viewingAsAdmin ? 'Consulta administrativa do ano de serviço.' : 'O rascunho fica somente neste aparelho até você confirmar o envio.'}</p>${currentReportCard({ month, publisher, current, state, closed, draft, viewingAsAdmin })}</div>` : '<div class="notice warning">Este cadastro ainda não foi vinculado como publicador pelo Secretário.</div>'
   root.innerHTML = `${moduleTitle('Minha agenda')}${screenTabs()}${loadingAssignments ? '<div class="notice">Atualizando dados dos módulos...</div>' : ''}${adminPersonPicker()}<div class="agenda-toolbar"><button class="btn btn-ghost" id="reportPrev" type="button" aria-label="Mês anterior">‹</button><label class="sr-only" for="reportMonth">Competência do relatório</label><input class="form-input" id="reportMonth" type="month" value="${month}"><button class="btn btn-ghost" id="reportNext" type="button" aria-label="Próximo mês">›</button></div><div class="program-summary ${emptySummary ? 'agenda-summary-empty' : ''}"><div><strong>${serviceReports.length}</strong><span>Relatórios no ano</span></div><div><strong>${studies}</strong><span>Estudos bíblicos</span></div>${pioneerProgress}<div><strong>${year}/${String(year + 1).slice(-2)}</strong><span>Ano de serviço</span></div></div>${reportPanel}<div class="module-option-list">${serviceReports.sort((a, b) => String(b.competencia).localeCompare(String(a.competencia))).map(report => { const presentation = reportPresentation(report, isClosedMonth(String(report.competencia), secretary['fechamentos'])); return `<div class="agenda-event"><time>${esc(String(report.competencia))}</time><div><strong>${report.participou === false ? 'Não participou' : 'Participou no ministério'}</strong><small>${Number(report.estudos) || 0} estudo(s) bíblico(s)${report.horasCampo ? ` · ${report.horasCampo} hora(s)` : ''} · ${esc(presentation.label)}</small></div><span class="agenda-status ${presentation.style}">${esc(presentation.badge)}</span></div>` }).join('') || '<p class="empty-state">Nenhum relatório neste ano de serviço.</p>'}</div>`
   bindScreenTabs(); bindAdminPersonPicker()
   document.getElementById('reportPrev')?.addEventListener('click', () => moveMonth(-1))
@@ -457,13 +477,14 @@ function renderBoard(root: HTMLElement): void {
   if (!meetingDates.some(item => item.date === boardMeetingDate)) { boardMeetingDate = meetingDates[0]?.date ?? ''; persistUiPreferences() }
   const selectedMeeting = meetingDates.find(item => item.date === boardMeetingDate)
   const meetingEvents = boardMeetingEvents(allEvents, selectedMeeting)
+  const hasCleaning = meetingEvents.some(event => event.source === 'limpeza')
   const allDocuments = documents().sort((a, b) => b.criadoEm.localeCompare(a.criadoEm)), periods = publicDocumentMonths(allDocuments)
   if (!periods.includes(boardDocumentPeriod)) { boardDocumentPeriod = periods[0] ?? fortalezaDate().slice(0, 7); persistUiPreferences() }
   const visibleDocuments = groupPublicDocuments(allDocuments, boardDocumentPeriod)
   const meetingSummary = selectedMeeting ? `${labelDate(selectedMeeting.date)} · ${selectedMeeting.kind === 'midweek' ? 'Meio de semana' : 'Fim de semana'}` : 'Nenhuma reunião futura'
   root.innerHTML = `${moduleTitle('Minha agenda')}${screenTabs()}${loadingAssignments ? '<div class="notice">Atualizando designações dos módulos...</div>' : ''}
     <div class="agenda-board-sections">
-      <details class="form-panel agenda-board-card" data-agenda-panel="meetings" ${uiPreferences.board.openPanels.includes('meetings') ? 'open' : ''}><summary><strong>Dados das reuniões</strong><span>${esc(meetingSummary)}</span></summary><div class="agenda-board-body"><label class="form-field"><span>Reunião</span><select id="boardMeetingDate">${meetingDates.map(item => `<option value="${esc(item.date)}" ${item.date === boardMeetingDate ? 'selected' : ''}>${esc(labelDate(item.date))} · ${item.kind === 'midweek' ? 'Meio de semana' : 'Fim de semana'}</option>`).join('') || '<option value="">Nenhuma reunião futura</option>'}</select></label><textarea id="boardInlineDraft" class="form-input" rows="12" maxlength="4000">${esc(announcementMessage(meetingEvents))}</textarea><div class="agenda-actions"><button class="btn btn-ghost" id="boardInlineCopy" type="button">Copiar texto</button><button class="btn btn-primary" id="boardWhatsapp" type="button">Abrir WhatsApp</button></div><p class="form-help">${agendaConfig().quadroWhatsAppLink ? 'O texto será copiado e o grupo configurado no Admin será aberto.' : 'Nenhum grupo foi configurado no Admin; o seletor comum do WhatsApp será aberto.'}</p></div></details>
+      <details class="form-panel agenda-board-card" data-agenda-panel="meetings" ${uiPreferences.board.openPanels.includes('meetings') ? 'open' : ''}><summary><strong>Dados das reuniões</strong><span>${esc(meetingSummary)}</span></summary><div class="agenda-board-body"><label class="form-field"><span>Reunião</span><select id="boardMeetingDate">${meetingDates.map(item => `<option value="${esc(item.date)}" ${item.date === boardMeetingDate ? 'selected' : ''}>${esc(labelDate(item.date))} · ${item.kind === 'midweek' ? 'Meio de semana' : 'Fim de semana'}</option>`).join('') || '<option value="">Nenhuma reunião futura</option>'}</select></label><textarea id="boardInlineDraft" class="form-input" rows="12" maxlength="4000">${esc(boardMeetingMessage(meetingEvents, selectedMeeting))}</textarea><div class="agenda-actions"><button class="btn btn-ghost" id="boardInlineCopy" type="button">Copiar texto</button>${hasCleaning ? '<button class="btn btn-ghost" id="boardCleaningCopy" type="button">Copiar limpeza</button>' : ''}<button class="btn btn-primary" id="boardWhatsapp" type="button">Abrir WhatsApp</button></div><p class="form-help">${hasCleaning ? 'Limpeza fica disponível para cópia e não é incluída na mensagem de WhatsApp.' : ''}${agendaConfig().quadroWhatsAppLink ? ' O texto da reunião será copiado e o grupo configurado no Admin será aberto.' : ' Nenhum grupo foi configurado no Admin; o seletor comum do WhatsApp será aberto.'}</p></div></details>
       <details class="form-panel agenda-board-card" data-agenda-panel="moduleDocuments" ${uiPreferences.board.openPanels.includes('moduleDocuments') ? 'open' : ''}><summary><strong>PDFs dos módulos</strong><span>${Object.keys(visibleDocuments.modules).length} de ${PUBLIC_PDF_MODULES.length}</span></summary><div class="agenda-board-body"><label class="form-field"><span>Período</span><select id="boardDocumentPeriod">${periods.map(period => `<option value="${esc(period)}" ${period === boardDocumentPeriod ? 'selected' : ''}>${esc(formatDocumentMonth(period))}</option>`).join('') || `<option value="${esc(boardDocumentPeriod)}">${esc(formatDocumentMonth(boardDocumentPeriod))}</option>`}</select></label><div class="agenda-module-downloads">${PUBLIC_PDF_MODULES.map(module => moduleDownloadRow(module, visibleDocuments.modules[module])).join('')}</div></div></details>
       <details class="form-panel agenda-board-card" data-agenda-panel="adminDocuments" ${uiPreferences.board.openPanels.includes('adminDocuments') ? 'open' : ''}><summary><strong>Documentos do Admin</strong><span>${visibleDocuments.admin.length}</span></summary><div class="agenda-board-body"><div class="agenda-document-list">${visibleDocuments.admin.map(item => `<a class="agenda-document" href="${esc(item.url)}" target="_blank" rel="noopener noreferrer" download><span><strong>${esc(item.nome)}</strong><small>Publicado em ${esc(labelDate(item.criadoEm.slice(0, 10)))}</small></span><b>Baixar</b></a>`).join('') || '<p class="empty-state">Nenhum documento do Admin neste período.</p>'}</div></div></details>
       ${boardSubscriptionPanel()}
@@ -472,7 +493,8 @@ function renderBoard(root: HTMLElement): void {
   document.getElementById('boardMeetingDate')?.addEventListener('change', event => { boardMeetingDate = (event.target as HTMLSelectElement).value; persistUiPreferences(); render() })
   document.getElementById('boardDocumentPeriod')?.addEventListener('change', event => { boardDocumentPeriod = (event.target as HTMLSelectElement).value; persistUiPreferences(); render() })
   document.getElementById('boardInlineCopy')?.addEventListener('click', () => void navigator.clipboard.writeText((document.getElementById('boardInlineDraft') as HTMLTextAreaElement).value))
-  document.getElementById('boardWhatsapp')?.addEventListener('click', () => openBoardWhatsapp((document.getElementById('boardInlineDraft') as HTMLTextAreaElement).value))
+  document.getElementById('boardCleaningCopy')?.addEventListener('click', () => void navigator.clipboard.writeText(boardCleaningMessage(meetingEvents)))
+  document.getElementById('boardWhatsapp')?.addEventListener('click', () => openBoardWhatsapp(boardMeetingWhatsappMessage(meetingEvents, selectedMeeting)))
   document.querySelectorAll<HTMLButtonElement>('[data-board-document-whatsapp]').forEach(button => {
     button.addEventListener('click', () => {
       const module = button.dataset['boardDocumentWhatsapp'] as PublicPdfModule
@@ -605,6 +627,7 @@ function openReport(): void {
   form.addEventListener('submit', event => {
     event.preventDefault()
     if (timer) return
+    reportSendFailure = ''
     const pendingDraft = currentDraft(); saveReportDraft(masterId, pendingDraft); setFormDisabled(true); cancel.textContent = 'Cancelar envio'; submit.disabled = true
     let remaining = 10; submit.textContent = `Enviando em ${remaining}s`
     timer = setInterval(() => {
@@ -612,7 +635,7 @@ function openReport(): void {
       if (remaining > 0) return
       if (timer) clearInterval(timer); timer = null
       submitting = true; cancel.disabled = true; cancel.textContent = 'Enviando...'
-      void submitPersonalReport(masterId, pendingDraft, overlay).catch(() => { submitting = false; setFormDisabled(false); cancel.disabled = false; cancel.textContent = 'Fechar'; submit.disabled = false; submit.textContent = 'Tentar novamente'; alert('Não foi possível enviar. O rascunho continua salvo neste aparelho.') })
+      void submitPersonalReport(masterId, pendingDraft, overlay).catch(() => { reportSendFailure = 'Não foi possível enviar. O rascunho continua salvo neste aparelho.'; submitting = false; setFormDisabled(false); cancel.disabled = false; cancel.textContent = 'Fechar'; submit.disabled = false; submit.textContent = 'Tentar novamente'; alert(reportSendFailure) })
     }, 1000)
   })
 }
@@ -625,9 +648,10 @@ async function submitPersonalReport(masterId: string, draft: PersonalReportDraft
     })
     const secretary = records(data.secretario), nextReports = { ...records<SecretaryReport>(secretary['relatorios']), [response.report.id]:response.report }
     data.secretario = { ...secretary, relatorios:nextReports }
-    removeReportDraft(masterId, draft.competencia); saveOfflineCache(); overlay.remove(); render(); alert('Relatório enviado. Este mês agora está bloqueado para edição pela pessoa.')
+    reportSendFailure = ''; removeReportDraft(masterId, draft.competencia); saveOfflineCache(); overlay.remove(); render(); alert('Relatório enviado. Este mês agora está bloqueado para edição pela pessoa.')
   } catch (error) {
     if (error instanceof ApiError && error.status === 409) {
+      reportSendFailure = ''
       await load(); overlay.remove(); render()
       alert('A competência foi fechada ou outro relatório já foi recebido. A versão oficial foi mantida.')
       return

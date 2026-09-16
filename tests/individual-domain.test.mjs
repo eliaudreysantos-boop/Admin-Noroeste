@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { agendaMessage, agendaToIcs, announcementMessage, boardMeetingDates, boardMeetingEvents, collectAgendaEvents, collectAnnouncementEvents, eventsInFeedWindow, normalizeAgendaPeople, sanitizeAgendaPeople, upcomingAgendaEvents, validAgendaDate, validAgendaTime } from '../src/modules/individual-domain.ts'
+import { agendaMessage, agendaToIcs, announcementMessage, boardCleaningMessage, boardMeetingDates, boardMeetingEvents, boardMeetingMessage, boardMeetingWhatsappMessage, collectAgendaEvents, collectAnnouncementEvents, eventsInFeedWindow, normalizeAgendaPeople, sanitizeAgendaPeople, upcomingAgendaEvents, validAgendaDate, validAgendaTime } from '../src/modules/individual-domain.ts'
 
 test('ICS inclui fuso e dobra linhas UTF-8 sem perder texto nem identificador', () => {
   const title = 'Reunião com designação e oração '.repeat(12)
@@ -167,7 +167,11 @@ test('quadro de anúncios agrupa designações por pessoa e por origem', () => {
 })
 
 test('dados das reuniões selecionam datas futuras e módulos conforme o tipo', () => {
-  const events = collectAnnouncementEvents(root)
+  const events = [...collectAnnouncementEvents(root),
+    { id:'tarefas:weekend', source:'tarefas', date:'2026-09-13', title:'Presidente', detail:'Reunião do fim de semana', status:'futuro', people:['Ana'] },
+    { id:'tarefas:midweek', source:'tarefas', date:'2026-09-16', title:'Microfone 1', detail:'Reunião do meio de semana', status:'futuro', people:['Bruno'] },
+    { id:'limpeza:midweek', source:'limpeza', date:'2026-09-16', title:'Limpeza - Grupo 1', detail:'Limpeza após a reunião do meio de semana', status:'futuro', people:['Ana'] },
+  ]
   const dates = boardMeetingDates(events, '2026-09-10')
   assert.deepEqual(dates.map(item => [item.date, item.kind]), [
     ['2026-09-10', 'midweek'],
@@ -176,11 +180,24 @@ test('dados das reuniões selecionam datas futuras e módulos conforme o tipo', 
   ])
   const weekend = boardMeetingEvents(events, dates[1])
   assert.equal(weekend.some(item => item.source === 'oradores' && item.title === 'Discurso em outra congregação'), true)
+  assert.equal(weekend.some(item => item.source === 'tarefas'), true)
   assert.equal(weekend.some(item => item.source === 'limpeza'), true)
   assert.equal(weekend.some(item => item.source === 'programacao'), false)
   const midweek = boardMeetingEvents(events, dates[2])
   assert.equal(midweek.some(item => item.source === 'programacao'), true)
+  assert.equal(midweek.some(item => item.source === 'tarefas'), true)
+  assert.equal(midweek.some(item => item.source === 'limpeza'), true)
   assert.equal(midweek.some(item => item.source === 'oradores'), false)
+  const weekendMessage = boardMeetingMessage(weekend, dates[1])
+  assert.match(weekendMessage, /^ORADORES/m)
+  assert.match(weekendMessage, /^TAREFAS/m)
+  assert.match(weekendMessage, /^LIMPEZA/m)
+  assert.match(boardCleaningMessage(weekend), /^LIMPEZA/m)
+  assert.match(boardCleaningMessage(weekend), /Limpeza semanal do Salão do Reino/)
+  assert.doesNotMatch(boardMeetingWhatsappMessage(weekend, dates[1]), /LIMPEZA/)
+  const midweekMessage = boardMeetingMessage(midweek, dates[2])
+  assert.match(midweekMessage, /^TAREFAS/m)
+  assert.match(midweekMessage, /^VIDA E MINISTÉRIO/m)
 })
 
 test('quadro inclui discursos visitantes sem vínculo com o cadastro central', () => {

@@ -3,6 +3,21 @@ import { canonicalReportId, isClosedMonth, isReportLate, matchingReports, record
 import { adminDatabase } from '../lib/subscription-store.ts'
 import { appSession, deviceSession, json, objectBody, validCsrf } from '../lib/secure-session.ts'
 
+interface SecretaryReportIdentity {
+  masterId: string
+  createdBy: 'pessoa' | 'secretario'
+  previousId: string
+  csrfValid?: boolean
+}
+
+interface SecretaryReportStore {
+  transaction(update: (current: unknown) => unknown | undefined, onComplete?: unknown, applyLocally?: boolean): Promise<{ committed: boolean }>
+}
+
+function validSubmissionId(value: unknown): value is string {
+  return typeof value === 'string' && /^[A-Za-z0-9_-]{1,120}$/.test(value)
+}
+
 function cleanReport(value: Record<string, unknown>, masterId: string, category: SecretaryReport['categoria'], createdBy: 'pessoa' | 'secretario', previous?: SecretaryReport): SecretaryReport | null {
   const competence = String(value['competencia'] ?? '')
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(competence)) return null
@@ -25,48 +40,62 @@ function cleanReport(value: Record<string, unknown>, masterId: string, category:
     origem:previous?.origem ?? (createdBy === 'pessoa' ? 'minha_agenda' : 'secretario'),
     createdBy:previous ? reportCreatedBy(previous) : createdBy, lastEditedBy:createdBy,
     status:createdBy === 'pessoa' ? 'enviado' : 'revisado', revision:Math.max(0, Number(previous?.revision) || 0) + 1,
-    ...(typeof value['submissionId'] === 'string' && /^[A-Za-z0-9_-]{1,120}$/.test(value['submissionId']) ? { submissionId:value['submissionId'] } : previous?.submissionId ? { submissionId:previous.submissionId } : {}),
+    ...(validSubmissionId(value['submissionId']) ? { submissionId:value['submissionId'] } : previous?.submissionId ? { submissionId:previous.submissionId } : {}),
   }
 }
 
-export default async (request: Request): Promise<Response> => {
-  if (request.method !== 'POST') return json(405, { error:'Método não permitido.' })
-  const body = await objectBody(request)
+async function requestIdentity(request: Request, body: Record<string, unknown>): Promise<SecretaryReportIdentity | Response | null> {
   const mode = body['mode']
-  let masterId = '', createdBy: 'pessoa' | 'secretario' = 'pessoa', previousId = ''
   if (mode === 'admin') {
     const session = await appSession(request)
     if (!session || (!session.usuario.apps.mestre && !session.usuario.apps.secretario)) return json(403, { error:'Acesso negado.' })
-    if (!validCsrf(request, session)) return json(403, { error:'Validação da sessão ausente.' })
-    masterId = String(body['masterId'] ?? '')
-    previousId = String(body['previousId'] ?? '')
-    createdBy = 'secretario'
-  } else {
-    const device = await deviceSession(request)
-    const session = device ? null : await appSession(request)
-    if (session && !validCsrf(request, session)) return json(403, { error:'Validação da sessão ausente.' })
-    masterId = device?.masterId ?? session?.usuario.masterId ?? ''
-    if (!masterId) return json(403, { error:'Aparelho não pareado.' })
+    return { masterId:String(body['masterId'] ?? ''), previousId:String(body['previousId'] ?? ''), createdBy:'secretario', csrfValid:validCsrf(request, session) }
   }
+  const device = await deviceSession(request)
+  const session = device ? null : await appSession(request)
+  return { masterId:device?.masterId ?? session?.usuario.masterId ?? '', previousId:'', createdBy:'pessoa', csrfValid:session ? validCsrf(request, session) : undefined }
+}
+
+function defaultStore(): SecretaryReportStore {
+  return adminDatabase().ref('secretario')
+}
+
+export async function secretaryReportResponse(
+  request: Request,
+  store: SecretaryReportStore = defaultStore(),
+  identityResolver: (request: Request, body: Record<string, unknown>) => Promise<SecretaryReportIdentity | Response | null> = requestIdentity,
+): Promise<Response> {
+  if (request.method !== 'POST') return json(405, { error:'Método não permitido.' })
+  const body = await objectBody(request)
+  const identity = await identityResolver(request, body)
+  if (identity instanceof Response) return identity
+  if (!identity) return json(403, { error:'Aparelho não pareado.' })
+  if (identity.csrfValid === false) return json(403, { error:'Validação da sessão ausente.' })
+  const { masterId, createdBy, previousId } = identity
+  if (!masterId) return json(403, { error:'Aparelho não pareado.' })
   if (!/^m_[A-Za-z0-9_-]+$/.test(masterId)) return json(400, { error:'Pessoa inválida.' })
 
   try {
-    const reference = adminDatabase().ref('secretario')
     let resultReport: SecretaryReport | null = null
-    const transaction = await reference.transaction(current => {
+    const transaction = await store.transaction(current => {
       const root = records(current), publishers = records<Record<string, unknown>>(root['publicadores'])
       const publisher = Object.values(publishers).find(item => item['masterId'] === masterId && item['ativo'] !== false)
       if (!publisher) return
-      const competence = String(body['report'] && typeof body['report'] === 'object' ? (body['report'] as Record<string, unknown>)['competencia'] ?? '' : '')
+      const rawReport = records(body['report'])
+      const competence = String(rawReport['competencia'] ?? '')
       if (isClosedMonth(competence, root['fechamentos'])) return
       const reports = records<SecretaryReport>(root['relatorios'])
-      if (matchingReports(reports, masterId, competence).some(([id]) => createdBy === 'pessoa' || id !== previousId)) return
+      const existing = matchingReports(reports, masterId, competence)
+      const submissionId = validSubmissionId(rawReport['submissionId']) ? rawReport['submissionId'] : ''
+      const repeated = createdBy === 'pessoa' && submissionId ? existing.find(([, report]) => report.submissionId === submissionId)?.[1] : undefined
+      if (repeated) { resultReport = repeated; return current }
+      if (existing.some(([id]) => createdBy === 'pessoa' || id !== previousId)) return
       const previous = previousId ? reports[previousId] : undefined
       if (previousId && (!previous || previous.masterId !== masterId || previous.competencia !== competence)) return
       const rawCategory = String(publisher['categoria'] ?? 'publicador')
       const categories = new Set<PublisherCategory>(['publicador', 'pioneiro_auxiliar', 'pioneiro_regular', 'pioneiro_especial', 'missionario'])
       const category: PublisherCategory = categories.has(rawCategory as PublisherCategory) ? rawCategory as PublisherCategory : 'publicador'
-      const report = cleanReport(records(body['report']), masterId, category, createdBy, previous)
+      const report = cleanReport(rawReport, masterId, category, createdBy, previous)
       if (!report) return
       const nextReports = { ...reports, [report.id]:report }
       if (previousId && previousId !== report.id) delete nextReports[previousId]
@@ -77,3 +106,5 @@ export default async (request: Request): Promise<Response> => {
     return json(200, { report:resultReport })
   } catch { return json(503, { error:'Não foi possível salvar o relatório.' }) }
 }
+
+export default (request: Request): Promise<Response> => secretaryReportResponse(request)

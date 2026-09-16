@@ -253,6 +253,7 @@ export function announcementMessage(events: AnnouncementEvent[]): string {
 }
 
 function eventMeetingKind(event: AnnouncementEvent): BoardMeetingKind | null {
+  if (event.source === 'tarefas') return /meio de semana/i.test(event.detail) ? 'midweek' : /fim de semana/i.test(event.detail) ? 'weekend' : null
   if (event.source === 'programacao' || /meio de semana/i.test(event.detail)) return 'midweek'
   if (event.source === 'oradores' || /fim de semana|limpeza semanal/i.test(event.detail)) return 'weekend'
   return null
@@ -275,4 +276,36 @@ export function boardMeetingEvents(events: AnnouncementEvent[], selected: BoardM
     ? new Set<AgendaSource>(['tarefas', 'programacao', 'limpeza'])
     : new Set<AgendaSource>(['tarefas', 'oradores', 'limpeza'])
   return events.filter(event => event.date === selected.date && sources.has(event.source))
+}
+
+function boardMeetingText(events: AnnouncementEvent[], selected: BoardMeetingDate | undefined, includeCleaning: boolean): string {
+  if (!selected) return 'Quadro de anúncios Noroeste: nenhuma reunião futura selecionada.'
+  const groups: Array<[string, AgendaSource]> = selected.kind === 'midweek'
+    ? [['TAREFAS', 'tarefas'], ['VIDA E MINISTÉRIO', 'programacao']]
+    : [['ORADORES', 'oradores'], ['TAREFAS', 'tarefas']]
+  if (includeCleaning) groups.push(['LIMPEZA', 'limpeza'])
+  return groups.map(([title, source]) => {
+    const rows = events.filter(event => event.source === source)
+    return `${title}\n${rows.length ? rows.map(eventText).join('\n') : '- Nenhuma designação publicada.'}`
+  }).join('\n\n')
+}
+
+function eventText(event: AnnouncementEvent): string {
+  const line = `${event.time ? `${event.time} · ` : ''}${event.title}`
+  const detail = [event.detail, event.location].filter(Boolean).join(' · ')
+  return `- ${line}${detail ? `\n  ${detail}` : ''}${event.people.length ? `\n  ${event.people.join(', ')}` : ''}`
+}
+
+export function boardMeetingMessage(events: AnnouncementEvent[], selected: BoardMeetingDate | undefined): string {
+  return boardMeetingText(events, selected, true)
+}
+
+export function boardMeetingWhatsappMessage(events: AnnouncementEvent[], selected: BoardMeetingDate | undefined): string {
+  return boardMeetingText(events, selected, false)
+}
+
+export function boardCleaningMessage(events: AnnouncementEvent[]): string {
+  const cleaning = events.filter(event => event.source === 'limpeza')
+  if (!cleaning.length) return 'Limpeza: nenhuma designação publicada para esta reunião.'
+  return `LIMPEZA\n${cleaning.map(eventText).join('\n')}`
 }

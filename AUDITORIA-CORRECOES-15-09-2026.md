@@ -245,3 +245,108 @@ aparelhos reais.
   de VALARM foi constatada antes do deploy; a contagem de alarmes nao foi
   repetida na verificacao posterior e continua pendente de conferencia.
 - Esta atualizacao documental e posterior ao commit; nao esta incluida nele.
+
+## Ambiente de testes separado - 16/09/2026
+
+- O GitHub original permanece como remoto `origin`:
+  `https://github.com/eliaudreysantos-boop/Admin-Noroeste.git`.
+  Ele representa a versao estavel e nao deve receber atualizacoes rotineiras
+  durante os testes finais.
+- Foi criado o remoto `teste`:
+  `https://github.com/ubsjosafamota-blip/Noroeste-testes.git`.
+  A conta `eliaudreysantos-boop` foi adicionada como colaboradora para permitir
+  os envios sem trocar as credenciais locais do Git.
+- O repositorio de testes estava vazio. Recebeu o historico atual na branch
+  `main`, incluindo o commit `ff1bf8a` que registra o deploy e a verificacao
+  do calendario. A branch local acompanha `teste/main`.
+- Novos commits e deploys de homologacao seguem para `teste`. Antes de encerrar
+  o projeto, revisar a diferenca entre `origin/main` e `teste/main`, executar
+  a auditoria final e enviar somente o conjunto aprovado ao GitHub original.
+- O site atual `admin-noroeste.netlify.app` e seu projeto Netlify nao foram
+  desvinculados, apagados ou alterados por esta separacao. Vincular uma nova
+  conta/projeto Netlify ao repositorio `teste` permanece como proximo passo
+  externo, quando o Admin entrar nessa conta.
+
+## Continuidade em novo chat
+
+- Worktree ativa: `C:\Users\eliau\.codex\worktrees\cb2a\admin-spa`.
+- Branch ativa: `codex/indexar-projeto-com-graphify`, acompanhando
+  `teste/main`. O remoto `origin` continua reservado para a versao estavel.
+- Nao fazer commit, push ou deploy sem autorizacao expressa do Admin.
+- Ha alteracoes locais ainda sem commit: consolidacao de `Dados das reunioes`
+  na Minha Agenda e esta atualizacao documental. Antes de qualquer commit,
+  conferir `git status` e validar o diff completo.
+- Tarefa implementada e aguardando validacao: no Quadro da Minha Agenda, o
+  seletor de reuniao usa as datas futuras; fim de semana consolida Oradores,
+  Tarefas e Limpeza; meio de semana consolida Tarefas, Vida e Ministerio e
+  Limpeza. `Copiar texto` copia o conjunto, `Copiar limpeza` copia somente a
+  parte de Limpeza e o WhatsApp exclui Limpeza.
+- Proximo trabalho planejado: configurar um Netlify de testes ligado ao
+  remoto `teste`, concluir a auditoria de confiabilidade e somente depois
+  iniciar a fase de Relatorios da Minha Agenda. A homologacao real de ICS no
+  Google Agenda e Apple Calendar deve ficar por ultimo, apos o ambiente de
+  testes estar publicado.
+- Ao retomar, ler primeiro este arquivo, `O-QUE-FALTA-ADMIN-SPA.md`,
+  `PENDENCIAS-FINAIS-ADMIN-SPA.md` e, para calendario,
+  `C:\Users\eliau\Downloads\HOMOLOGACAO-ICS-DADOS-E-APARELHOS.md`.
+
+## Continuidade de Minha Agenda - 16/09/2026
+
+- `Copiar limpeza` passou a usar a mesma formatacao detalhada dos itens do
+  quadro, incluindo detalhe/local quando existirem, em vez de copiar apenas
+  titulo e nomes.
+- Validacao local concluida sem commit, push ou deploy: `npm run test:individual`
+  com 44 testes aprovados, `npm run test:all` com 213 testes aprovados e
+  `npm run build` aprovado. O build manteve apenas o aviso conhecido de chunks
+  acima de 500 kB.
+
+## Fase de Relatorios da Minha Agenda - 16/09/2026
+
+- A tela `Relatorio` ganhou um card explicito para a competencia selecionada,
+  exibindo `Disponivel para envio`, `Rascunho local`, `Enviado`, `Ajustado`,
+  `Secretario`, `Mes fechado` ou `Falha no envio`, conforme o estado real.
+- O rascunho local mostra um resumo antes da abertura do modal e continua
+  isolado no aparelho. Falha de envio preserva o rascunho e deixa a situacao
+  visivel na tela.
+- A Function `secretary-report` passou a ter uma entrada testavel e aceita
+  reenvio idempotente da mesma `submissionId`, devolvendo o relatorio oficial ja
+  gravado sem criar duplicidade. Envio concorrente com outra `submissionId`
+  continua recebendo `409` e nao sobrescreve o registro existente.
+- O site de testes `https://noroeste-testes.netlify.app/` respondeu HTTP 200 em
+  `/` e `/agenda/`. A Function `auth-users` respondeu 503 neste ambiente, entao
+  a homologacao publicada ainda depende de revisar variaveis/acesso do projeto
+  Netlify de testes.
+- O CLI local da Netlify ainda esta vinculado ao projeto `admin-noroeste`, nao
+  ao projeto `noroeste-testes`; por isso nenhum deploy foi executado nesta
+  continuidade.
+- Diagnostico do ambiente de testes: `netlify sites:list` na conta atual nao
+  lista `noroeste-testes` e `netlify api getSite --data
+  '{"site_id":"noroeste-testes"}'` retornou `Not Found`. A conta/token atual
+  consegue administrar `admin-noroeste`, mas nao o projeto de testes informado
+  em `https://app.netlify.com/projects/noroeste-testes/overview`.
+- A Function `auth-users` funciona em `admin-noroeste` e falha com 503 em
+  `noroeste-testes`. Como `netlify/lib/subscription-store.ts` depende de
+  `FIREBASE_DATABASE_URL` e `FIREBASE_SERVICE_ACCOUNT_JSON`, o proximo passo
+  externo e conferir/adicionar essas variaveis no projeto Netlify de testes ou
+  entrar no CLI com uma conta/equipe que tenha acesso a ele.
+- Passo 1 concluido: o CLI foi autorizado com a conta `ubsjosafamota@gmail.com`
+  na equipe `Testes`, o projeto `noroeste-testes` ficou visivel e a worktree
+  local foi vinculada ao site id `3466dae2-35fb-499d-82c1-21084ec276cd`.
+- Apos o vinculo, `netlify status` confirmou `Current project:
+  noroeste-testes`. A listagem segura das variaveis de producao nao retornou
+  nomes configurados e `auth-users` continuou falhando com 503; o proximo passo
+  e configurar as variaveis Firebase no Netlify de testes antes de publicar
+  qualquer nova versao.
+- Depois da criacao das variaveis em `noroeste-testes`, `netlify env:list`
+  passou a listar `FIREBASE_DATABASE_URL` e `FIREBASE_SERVICE_ACCOUNT_JSON`.
+  O CLI mascara valores marcados como secretos, entao a URL aparecia como
+  `****************.com` nas leituras por contexto/escopo. Com o arquivo local
+  de conta de servico baixado do Firebase e a URL
+  `https://oradoress2-default-rtdb.firebaseio.com`, a leitura local de
+  `usuarios` funcionou e retornou 2 usuarios ativos. Como `auth-users`
+  continuou retornando 503 no site publicado, o proximo passo e redeployar
+  somente o projeto de testes para carregar as variaveis novas nas Functions.
+- Validacao local: `npm run test:secretario` com 26 testes aprovados,
+  `npm run test:individual` com 44 testes aprovados, `npm run test:all` com
+  216 testes aprovados e `npm run build` aprovado. O build manteve apenas o
+  aviso conhecido de chunks acima de 500 kB.
