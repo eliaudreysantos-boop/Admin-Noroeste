@@ -208,7 +208,7 @@ aparelhos reais.
   horizontal e com rollback de publicacao.
 - [x] `tests/escala-browser.mjs`: desktop e celular sem erro, com rollback,
   bloqueio historico e layout responsivo.
-- [ ] Commit e deploy, somente apos autorizacao do Admin.
+- [x] Commit e deploy autorizados e concluidos em 16/09/2026: `5d762d3`.
 
 ## Atualizacao de 16/09: layouts e calendario
 
@@ -222,12 +222,26 @@ aparelhos reais.
   e locais TPL alinhado entre feed, agenda-data e Minha Agenda administrativa.
 - Comandos de assinatura passaram a usar apiJson, enviando validacao da sessao
   que estava faltando no acesso pelos modulos. Google e Apple tem links separados.
-- Link real consultado sem login: HTTP 200, 13 eventos, 13 UIDs distintos.
-  Versao publicada ainda sem VTIMEZONE, com dez linhas longas e sem VALARM.
-  Causa exata da falha no aparelho nao comprovada. Homologacao depende de
-  publicar as correcoes autorizadamente e testar nos calendarios reais.
+- Link real antes do deploy: HTTP 200, 13 eventos, 13 UIDs distintos,
+  sem VTIMEZONE, com dez linhas longas e sem VALARM.
+- Apos o deploy: HTTP 200, text/calendar, 13 eventos, um VTIMEZONE,
+  nenhuma linha acima de 75 octetos e nenhum LF sem CR. Formato corrigido
+  confirmado em producao; falta homologar assinatura e alertas nos aparelhos.
 - test:all, testes focados e build aprovados. PDFs renderizados e inspecionados.
   Browser desktop/celular com APIs simuladas; sem alterar Firebase real.
 - Detalhes em C:/Users/eliau/Downloads/AUDITORIA-TRANSVERSAL-AJUSTES.md.
   Permanecem auditoria mobile global, latencia e reproducao da falha de
-  publicacao em producao. Sem commit, push ou deploy nesta rodada.
+  publicacao de PDFs em producao. Nenhuma escrita nos dados do Firebase.
+
+### Publicacao confirmada
+
+- Commit: `5d762d3ef33ba5232325ceb6baee2cadde71b11d`.
+- Push para `main` no GitHub; deploy automatico conectado do Netlify.
+- Deploy: `6aaab443e28bf30008d434bc`, estado `ready`, publicado em
+  16/09/2026 as 12:23:12 (America/Fortaleza).
+- https://admin-noroeste.netlify.app/agenda/ respondeu HTTP 200.
+- Proximo passo: repetir assinatura no Google Agenda e Apple Calendar,
+  conferir horarios, atualizacao, remocao de eventos e lembretes. A ausencia
+  de VALARM foi constatada antes do deploy; a contagem de alarmes nao foi
+  repetida na verificacao posterior e continua pendente de conferencia.
+- Esta atualizacao documental e posterior ao commit; nao esta incluida nele.
