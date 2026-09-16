@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { accountingMonth, activityByServiceYear, archiveCanBeDeleted, attendanceByMonth, canonicalReportId, duplicateReportGroups, isClosedMonth, isReportLate, matchingReports, monthsInServiceYear, normalizePersonalReport, pendingPublishers, preparePersonalReportCommit, publisherReportState, reportCreatedBy, reportLastEditedBy, serviceYearStart, summarizeCongregation, validSecretaryDate, validSecretaryMonth } from '../src/modules/secretario-domain.ts'
+import { accountingMonth, activityByServiceYear, archiveCanBeDeleted, attendanceByMonth, canonicalReportId, duplicateReportGroups, firstOpenCompetence, isClosedMonth, isReportLate, matchingReports, monthsInServiceYear, normalizePersonalReport, pendingPublishers, preparePersonalReportCommit, publisherReportState, reportCreatedBy, reportLastEditedBy, serviceYearStart, summarizeCongregation, validSecretaryDate, validSecretaryMonth } from '../src/modules/secretario-domain.ts'
 
 const report = (id, overrides = {}) => ({ id, masterId: id, competencia: '2026-08', categoria: 'publicador', participou: true, estudos: 1, horasCampo: 0, horasAtividadeAprovada: 0, creditoHoras: 0, pioneiroAuxiliar: false, observacoes: '', atrasado: false, recebidoEm: '2026-09-03', atualizadoEm: '', ...overrides })
 
@@ -42,6 +42,27 @@ test('assistência calcula totais e médias e protege o único S-21', () => {
   assert.deepEqual(values[0], { month: '2026-09', meetings: 2, total: 163, average: 82 })
   assert.equal(archiveCanBeDeleted('one', { one: { tipo: 'S-21' } }), false)
   assert.equal(archiveCanBeDeleted('one', { one: { tipo: 'S-21' }, two: { tipo: 'S-21' } }), true)
+})
+
+test('competencia aberta atravessa ano de servico e avanca apos fechamento', () => {
+  const closings = { '2026-08': { fechado: false } }
+  assert.equal(firstOpenCompetence('2026-10', closings), '2026-08')
+  closings['2026-08'] = { fechadoEm: '2026-10-01' }
+  assert.equal(firstOpenCompetence('2026-10', closings), '2026-09')
+  closings['2026-09'] = { fechadoEm: '2026-10-02' }
+  assert.equal(firstOpenCompetence('2026-10', closings), '2026-10')
+  assert.equal(firstOpenCompetence('2026-10', {}, ['2026-08']), '2026-08')
+  assert.equal(firstOpenCompetence('2026-10', {}), '2026-10')
+})
+
+test('abre na primeira competência do ano de serviço que ainda não foi fechada', () => {
+  const closings = {
+    '2026-09': { fechadoEm:'2026-10-10' },
+    '2026-10': { fechadoEm:'2026-11-10' },
+  }
+  assert.equal(firstOpenCompetence('2027-01', closings), '2026-11')
+  assert.equal(firstOpenCompetence('2026-09', {}), '2026-09')
+  assert.equal(firstOpenCompetence('valor-invalido', {}), 'valor-invalido')
 })
 
 test('relatório pessoal respeita a categoria, normaliza dados e identifica mês fechado', () => {

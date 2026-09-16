@@ -1,5 +1,6 @@
 import type { AppContext, RawPessoas } from '../types'
-import { child, escalaRef, get, pessoasRef, update } from '../firebase'
+import { apiJson } from '../secure-api.ts'
+import { child, compareAndUpdate, escalaRef, get, pessoasRef, update } from '../firebase'
 import { renderMenuCards, type ItemMenu } from '../ui/menu-cards'
 import { moduleBackButton } from '../ui/module-header'
 import {
@@ -33,6 +34,8 @@ interface Data {
 
 let context: AppContext
 let participants: Participants = {}, pessoas: RawPessoas = {}, locals: Locals = {}
+let rawParticipants: Participants = {}
+const participantBaselines = new WeakMap<HTMLElement, Participants>()
 let historicalSnapshots: Record<string, EscalaPublishedSnapshot> = {}
 let availability: EscalaAvailability = {}, tables: EscalaTables = {}, blocks: EscalaBlocks = {}
 let exclusions: Record<string, string[]> = {}, settings: Settings = {}, greetings: Greetings = {}
@@ -42,6 +45,7 @@ let tab: Tab = 'indice'
 let pendingParticipantId = ''
 const scalePdfPreview = new PublicationPreviewGate()
 let changingPublication = false
+let loadPromise: Promise<boolean> | null = null
 const monthLocked = (month = selectedMonth) => isPublishedMonth(month, publishedMonth, publishedMonths)
 
 function scalePdfInput(): Parameters<typeof createScaleSchedulePdf>[0] {
@@ -78,12 +82,17 @@ function input(localId = selectedLocalId): EscalaGenerationInput {
 }
 
 export default function mount(ctx: AppContext): void {
-  context = ctx; tab = 'indice'; selectedLocalId = ''; selectedParticipantId = ''
+  context = ctx; tab = 'indice'; selectedLocalId = ''; selectedParticipantId = ''; loadPromise = null
+  participants = {}; pessoas = {}; locals = {}; historicalSnapshots = {}; availability = {}; tables = {}; blocks = {}; exclusions = {}; settings = {}; greetings = {}; publishedMonth = ''; publishedMonths = {}
   document.getElementById('appContent')!.innerHTML = '<div id="escalaRoot"><div id="escalaContent"></div></div>'
-  void load()
+  render()
+  void ensureLoaded()
 }
-async function load(): Promise<void> {
-  root().innerHTML = '<p class="empty-state">Carregando Escala TPL...</p>'
+function ensureLoaded(): Promise<boolean> {
+  loadPromise ??= load()
+  return loadPromise
+}
+async function load(): Promise<boolean> {
   try {
     const [snap, peopleSnap] = await Promise.all([get(escalaRef), get(pessoasRef)])
     const data = snap.exists() ? snap.val() as Data : {}
@@ -95,6 +104,7 @@ async function load(): Promise<void> {
     selectedMonth = isValidMonth(savedMonth ?? '') ? savedMonth! : monthNow()
     pessoas = peopleSnap.exists() ? peopleSnap.val() as RawPessoas : {}
     const rawProfiles = data.participants ?? {}
+    rawParticipants = structuredClone(rawProfiles)
     participants = Object.fromEntries(Object.entries(rawProfiles).map(([id, profile]) => {
       const mid = profile.masterId ?? (pessoas[id] ? id : '')
       const central = pessoas[mid]
@@ -104,10 +114,14 @@ async function load(): Promise<void> {
     const savedLocal = localStorage.getItem(ESCALA_LOCAL_KEY) ?? ''
     selectedLocalId = locals[savedLocal] ? savedLocal : orderedLocals()[0]?.[0] ?? ''
     selectedParticipantId = orderedPeople(true)[0]?.[0] ?? ''
-  } catch (error) { console.error(error); toast('Não foi possível carregar a Escala TPL'); root().innerHTML = '<p class="empty-state">Não foi possível carregar a Escala TPL. Volte aos módulos e tente novamente.</p>'; return }
-  render()
+  } catch (error) { console.error(error); toast('Não foi possível carregar a Escala TPL'); return false }
+  return true
 }
-function go(next: Tab): void { tab = next; render() }
+async function go(next: Tab): Promise<void> {
+  root().innerHTML = `${moduleBackButton()}<p class="empty-state">Carregando dados...</p>`
+  if (!await ensureLoaded()) { root().innerHTML = `${moduleBackButton()}<p class="empty-state">Não foi possível carregar a Escala TPL. Volte aos módulos e tente novamente.</p>`; return }
+  tab = next; render()
+}
 function render(): void {
   if (tab === 'indice') renderIndex()
   else if (tab === 'locais') renderLocais()
@@ -130,7 +144,7 @@ function renderIndex(): void {
     { id: 'pendencias', titulo: 'Pendências', subtitulo: 'Conflitos e dados que precisam de atenção', icone: '!', corFundo: '#B3261E' },
     { id: 'config', titulo: 'Configuração', subtitulo: 'Disponibilidade, exceções e impressão', icone: '⚙', corFundo: '#5C6062' },
   ]
-  renderMenuCards(root().querySelector<HTMLElement>('#escalaMenu')!, items, id => go(id as Tab))
+  renderMenuCards(root().querySelector<HTMLElement>('#escalaMenu')!, items, id => { void go(id as Tab) })
 }
 
 function periodControls(local = true): string {
@@ -239,43 +253,60 @@ function participantModal(id: string): void {
   const overlay = document.createElement('div'); overlay.className = 'modal-overlay'
   overlay.innerHTML = `<div class="modal"><h2>${isNew ? 'Adicionar participante' : esc(name(id))}</h2>${isNew ? `<div class="form-group"><label class="form-label">Pessoa do cadastro Admin</label><select id="pmMaster" class="form-select"><option value="">Selecionar pelo nome ou ID...</option>${masterOptions}</select></div>` : `<div class="form-help" style="margin-bottom:12px">Nome e WhatsApp vêm do cadastro Admin (${esc(phoneOf(id) || 'sem WhatsApp')}) — edite lá se precisar mudar.</div>`}<div class="module-form-grid"><div class="form-group"><label class="form-label">Máximo/mês (0 sem limite)</label><input id="pmCap" class="form-input" type="number" min="0" max="99" value="${Number(p.capPerMonth ?? 0)}"></div><div class="form-group"><label class="form-label">Participa a partir de</label><input id="pmStart" class="form-input" type="date" value="${esc(p.startFromDate ?? '')}"></div><div class="form-group"><label class="form-label">Referência da folga</label><input id="pmFolga" class="form-input" type="date" value="${esc(p.refFolgaDate ?? '')}"></div><div class="form-group"><label class="form-label">Só participa com</label><select id="pmOnly" class="form-select"><option value="">Sem restrição</option>${orderedPeople(true).filter(([other]) => other !== id).map(([other]) => `<option value="${esc(other)}" ${p.onlyWithId === other ? 'selected' : ''}>${esc(name(other))}</option>`).join('')}</select></div></div><div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px"><label><input id="pmActive" type="checkbox" ${p.active !== false ? 'checked' : ''}> Ativo na Escala</label><label><input id="pmPioneer" type="checkbox" ${p.pioneer ? 'checked' : ''}> Pioneiro</label><label><input id="pmChild" type="checkbox" ${p.withChild ? 'checked' : ''}> Acompanha criança</label><label><input id="pmSame" type="checkbox" ${p.sameSexOnly ? 'checked' : ''}> Mesmo sexo</label></div><div class="form-group"><label class="form-label">Observação da Escala</label><textarea id="pmObs" class="form-input">${esc(p.obs ?? '')}</textarea></div><div style="display:flex;gap:8px">${isNew ? '' : '<button id="pmRemove" class="btn btn-danger" type="button">Remover da Escala</button>'}<span style="flex:1"></span><button id="pmCancel" class="btn btn-ghost">Cancelar</button><button id="pmSave" class="btn btn-primary">Salvar</button></div></div>`
   document.body.appendChild(overlay)
+  participantBaselines.set(overlay, structuredClone(rawParticipants))
   document.getElementById('pmCancel')!.addEventListener('click', () => overlay.remove())
   document.getElementById('pmSave')!.addEventListener('click', () => void saveParticipant(id, overlay))
   document.getElementById('pmRemove')?.addEventListener('click', () => void removeParticipant(id, overlay))
 }
 async function saveParticipant(id: string, overlay: HTMLElement): Promise<void> {
+  const button = overlay.querySelector<HTMLButtonElement>('#pmSave')!
+  const removeButton = overlay.querySelector<HTMLButtonElement>('#pmRemove')
+  if (button.disabled) return
   if (!isAdmin()) { toast('Somente o Admin pode editar participantes'); return }
-  const value = (target: string) => (document.getElementById(target) as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value
+  const value = (target: string) => (overlay.querySelector(`#${target}`) as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value
   const mid = id ? centralId(id) : (document.getElementById('pmMaster') as HTMLSelectElement).value
   if (!mid || !pessoas[mid]) { toast('Selecione uma pessoa do cadastro Admin'); return }
   const target = id || mid
   const activeNow = (document.getElementById('pmActive') as HTMLInputElement).checked
   const onlyWithId = value('pmOnly') || undefined
   const profile = { ...(target === mid ? {} : { masterId: mid }), capPerMonth: Math.min(99, Math.max(0, Number(value('pmCap')) || 0)), startFromDate: value('pmStart'), refFolgaDate: value('pmFolga'), onlyWithId: onlyWithId ?? null, active: activeNow, pioneer: (document.getElementById('pmPioneer') as HTMLInputElement).checked, withChild: (document.getElementById('pmChild') as HTMLInputElement).checked, sameSexOnly: (document.getElementById('pmSame') as HTMLInputElement).checked, obs: value('pmObs').trim(), updatedAt: now() }
+  button.disabled = true
+  if (removeButton) removeButton.disabled = true
   try {
     const dependentIds = activeNow ? [] : participantReferencesTo(target)
     const patch = Object.fromEntries(Object.entries(profile).map(([key, field]) => [`participants/${target}/${key}`, field]))
     dependentIds.forEach(otherId => { patch[`participants/${otherId}/onlyWithId`] = null })
-    await update(escalaRef, patch)
+    const baseline = participantBaselines.get(overlay) ?? {}
+    const expected = Object.fromEntries(Object.keys(patch).map(path => {
+      const [, participantId, field] = path.split('/')
+      return [path, (baseline[participantId!] as unknown as Record<string, unknown> | undefined)?.[field!] ?? null]
+    }))
+    await compareAndUpdate(escalaRef, expected, patch)
+    rawParticipants[target] = { ...rawParticipants[target], ...profile, onlyWithId }
     participants[target] = { ...participants[target], ...profile, onlyWithId, name: pessoas[mid].name, sex: pessoas[mid].sex ?? '', phone: pessoas[mid].whatsapp ?? '' }
-    dependentIds.forEach(otherId => { participants[otherId]!.onlyWithId = undefined })
-    overlay.remove(); toast('Participante salvo'); renderParticipants()
-  } catch { toast('Não foi possível salvar') }
+    dependentIds.forEach(otherId => { participants[otherId]!.onlyWithId = undefined; if (rawParticipants[otherId]) rawParticipants[otherId]!.onlyWithId = undefined })
+    const stillOpen = overlay.isConnected
+    overlay.remove(); toast('Participante salvo'); if (stillOpen && tab === 'participantes') renderParticipants()
+  } catch (error) { toast(error instanceof Error ? error.message : 'Não foi possível salvar') }
+  finally { button.disabled = false; if (removeButton) removeButton.disabled = false }
 }
 async function removeParticipant(id: string, overlay: HTMLElement): Promise<void> {
+  const removeButton = overlay.querySelector<HTMLButtonElement>('#pmRemove')!
+  const saveButton = overlay.querySelector<HTMLButtonElement>('#pmSave')!
+  if (removeButton.disabled || saveButton.disabled) return
   const uses = Object.values(tables).reduce((sum, byMonth) => sum + Object.values(byMonth).reduce((s, table) => s + Object.values(table.rows ?? {}).reduce((n, row) => n + Object.values(row.slots ?? {}).filter(cell => cell.p1 === id || cell.p2 === id).length, 0), 0), 0)
   if (uses) { toast(`${name(id)} aparece em ${uses} horário(s). Inative o participante antes de removê-lo.`); return }
   if (!confirm(`Remover ${name(id)} da Escala?`)) return
+  removeButton.disabled = true; saveButton.disabled = true
   try {
-    const patch: Record<string, unknown> = { [`participants/${id}`]: null }
-    Object.keys(availability).forEach(localId => { patch[`availability/${localId}/${id}`] = null })
     const dependentIds = participantReferencesTo(id)
-    dependentIds.forEach(otherId => { patch[`participants/${otherId}/onlyWithId`] = null })
-    await update(escalaRef, patch)
-    delete participants[id]; Object.keys(availability).forEach(localId => { delete availability[localId]?.[id] })
-    dependentIds.forEach(otherId => { participants[otherId]!.onlyWithId = undefined })
-    overlay.remove(); toast('Participante removido da Escala'); renderParticipants()
-  } catch { toast('Não foi possível remover') }
+    await apiJson('workflow-transition', { method:'POST', body:JSON.stringify({ action:'remove-participant', key:id, expected:participantBaselines.get(overlay)?.[id] ?? null }) })
+    delete participants[id]; delete rawParticipants[id]; Object.keys(availability).forEach(localId => { delete availability[localId]?.[id] })
+    dependentIds.forEach(otherId => { participants[otherId]!.onlyWithId = undefined; if (rawParticipants[otherId]) rawParticipants[otherId]!.onlyWithId = undefined })
+    const stillOpen = overlay.isConnected
+    overlay.remove(); toast('Participante removido da Escala'); if (stillOpen && tab === 'participantes') renderParticipants()
+  } catch (error) { toast(error instanceof Error ? error.message : 'Não foi possível remover') }
+  finally { removeButton.disabled = false; saveButton.disabled = false }
 }
 function participantReferencesTo(id: string): string[] {
   return Object.entries(participants)

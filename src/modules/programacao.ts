@@ -1,11 +1,11 @@
 import type { AppContext, RawPessoas } from '../types'
-import { configCongregacaoRef, configReunioesRef, get, pessoasRef, programacaoRef, update } from '../firebase'
+import { child, compareAndSet, configCongregacaoRef, configReunioesRef, get, pessoasRef, programacaoRef, update } from '../firebase'
 import { renderMenuCards, type ItemMenu } from '../ui/menu-cards'
 import { moduleBackButton } from '../ui/module-header'
 import { mountModuleMessageSettings } from './module-message-settings'
 import {
   ASSIGNMENT_PERMISSIONS, assignmentConflicts, assistantNeedsSameSex, bimesters, candidates,
-  eligible, filterPrograms, isOfficialJwUrl, mergeImportedProgram, parseOfficialProgram,
+  completeMeetingRoles, eligible, filterPrograms, isOfficialJwUrl, mergeImportedProgram, parseOfficialProgram,
   permissionForPart, programPendings, programReminderEntries, reminderMessage, suggestAssignments,
   validProgramDate,
   type AssignmentPermission, type AssignmentStatus, type MeetingProgram, type ProgramPart, type ProgramPerson, type ProgramReminderEntry, type ProgramSection, type WeekType,
@@ -43,9 +43,11 @@ let profiles: Record<string, StoredPerson> = {}
 let settings: Settings = {}
 let congregation = 'Noroeste'
 let editingWeek = ''
+let weekOriginal: MeetingProgram | null = null
 let pendingPartId = ''
 let periodMode: PeriodMode = 'bimester'
 let periodAnchor = today()
+let loadPromise: Promise<boolean> | null = null
 
 const root = () => document.getElementById('programacaoContent')!
 const now = () => new Date().toISOString()
@@ -102,16 +104,24 @@ export function normalizePrograms(value: Record<string, MeetingProgram>): Record
 }
 
 export default function mount(_context: AppContext): void {
-  tab = 'indice'; editingWeek = ''
-  document.getElementById('appContent')!.innerHTML = '<div id="programacaoRoot"><div id="programacaoContent"><p class="empty-state">Carregando...</p></div></div>'
-  void load()
+  tab = 'indice'; editingWeek = ''; pendingPartId = ''; weekOriginal = null
+  data = {}; masterPeople = {}; programs = {}; profiles = {}; settings = {}; congregation = 'Noroeste'
+  loadPromise = null
+  document.getElementById('appContent')!.innerHTML = '<div id="programacaoRoot"><div id="programacaoContent"></div></div>'
+  render()
+  void ensureLoaded()
 }
 
-async function load(): Promise<void> {
+function ensureLoaded(): Promise<boolean> {
+  loadPromise ??= load()
+  return loadPromise
+}
+
+async function load(): Promise<boolean> {
   try {
     const [programSnap, peopleSnap, congregationSnap, meetingsSnap] = await Promise.all([get(programacaoRef), get(pessoasRef), get(configCongregacaoRef), get(configReunioesRef)])
     data = programSnap.exists() ? programSnap.val() as ProgramData : {}
-    programs = normalizePrograms(data.programs ?? data.semanas ?? {})
+    programs = normalizePrograms(structuredClone(data.programs ?? data.semanas ?? {}))
     profiles = data.pessoas ?? {}
     settings = data.settings ?? {}
     masterPeople = peopleSnap.exists() ? peopleSnap.val() as RawPessoas : {}
@@ -119,11 +129,23 @@ async function load(): Promise<void> {
     congregation = congregationData.nome?.trim() || 'Noroeste'
     const meetingData = meetingsSnap.exists() ? meetingsSnap.val() as { meiaDeSemana?: { horario?: string } } : {}
     if (!settings.meetingTime && meetingData.meiaDeSemana?.horario) settings.meetingTime = meetingData.meiaDeSemana.horario
-  } catch (error) { console.error(error); root().innerHTML = '<div class="notice warning">Não foi possível carregar Vida e Ministério. Tente novamente.</div>'; toast('Não foi possível carregar Vida e Ministério'); return }
+  } catch (error) { console.error(error); toast('Não foi possível carregar Vida e Ministério'); return false }
+  if (tab === 'indice') renderIndex()
+  return true
+}
+
+async function openProgramTab(nextTab: Tab): Promise<void> {
+  root().innerHTML = '<p class="empty-state">Carregando dados...</p>'
+  if (!await ensureLoaded()) {
+    root().innerHTML = '<div class="notice warning">Não foi possível carregar Vida e Ministério. Tente novamente.</div>'
+    return
+  }
+  tab = nextTab
   render()
 }
 
 function render(): void {
+  if (tab !== 'programa') discardWeekDraft()
   if (tab === 'indice') renderIndex()
   else if (tab === 'programa') renderPrograms()
   else if (tab === 'apostilas') renderImports()
@@ -145,7 +167,7 @@ function renderIndex(): void {
     { id: 'pendencias', titulo: 'Pendências', subtitulo: 'Designações, conflitos e entregas', icone: '!', corFundo: '#B3261E' },
     { id: 'config', titulo: 'Configuração', subtitulo: 'Horário, salas e texto de lembrete', icone: '⚙', corFundo: '#5C6062' },
   ]
-  renderMenuCards(root().querySelector<HTMLElement>('#programacaoMenu')!, items, id => { tab = id as Tab; render() })
+  renderMenuCards(root().querySelector<HTMLElement>('#programacaoMenu')!, items, id => { void openProgramTab(id as Tab) })
 }
 
 function title(text: string): string { return `<div style="margin-bottom:14px">${moduleBackButton()}<h2 style="font-size:1.05rem;color:var(--blue-deep)">${esc(text)}</h2></div>` }
@@ -165,7 +187,7 @@ function renderPrograms(): void {
   const pending = total - assigned
   root().innerHTML = `${title('Programa')}<div class="program-summary" aria-label="Resumo do período"><div><strong>${total}</strong><span>Partes</span></div><div><strong>${assigned}</strong><span>Designadas</span></div><div class="${pending ? 'is-pending' : ''}"><strong>${pending}</strong><span>Pendentes</span></div></div>${periodControls()}<div class="program-week-list">${list.length ? list.map(program => weekRow(program)).join('') : '<p class="empty-state">Nenhuma semana neste período.</p>'}</div><div id="weekEditor" style="margin-top:12px"></div>`
   bindPeriod(renderPrograms)
-  document.querySelectorAll<HTMLButtonElement>('[data-week]').forEach(button => button.addEventListener('click', () => { editingWeek = button.dataset['week']!; renderPrograms() }))
+  document.querySelectorAll<HTMLButtonElement>('[data-week]').forEach(button => button.addEventListener('click', () => { const next = button.dataset['week']!; if (next !== editingWeek) discardWeekDraft(); editingWeek = next; renderPrograms() }))
   if (editingWeek) {
     renderEditor(editingWeek)
     const part = programs[editingWeek]?.parts.find(item => item.id === pendingPartId)
@@ -235,12 +257,37 @@ function substituteOptions(part: ProgramPart, selected: string): string {
   return `<option value="">Sem substituição</option>${people.map(person => `<option value="${esc(person.id)}" ${person.id === selected ? 'selected' : ''}>${esc(person.name)}${person.active ? '' : ' · inativo (histórico)'}</option>`).join('')}`
 }
 
+function discardWeekDraft(): void {
+  if (weekOriginal) programs[weekOriginal.id] = weekOriginal
+  weekOriginal = null
+  editingWeek = ''
+}
+
 function renderEditor(id: string): void {
   const host = document.getElementById('weekEditor'), program = programs[id]
   if (!host || !program) return
+  if (!weekOriginal) weekOriginal = structuredClone(program)
   host.innerHTML = `<div class="form-panel"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><div><strong>${esc(formatDate(program.meetingDate))}</strong><div class="form-help">${esc(program.bibleReading || 'Leitura bíblica não informada')}</div></div><button id="closeWeek" class="btn btn-ghost">Fechar</button></div><div class="module-form-grid" style="margin-top:10px"><div class="form-group"><label class="form-label">Tipo da semana</label><select id="weekType" class="form-select">${Object.entries(typeLabels).map(([value, label]) => `<option value="${value}" ${value === (program.type ?? 'normal') ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select></div><div class="form-group"><label class="form-label">Leitura bíblica</label><input id="weekBible" class="form-input" value="${esc(program.bibleReading)}"></div><div class="form-group"><label class="form-label">Conselheiro assistente</label><select id="weekCounselor" class="form-select">${permissionOptions('conselheiro-assistente', program.counselorPersonId ?? '')}</select></div></div><div id="partsEditor" class="program-section-list">${sectionOrder.map(section => sectionEditor(program, section)).join('')}</div><div style="display:flex;gap:8px;flex-wrap:wrap"><button id="suggestProgram" class="btn btn-primary" type="button">Sugerir pendentes</button><button id="addProgramPart" class="btn btn-ghost" type="button">Adicionar parte</button></div><div class="form-help" style="margin-top:6px">Sugestões consideram elegibilidade, histórico e conflitos. Só são gravadas ao salvar.</div><div class="form-group" style="margin-top:10px"><label class="form-label">Observações</label><textarea id="weekNotes" class="form-input">${esc(program.notes ?? '')}</textarea></div><button id="saveWeek" class="btn btn-primary btn-full">Salvar programa</button></div>`
-  document.getElementById('closeWeek')!.addEventListener('click', () => { editingWeek = ''; renderPrograms() })
+  document.getElementById('closeWeek')!.addEventListener('click', () => { discardWeekDraft(); renderPrograms() })
+  for (const field of ['weekType', 'weekBible', 'weekCounselor', 'weekNotes']) {
+    document.getElementById(field)!.addEventListener('input', () => {
+      const draft = programs[id]
+      draft.type = (document.getElementById('weekType') as HTMLSelectElement).value as WeekType
+      draft.bibleReading = (document.getElementById('weekBible') as HTMLInputElement).value
+      draft.counselorPersonId = (document.getElementById('weekCounselor') as HTMLSelectElement).value || undefined
+      draft.notes = (document.getElementById('weekNotes') as HTMLTextAreaElement).value
+    })
+  }
   document.getElementById('addProgramPart')!.addEventListener('click', () => addPart(id))
+  const roleButton = document.createElement('button')
+  roleButton.type = 'button'
+  roleButton.className = 'btn btn-ghost'
+  roleButton.textContent = 'Adicionar presidência e orações'
+  document.getElementById('addProgramPart')!.after(roleButton)
+  roleButton.addEventListener('click', () => {
+    programs[id] = completeMeetingRoles(programs[id])
+    renderEditor(id)
+  })
   document.getElementById('suggestProgram')!.addEventListener('click', () => { programs[id] = suggestAssignments(program, joinedPeople(), programList().filter(item => item.id !== id)); toast('Sugestões preparadas para revisão'); renderEditor(id) })
   document.querySelectorAll<HTMLButtonElement>('[data-delete-part]').forEach(button => button.addEventListener('click', () => { program.parts = program.parts.filter(part => part.id !== button.dataset['deletePart']); renderEditor(id) }))
   document.querySelectorAll<HTMLButtonElement>('[data-edit-section]').forEach(button => button.addEventListener('click', () => sectionModal(id, button.dataset['editSection'] as ProgramSection)))
@@ -269,6 +316,7 @@ function sectionModal(id: string, section: ProgramSection): void {
   const program = programs[id]
   const parts = program?.parts.filter(part => part.section === section) ?? []
   if (!program || !parts.length) return
+  const deletedPartIds = new Set<string>()
   const overlay = document.createElement('div')
   overlay.className = 'modal-overlay program-section-modal-overlay'
   overlay.innerHTML = `<div class="modal program-section-modal" role="dialog" aria-modal="true" aria-labelledby="programSectionTitle"><div class="program-section-modal-header"><div><h2 id="programSectionTitle">${esc(sectionLabels[section])}</h2><p>${parts.length} parte${parts.length === 1 ? '' : 's'} nesta seção</p></div><button id="closeSectionModal" class="program-icon-button" type="button" aria-label="Fechar" title="Fechar">×</button></div><div class="program-section-modal-body">${parts.map(partEditor).join('')}</div><div class="program-section-modal-footer"><button id="cancelSectionModal" class="btn btn-ghost" type="button">Cancelar</button><button id="applySectionModal" class="btn btn-primary" type="button">Aplicar edição</button></div></div>`
@@ -278,13 +326,14 @@ function sectionModal(id: string, section: ProgramSection): void {
   document.getElementById('cancelSectionModal')!.addEventListener('click', close)
   overlay.addEventListener('click', event => { if (event.target === overlay) close() })
   bindModalConflicts(overlay, program)
-  overlay.querySelectorAll<HTMLSelectElement>('[data-field="assignedPersonId"], [data-field="assistantPersonId"], [data-field="substitutePersonId"]').forEach(select => select.addEventListener('change', () => bindModalConflicts(overlay, program)))
+  overlay.querySelectorAll<HTMLSelectElement>('[data-field="assignedPersonId"], [data-field="assistantPersonId"], [data-field="substitutePersonId"]').forEach(select => select.addEventListener('change', () => bindModalConflicts(overlay, program, deletedPartIds)))
   overlay.querySelectorAll<HTMLButtonElement>('[data-delete-part]').forEach(button => button.addEventListener('click', () => {
-    program.parts = program.parts.filter(part => part.id !== button.dataset['deletePart'])
-    close(); renderEditor(id); sectionModal(id, section)
+    deletedPartIds.add(button.dataset['deletePart']!)
+    button.closest('[data-part]')?.remove()
+    bindModalConflicts(overlay, program, deletedPartIds)
   }))
   document.getElementById('applySectionModal')!.addEventListener('click', () => {
-    const changed = readPartEditors(overlay, program)
+    const changed = readPartEditors(overlay, program, false)
     if (changed.some(part => !part.title)) { toast('Todas as partes precisam de título'); return }
     const byId = new Map(changed.map(part => [part.id, part]))
     const weekType = document.getElementById('weekType') as HTMLSelectElement | null
@@ -297,7 +346,7 @@ function sectionModal(id: string, section: ProgramSection): void {
       counselorPersonId: counselor?.value || undefined,
       bibleReading: bible?.value.trim() || '',
       notes: notes?.value.trim() || undefined,
-      parts: program.parts.map(part => byId.get(part.id) ?? part),
+      parts: program.parts.flatMap(part => byId.has(part.id) ? [byId.get(part.id)!] : part.section === section ? [] : [part]),
     }
     close(); renderEditor(id)
   })
@@ -307,10 +356,10 @@ function partEditor(part: ProgramPart): string {
   return `<div class="program-part-editor" data-part="${esc(part.id)}"><div style="display:flex;justify-content:space-between;gap:8px"><strong>${esc(part.title)}</strong><button class="btn btn-ghost" type="button" data-delete-part="${esc(part.id)}">Excluir</button></div><div class="module-form-grid"><div class="form-group"><label class="form-label">Título</label><input class="form-input" data-field="title" value="${esc(part.title)}"></div><div class="form-group"><label class="form-label">Seção</label><select class="form-select" data-field="section"><option value="tesouros" ${part.section === 'tesouros' ? 'selected' : ''}>Tesouros</option><option value="ministerio" ${part.section === 'ministerio' ? 'selected' : ''}>Ministério</option><option value="vida-crista" ${part.section === 'vida-crista' ? 'selected' : ''}>Vida cristã</option></select></div>${part.section === 'ministerio' ? `<div class="form-group"><label class="form-label">Formato didático</label><select class="form-select" data-field="teachingType"><option value="conteudo" ${part.teachingType === 'conteudo' ? 'selected' : ''}>Conteúdo</option><option value="cenas" ${part.teachingType === 'cenas' ? 'selected' : ''}>Cenas</option><option value="videos" ${part.teachingType === 'videos' ? 'selected' : ''}>Uso de vídeos</option></select></div>` : ''}<div class="form-group"><label class="form-label">Duração</label><input class="form-input" data-field="durationMinutes" type="number" min="1" max="90" value="${part.durationMinutes}"></div><div class="form-group"><label class="form-label">Principal · ${esc(permissionLabels[permissionForPart(part)])}</label><select class="form-select" data-field="assignedPersonId">${optionsFor(part, part.assignedPersonId ?? '')}</select><small class="program-recommendation">${esc(recommendationLabel(part))}</small></div>${part.section === 'ministerio' ? `<div class="form-group"><label class="form-label">Ajudante</label><select class="form-select" data-field="assistantPersonId">${optionsFor(part, part.assistantPersonId ?? '', true)}</select><small class="program-recommendation">${esc(recommendationLabel(part, true))}</small></div>` : ''}<div class="form-group"><label class="form-label">Sala</label><select class="form-select" data-field="roomId">${rooms().map(room => `<option value="${esc(room.id)}" ${room.id === (part.roomId ?? 'main') ? 'selected' : ''}>${esc(room.name)}</option>`).join('')}</select></div><div class="form-group"><label class="form-label">Substituto</label><select class="form-select" data-field="substitutePersonId">${substituteOptions(part, part.substitutePersonId ?? '')}</select></div><div class="form-group"><label class="form-label">Quem realizou</label><select class="form-select" data-field="realizedPersonId"><option value="">Ainda não informado</option>${joinedPeople().map(person => `<option value="${esc(person.id)}" ${person.id === part.realizedPersonId ? 'selected' : ''}>${esc(person.name)}</option>`).join('')}</select></div><div class="form-group"><label class="form-label">Situação</label><select class="form-select" data-field="status">${Object.entries(statusLabels).map(([value, label]) => `<option value="${value}" ${value === (part.status ?? 'programado') ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select></div><label class="program-absence"><input type="checkbox" data-field="absent" ${part.absent ? 'checked' : ''}> Designado(a) ausente</label></div><div class="program-conflicts" data-part-conflicts></div></div>`
 }
 
-function bindModalConflicts(overlay: HTMLElement, program: MeetingProgram): void {
-  const changed = readPartEditors(overlay, program)
+function bindModalConflicts(overlay: HTMLElement, program: MeetingProgram, deletedPartIds = new Set<string>()): void {
+  const changed = readPartEditors(overlay, program, false)
   const byId = new Map(changed.map(part => [part.id, part]))
-  const draft = { ...program, parts: program.parts.map(part => byId.get(part.id) ?? part) }
+  const draft = { ...program, parts: program.parts.filter(part => !deletedPartIds.has(part.id)).map(part => byId.get(part.id) ?? part) }
   overlay.querySelectorAll<HTMLElement>('[data-part]').forEach(element => {
     const part = draft.parts.find(item => item.id === element.dataset['part'])
     const target = element.querySelector<HTMLElement>('[data-part-conflicts]')
@@ -333,10 +382,27 @@ async function saveWeek(id: string): Promise<void> {
   const next: MeetingProgram = { ...program, type: (document.getElementById('weekType') as HTMLSelectElement).value as WeekType, counselorPersonId: (document.getElementById('weekCounselor') as HTMLSelectElement).value || undefined, bibleReading: (document.getElementById('weekBible') as HTMLInputElement).value.trim(), notes: (document.getElementById('weekNotes') as HTMLTextAreaElement).value.trim(), parts, updatedAt: now() }
   const conflicts = next.type === 'assembleia' || next.type === 'celebracao' ? [] : next.parts.flatMap(part => assignmentConflicts(next, part))
   if (conflicts.length && !confirm(`Há ${new Set(conflicts).size} conflito(s) de designação. Salvar mesmo assim?`)) return
-  try { await update(programacaoRef, { [`programs/${id}`]: next }); programs[id] = next; editingWeek = ''; toast('Programa salvo'); renderPrograms() } catch { toast('Não foi possível salvar o programa') }
+  const button = document.getElementById('saveWeek') as HTMLButtonElement
+  if (button.disabled) return
+  const savedDraft = weekOriginal
+  button.disabled = true
+  try {
+    await compareAndSet(child(programacaoRef, `programs/${id}`), data.programs?.[id] ?? null, next)
+    data.programs ??= {}
+    data.programs[id] = structuredClone(next)
+    if (editingWeek !== id || weekOriginal === savedDraft) programs[id] = next
+    toast('Programa salvo')
+    if (weekOriginal === savedDraft) {
+      weekOriginal = null
+      editingWeek = ''
+      renderPrograms()
+    }
+  } catch (error) { toast(error instanceof Error ? error.message : 'Não foi possível salvar o programa') }
+  finally { button.disabled = false }
 }
 
-function readPartEditors(host: ParentNode, program: MeetingProgram): ProgramPart[] {
+function readPartEditors(host: ParentNode, program: MeetingProgram, preserveWhenEmpty = true): ProgramPart[] {
+  if (preserveWhenEmpty && !host.querySelector('[data-part]')) return program.parts
   return Array.from(host.querySelectorAll<HTMLElement>('[data-part]')).map((element): ProgramPart => {
     const value = (field: string) => (element.querySelector(`[data-field="${field}"]`) as HTMLInputElement | HTMLSelectElement | null)?.value ?? ''
     const previous = program.parts.find(part => part.id === element.dataset['part'])!
@@ -409,6 +475,7 @@ async function saveImported(incoming: MeetingProgram[]): Promise<{ imported: num
   })
   if (Object.keys(patch).length) await update(programacaoRef, patch)
   programs = nextPrograms
+  data.programs = structuredClone(nextPrograms)
   return { imported, updated, unchanged }
 }
 
@@ -443,6 +510,22 @@ function renderFiles(): void {
   const list = filtered()
   root().innerHTML = `${title('Arquivos')}${periodControls()}<div class="form-panel"><label class="form-label">Semana para S-89</label><select id="fileWeek" class="form-select">${list.map(program => `<option value="${esc(program.id)}">${esc(formatDate(program.meetingDate))}</option>`).join('')}</select><label class="form-label" style="margin-top:8px">Cartão individual</label><select id="filePart" class="form-select"></select><div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"><button id="fileS89One" class="btn btn-primary" ${list.length ? '' : 'disabled'}>Prévia S-89 selecionado</button><button id="fileS89" class="btn btn-ghost" ${list.length ? '' : 'disabled'}>Prévia S-89 da semana</button><button id="filePdf" class="btn btn-ghost" ${list.length ? '' : 'disabled'}>Prévia S-140 PDF</button><button id="fileDocx" class="btn btn-ghost" ${list.length ? '' : 'disabled'}>Baixar S-140 DOCX</button><a class="btn btn-ghost" href="https://www.jw.org/pt/biblioteca/orientacoes/" target="_blank" rel="noopener noreferrer">Abrir S-38 oficial</a></div><div class="form-help" style="margin-top:8px">Os documentos usam o período selecionado. Gerar arquivos não altera a programação.</div></div>`
   bindPeriod(renderFiles)
+  const batchButton = document.createElement('button')
+  batchButton.className = 'btn btn-ghost'
+  batchButton.type = 'button'
+  batchButton.id = 'fileS89Batch'
+  batchButton.textContent = 'Prévia S-89 · 4 por folha'
+  batchButton.disabled = !list.length
+  document.getElementById('fileS89')!.after(batchButton)
+  batchButton.addEventListener('click', async () => {
+    batchButton.disabled = true
+    try {
+      const { downloadS89Batch } = await import('./programacao-documents')
+      const count = await downloadS89Batch(list, joinedPeople())
+      toast(count ? `${count} cartão(ões) no período` : 'Não há partes do ministério designadas no período')
+    } catch (error) { toast(error instanceof Error ? error.message : 'Não foi possível gerar os cartões') }
+    finally { batchButton.disabled = false }
+  })
   const refreshParts = () => { const program = programs[(document.getElementById('fileWeek') as HTMLSelectElement).value]; const parts = program?.parts.filter(part => part.section === 'ministerio' && part.assignedPersonId) ?? []; (document.getElementById('filePart') as HTMLSelectElement).innerHTML = parts.map(part => `<option value="${esc(part.id)}">${esc(part.title)}</option>`).join('') }
   document.getElementById('fileWeek')?.addEventListener('change', refreshParts)
   document.getElementById('fileS89One')?.addEventListener('click', async () => { const { downloadS89 } = await import('./programacao-documents'); const program = programs[(document.getElementById('fileWeek') as HTMLSelectElement).value]; const partId = (document.getElementById('filePart') as HTMLSelectElement).value; const count = await downloadS89({ ...program, parts: program.parts.filter(part => part.id === partId) }, joinedPeople()); toast(count ? 'Cartão S-89 gerado' : 'Selecione uma designação do ministério') })

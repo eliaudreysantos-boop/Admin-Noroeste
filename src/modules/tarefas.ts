@@ -98,6 +98,7 @@ let participantMeetingRule = ''
 let participantRoleFilter = ''
 let pendingTarget: PendingTarget | null = null
 const taskPdfPreview = new PublicationPreviewGate()
+let loadPromise: Promise<boolean> | null = null
 
 function taskPdfPreviewInput(periodId: string, meetings: TarefasMeeting[], font: number): unknown {
   return { periodId, meetings, congregationName, pessoas, font }
@@ -195,20 +196,25 @@ function roleLabel(key: string): string {
 export default function mount(ctx: AppContext): void {
   context = ctx
   activeTab = 'indice'
+  loadPromise = null
+  pessoas = {}; periods = {}; planning = {}; events = {}; speakers = {}; talks = {}; masterPeople = {}
   const el = document.getElementById('appContent')
   if (!el) return
 
   el.innerHTML = `
     <div id="tarefasRoot">
-      <div id="tarefasContent">
-        <p style="padding:24px;color:var(--ink-3);text-align:center">Carregando...</p>
-      </div>
+      <div id="tarefasContent"></div>
     </div>`
-
-  void loadTarefas()
+  renderContent()
+  void ensureLoaded()
 }
 
-async function loadTarefas(): Promise<void> {
+function ensureLoaded(): Promise<boolean> {
+  loadPromise ??= loadTarefas()
+  return loadPromise
+}
+
+async function loadTarefas(): Promise<boolean> {
   try {
     const [tarefasSnap, congregacaoSnap, masterPeopleSnap] = await Promise.all([
       get(tarefasRef),
@@ -244,8 +250,17 @@ async function loadTarefas(): Promise<void> {
     }))
   } catch {
     toast('Erro ao carregar Tarefas')
+    return false
   }
+  return true
+}
 
+async function openTarefasTab(next: TarefasTab): Promise<void> {
+  const content = document.getElementById('tarefasContent')
+  if (!content) return
+  content.innerHTML = `${sectionTitle('Tarefas', '')}<p class="empty-state">Carregando dados...</p>`
+  if (!await ensureLoaded()) { content.innerHTML = `${sectionTitle('Tarefas', '')}<p class="empty-state">Não foi possível carregar os dados. Volte ao módulo e tente novamente.</p>`; return }
+  activeTab = next
   renderContent()
 }
 
@@ -271,7 +286,7 @@ function renderIndex(): void {
     { id: 'pendencias', titulo: 'Pendências', subtitulo: 'Funções vazias e vínculos incompletos', icone: '!', corFundo: '#B3261E' },
     { id: 'config', titulo: 'Configuração', subtitulo: 'Período, regras, datas e mensagens', icone: '⚙', corFundo: '#5C6062' },
   ]
-  renderMenuCards(content.querySelector<HTMLElement>('#tarefasMenu')!, items, id => { activeTab = id as TarefasTab; renderContent() })
+  renderMenuCards(content.querySelector<HTMLElement>('#tarefasMenu')!, items, id => { void openTarefasTab(id as TarefasTab) })
 }
 
 function renderEscala(): void {

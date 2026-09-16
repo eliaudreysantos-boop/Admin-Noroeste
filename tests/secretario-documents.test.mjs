@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises'
 import { PDFDocument } from 'pdf-lib/cjs/index.js'
 import { createGroupsPdf, createS3, createS21, createS88 } from '../src/modules/secretario-documents.ts'
 
-const base = 'NAO FAZER COMMIT DESSA PASTA/'
+const base = 'public/templates/'
 const buffer = async name => { const bytes = await readFile(`${base}${name}`); return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) }
 const report = { r1: { id: 'r1', masterId: 'm1', competencia: '2026-09', categoria: 'pioneiro_regular', participou: true, estudos: 2, horasCampo: 50, horasAtividadeAprovada: 3, creditoHoras: 5, pioneiroAuxiliar: false, observacoes: 'Observação', atrasado: false, recebidoEm: '2026-10-02', atualizadoEm: '' } }
 const attendance = { a1: { id: 'a1', data: '2026-09-02', tipo: 'meio_semana', quantidade: 80, atualizadoEm: '' }, a2: { id: 'a2', data: '2026-09-06', tipo: 'fim_semana', quantidade: 90, atualizadoEm: '' } }

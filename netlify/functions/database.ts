@@ -1,6 +1,7 @@
 import { appSession, json, objectBody, validCsrf } from '../lib/secure-session.ts'
 import { adminDatabase } from '../lib/subscription-store.ts'
 import { readBatch } from '../lib/database-reads.ts'
+import { conditionalPatch, conditionalValue, validConditionalPatch } from '../lib/conditional-write.ts'
 import { canAccessData, canMutateData, containsPrivateRoot, normalizeDataPath, withoutPrivateRoots } from '../lib/data-authorization.ts'
 
 export default async (request: Request): Promise<Response> => {
@@ -39,7 +40,21 @@ export default async (request: Request): Promise<Response> => {
       const value = body['value']
       if (!canMutateData(path, request.method, value, session.usuario.apps)) return json(403, { error:'Alteração não autorizada.' })
       if (!path && containsPrivateRoot(value)) return json(400, { error:'Backup contém caminhos privados.' })
-      if (request.method === 'PUT') await reference.set(value ?? null)
+      if (Object.prototype.hasOwnProperty.call(body, 'expected')) {
+        if (!path) return json(400, { error:'Selecione um registro para salvar.' })
+        if (request.method === 'PATCH' && !validConditionalPatch(body['expected'], value)) return json(400, { error:'Alterações condicionais inválidas.' })
+        let matched = false
+        const result = await reference.transaction(current => {
+          const proposed = request.method === 'PATCH'
+            ? conditionalPatch(current, body['expected'] as Record<string, unknown>, value as Record<string, unknown>)
+            : conditionalValue(current, body['expected'], value ?? null)
+          matched = proposed !== undefined
+          // A no-op still checks the server version when the local cache starts empty.
+          return matched ? proposed : current
+        })
+        if (!result.committed || !matched) return json(409, { error:'Este registro foi alterado por outra pessoa. Recarregue o aplicativo para conferir os dados antes de editar novamente.' })
+      }
+      else if (request.method === 'PUT') await reference.set(value ?? null)
       else {
         if (!value || typeof value !== 'object' || Array.isArray(value) || containsPrivateRoot(value)) return json(400, { error:'Atualização inválida.' })
         await reference.update(value as Record<string, unknown>)

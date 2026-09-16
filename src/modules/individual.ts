@@ -17,7 +17,7 @@ let agendaStatus: AgendaStatus | 'todos' = 'todos'
 let generalSelectedDate = ''
 let boardDocumentPeriod = month
 let boardMeetingDate = ''
-const boardSubscriptionModules = new Set<AgendaSource>(['tarefas', 'escala', 'oradores', 'programacao', 'servicoCampo'])
+const boardSubscriptionModules = new Set<AgendaSource>(['tarefas', 'limpeza', 'escala', 'oradores', 'programacao', 'servicoCampo'])
 let uiPreferences = defaultAgendaUiPreferences(month)
 let uiPreferencesKey = ''
 let subscriptionPersonId = ''
@@ -522,7 +522,7 @@ function boardSubscriptionPanel(): string {
   const current = Object.values(subscriptions()).find(item => item.tipo === 'quadro' && item.ativo)
   const selected = current?.modulos?.filter(module => module !== 'quadro') as AgendaSource[] | undefined
   if (selected?.length) { boardSubscriptionModules.clear(); selected.forEach(module => boardSubscriptionModules.add(module)) }
-  const checks = (Object.entries(sourceLabels) as [AgendaSource, string][]).filter(([id]) => id !== 'limpeza').map(([id, label]) => `<label class="agenda-module-check"><input type="checkbox" data-board-module="${id}" ${boardSubscriptionModules.has(id) ? 'checked' : ''}> ${esc(label)}</label>`).join('')
+  const checks = (Object.entries(sourceLabels) as [AgendaSource, string][]).map(([id, label]) => `<label class="agenda-module-check"><input type="checkbox" data-board-module="${id}" ${boardSubscriptionModules.has(id) ? 'checked' : ''}> ${esc(label)}</label>`).join('')
   return `<details class="form-panel agenda-board-card" data-agenda-panel="subscription" ${uiPreferences.board.openPanels.includes('subscription') ? 'open' : ''}><summary><strong>Assinar o quadro</strong><span>${boardSubscriptionModules.size} módulos · ${current ? 'ativa' : 'não criada'}</span></summary><div class="agenda-board-body"><div class="agenda-module-options">${checks}</div>${current ? `<div class="notice">Esta assinatura recebe automaticamente os módulos selecionados.</div><div class="agenda-actions"><button class="btn btn-primary" id="copyBoardSubscription" type="button">Copiar link</button><a class="btn btn-ghost" href="${esc(webcalUrl(current.token))}">Assinar calendário</a><button class="btn btn-danger" id="revokeBoardSubscription" type="button">Revogar</button></div>` : '<button class="btn btn-primary" id="createBoardSubscription" type="button">Gerar link de assinatura</button>'}<p class="form-help">O link contém um token revogável e não expõe o identificador de nenhuma pessoa.</p></div></details>`
 }
 

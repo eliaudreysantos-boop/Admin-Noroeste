@@ -84,6 +84,8 @@ export interface ConfigLimpezaGrupo {
   nome?:              string
   superintendenteMid: string
   ajudantesMid:       string[]
+  ajudantesExcluidosMid?: string[]
+  membrosDaOrigem?: boolean
 }
 
 export interface LimpezaSemanaGerada {

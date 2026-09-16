@@ -33,6 +33,27 @@ export function records<T>(value: unknown): Record<string, T> {
 }
 
 export const validSecretaryMonth = (value: string): boolean => /^\d{4}-(0[1-9]|1[0-2])$/.test(value)
+
+export function closureSnapshot(value: unknown, month: string) {
+  const root = records(value)
+  return {
+    closing: records(root['fechamentos'])[month] ?? null,
+    reports: Object.fromEntries(Object.entries(records<SecretaryReport>(root['relatorios'])).filter(([, report]) => report.competencia === month || accountingMonth(report) === month)),
+    attendance: Object.fromEntries(Object.entries(records<Record<string, unknown>>(root['assistencia'] ?? root['presenca'])).filter(([, item]) => String(item['data'] ?? '').startsWith(`${month}-`))),
+  }
+}
+
+export function firstOpenCompetence(reference: string, closings: unknown, reportMonths: string[] = []): string {
+  if (!validSecretaryMonth(reference)) return reference
+  const known = Object.keys(records(closings)).filter(validSecretaryMonth).sort()
+  const start = known[0] ?? reportMonths.filter(validSecretaryMonth).sort()[0] ?? reference
+  let month = start
+  while (isClosedMonth(month, closings)) {
+    const [year, number] = month.split('-').map(Number)
+    month = number === 12 ? `${year + 1}-01` : `${year}-${String(number + 1).padStart(2, '0')}`
+  }
+  return month
+}
 export function validSecretaryDate(value: string): boolean {
   if (!/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(value)) return false
   const [year, month, day] = value.split('-').map(Number)

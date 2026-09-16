@@ -1,4 +1,4 @@
-import { agendaDocumentsRef, get, update } from '../firebase.ts'
+import { agendaDocumentsRef, child, get, update } from '../firebase.ts'
 import { deleteStoredFile, uploadPdf } from '../secure-api.ts'
 import type { AgendaPublicDocument } from '../types.ts'
 import { officialDocumentId, safeDocumentKey, type PublicPdfModule } from './agenda-documents-domain.ts'
@@ -31,8 +31,8 @@ export async function archiveAgendaPdf(
 
 export async function publishAgendaModulePdf(bytes: Uint8Array, metadata: ModulePdfMetadata): Promise<AgendaPublicDocument> {
   const id = officialDocumentId(metadata.modulo, metadata.origemPeriodoId)
-  const snapshot = await get(agendaDocumentsRef)
-  const previous = snapshot.exists() ? (snapshot.val() as Record<string, AgendaPublicDocument>)[id] : undefined
+  const snapshot = await get<AgendaPublicDocument>(child(agendaDocumentsRef, id))
+  const previous = snapshot.exists() ? snapshot.val() ?? undefined : undefined
   const version = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
   const storagePath = `agenda/documentos/modulos/${metadata.modulo}/${safeDocumentKey(metadata.origemPeriodoId)}-${version}.pdf`
   const url = await uploadPdf(storagePath, bytes)
@@ -59,8 +59,8 @@ export async function publishAgendaModulePdf(bytes: Uint8Array, metadata: Module
 
 export async function unpublishAgendaModulePdf(module: PublicPdfModule, originPeriodId: string): Promise<void> {
   const id = officialDocumentId(module, originPeriodId)
-  const snapshot = await get(agendaDocumentsRef)
-  const item = snapshot.exists() ? (snapshot.val() as Record<string, AgendaPublicDocument>)[id] : undefined
+  const snapshot = await get<AgendaPublicDocument>(child(agendaDocumentsRef, id))
+  const item = snapshot.exists() ? snapshot.val() ?? undefined : undefined
   await update(agendaDocumentsRef, { [id]:null })
   if (item?.storagePath) {
     try { await deleteStoredFile(item.storagePath) }

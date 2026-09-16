@@ -7,6 +7,7 @@ export interface FieldServiceTemplate {
   active: boolean
   sortOrder: number
   leaderIds?: string[]
+  date?: string
 }
 
 export interface FieldServiceAssignment {
@@ -43,11 +44,11 @@ export function datesForDow(month: string, dow: number): string[] {
   return result
 }
 
-function existingCounts(periods: Record<string, FieldServicePeriod>, month: string): Record<string, number> {
+function existingCounts(periods: Record<string, FieldServicePeriod>, month: string, templateId: string): Record<string, number> {
   const counts: Record<string, number> = {}
   Object.values(periods).filter(period => validFieldServiceMonth(period.month) && period.month < month).forEach(period => {
     Object.values(period.assignments ?? {}).forEach(assignment => {
-      if (assignment.leaderId) counts[assignment.leaderId] = (counts[assignment.leaderId] ?? 0) + 1
+      if (assignment.templateId === templateId && assignment.leaderId) counts[assignment.leaderId] = (counts[assignment.leaderId] ?? 0) + 1
     })
   })
   return counts
@@ -62,43 +63,31 @@ export function generateFieldServicePeriod(input: {
   now?: string
 }): FieldServicePeriod {
   const leaders = [...new Set(input.leaderIds.filter(Boolean))]
-  const counts = existingCounts(input.periods ?? {}, input.month)
-  leaders.forEach(id => { counts[id] ??= 0 })
   const previous = input.existing?.assignments ?? {}
   const assignments: Record<string, FieldServiceAssignment> = Object.fromEntries(
     Object.entries(previous).filter(([, assignment]) => assignment.manual === true),
   )
-  const usedByDate = new Map<string, Set<string>>()
-  Object.values(assignments).forEach(assignment => {
-    if (!assignment.leaderId) return
-    counts[assignment.leaderId] = (counts[assignment.leaderId] ?? 0) + 1
-    const used = usedByDate.get(assignment.date) ?? new Set<string>(); used.add(assignment.leaderId); usedByDate.set(assignment.date, used)
-  })
 
   const templates = Object.values(input.templates).filter(template => template.active !== false && validFieldServiceTime(template.time) && template.location.trim()).sort((a, b) => (Number.isFinite(a.sortOrder) ? a.sortOrder : 0) - (Number.isFinite(b.sortOrder) ? b.sortOrder : 0) || a.dow - b.dow || a.time.localeCompare(b.time) || a.location.localeCompare(b.location, 'pt-BR'))
-  const generatedKeys = new Set<string>()
   for (const template of templates) {
-    const templateLeaders = (template.leaderIds?.length ? template.leaderIds.filter(id => leaders.includes(id)) : leaders)
-    for (const date of datesForDow(input.month, template.dow)) {
-      const occurrenceKey = `${date}|${template.time}|${template.location.trim().toLocaleLowerCase('pt-BR')}`
-      if (generatedKeys.has(occurrenceKey)) continue
-      generatedKeys.add(occurrenceKey)
+    const counts = existingCounts(input.periods ?? {}, input.month, template.id)
+    const templateLeaders = [...new Set((template.leaderIds ?? []).filter(id => leaders.includes(id)))]
+    const dates = template.date
+      ? (template.date.startsWith(`${input.month}-`) && /^\d{4}-\d{2}-\d{2}$/.test(template.date) && !Number.isNaN(Date.parse(`${template.date}T12:00:00Z`)) && new Date(`${template.date}T12:00:00Z`).toISOString().slice(0, 10) === template.date ? [template.date] : [])
+      : datesForDow(input.month, template.dow)
+    for (const date of dates) {
       const id = `${date}-${template.id}`
       const old = previous[id]
       if (old) {
         assignments[id] = { ...old, id, templateId:template.id, date, time:template.time, location:template.location, label:template.label || 'Saída de campo' }
         if (old.leaderId) {
           counts[old.leaderId] = (counts[old.leaderId] ?? 0) + 1
-          const used = usedByDate.get(date) ?? new Set<string>(); used.add(old.leaderId); usedByDate.set(date, used)
         }
         continue
       }
-      const used = usedByDate.get(date) ?? new Set<string>()
-      const available = templateLeaders.filter(id => !used.has(id))
-      const candidates = available.length ? available : templateLeaders
-      const leaderId = [...candidates].sort((a, b) => (counts[a] ?? 0) - (counts[b] ?? 0) || leaders.indexOf(a) - leaders.indexOf(b))[0] ?? ''
+      const leaderId = [...templateLeaders].sort((a, b) => (counts[a] ?? 0) - (counts[b] ?? 0) || templateLeaders.indexOf(a) - templateLeaders.indexOf(b))[0] ?? ''
       assignments[id] = { id, templateId:template.id, date, time:template.time, location:template.location, label:template.label || 'Saída de campo', leaderId }
-      if (leaderId) { counts[leaderId] = (counts[leaderId] ?? 0) + 1; used.add(leaderId); usedByDate.set(date, used) }
+      if (leaderId) counts[leaderId] = (counts[leaderId] ?? 0) + 1
     }
   }
   return { month:input.month, assignments, published:false, generatedAt:input.now ?? new Date().toISOString() }

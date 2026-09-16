@@ -145,7 +145,15 @@ export function mergeImportedProgram(existing: MeetingProgram | undefined, incom
   if (!existing) return { ...incoming, importedAt: stamp, updatedAt: stamp }
   const oldParts = new Map(existing.parts.map(part => [part.id, part]))
   const incomingIds = new Set(incoming.parts.map(part => part.id))
-  const manualParts = existing.parts.filter(part => part.id.includes('-manual-') && !incomingIds.has(part.id))
+  const localRoles = new Set<AssignmentPermission>(['presidente', 'oracao-inicial', 'oracao-final', 'leitor'])
+  const manualParts = existing.parts.filter(part =>
+    !incomingIds.has(part.id) && (part.id.includes('-manual-') || localRoles.has(permissionForPart(part))))
+  const preservedIds = new Set(manualParts.map(part => part.id))
+  const unmatchedAssignments = existing.parts.filter(part => !incomingIds.has(part.id) && !preservedIds.has(part.id)
+    && (part.assignedPersonId || part.assistantPersonId || part.substitutePersonId || part.realizedPersonId))
+  if (unmatchedAssignments.length) {
+    throw new Error(`A semana ${existing.meetingDate} tem ${unmatchedAssignments.length} parte(s) designada(s) sem correspondência na nova importação. Revise os vínculos das partes antes de reimportar.`)
+  }
   const merged: MeetingProgram = {
     ...incoming,
     notes: existing.notes,
@@ -173,6 +181,10 @@ function sameProgramContent(left: MeetingProgram, right: MeetingProgram): boolea
 
 export function permissionForPart(part: ProgramPart): AssignmentPermission {
   const title = normalize(part.title)
+  if (/^(presidente|presidencia)\b/.test(title)) return 'presidente'
+  if (/oracao.*(inicial|abertura)/.test(title)) return 'oracao-inicial'
+  if (/oracao.*(final|encerramento)/.test(title)) return 'oracao-final'
+  if (/^leitor\b/.test(title)) return 'leitor'
   if (/leitura da biblia/.test(title)) return 'leitura-biblia'
   if (/joias/.test(title)) return 'joias'
   if (/iniciando/.test(title)) return 'iniciando-conversas'
@@ -238,6 +250,20 @@ export function assignmentConflicts(program: MeetingProgram, part: ProgramPart):
   if (part.assignedPersonId && part.assignedPersonId === part.substitutePersonId) errors.push('Principal e substituto não podem ser a mesma pessoa.')
   if (part.assistantPersonId && part.assistantPersonId === part.substitutePersonId) errors.push('Ajudante e substituto não podem ser a mesma pessoa.')
   return errors
+}
+
+export function completeMeetingRoles(program: MeetingProgram): MeetingProgram {
+  if (program.type === 'assembleia' || program.type === 'celebracao') return program
+  const present = new Set(program.parts.map(permissionForPart))
+  const role = (permission: AssignmentPermission, title: string, section: ProgramSection): ProgramPart[] =>
+    present.has(permission) ? [] : [{ id: `${program.id}-manual-${permission}`, title, section, durationMinutes: 1 }]
+  const opening = [
+    ...role('presidente', 'Presidente', 'tesouros'),
+    ...role('oracao-inicial', 'Oração inicial', 'tesouros'),
+  ]
+  const closing = role('oracao-final', 'Oração final', 'vida-crista')
+  if (!opening.length && !closing.length) return program
+  return { ...program, parts: [...opening, ...program.parts, ...closing] }
 }
 
 export function assistantNeedsSameSex(part: ProgramPart): boolean {

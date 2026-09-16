@@ -10,7 +10,7 @@ import type {
 } from '../types'
 import {
   get,
-  set,
+  compareAndUpdate,
   update,
   pessoasRef,
   configRef,
@@ -25,6 +25,7 @@ import { moduleBackButton } from '../ui/module-header'
 import {
   assertCleaningPeriodEditable,
   generateCleaningPeriod,
+  integratedCleaningMembers,
   monthLabel,
   periodBounds,
   type CleaningPeriodMode,
@@ -45,7 +46,7 @@ let periodAnchor = todayStr()
 let selectedPeriodId = ''
 let congregationName = 'Noroeste'
 let reunioes: Partial<ConfigReunioes> = {}
-interface GrupoServico { id?: string; nome?: string; ativo?: boolean }
+interface GrupoServico { id?: string; nome?: string; ativo?: boolean; superintendenteMasterId?: string }
 interface PublicadorServico { masterId?: string; grupoId?: string; ativo?: boolean }
 let gruposServico: Record<string, GrupoServico> = {}
 let publicadoresServico: Record<string, PublicadorServico> = {}
@@ -54,6 +55,10 @@ const CLEANING_PERIOD_MODE_KEY = 'noroeste_limpeza_period_mode'
 
 function cleaningPdfPreviewInput(period: LimpezaPeriodoGerado, fontSize: number): unknown {
   return { period, fontSize }
+}
+
+function failureMessage(error: unknown, fallback: string): string {
+  return error instanceof Error && error.message.trim() ? error.message : fallback
 }
 
 function toast(msg: string, ms = 2600): void {
@@ -111,6 +116,29 @@ function serviceGroupEntries(): [string, GrupoServico][] {
     .sort((a, b) => String(a[1].nome ?? a[0]).localeCompare(String(b[1].nome ?? b[0]), 'pt-BR') || a[0].localeCompare(b[0]))
 }
 
+function serviceMembers(groupId: string): [string, MasterPessoa][] {
+  const ids = new Set(Object.values(publicadoresServico).filter(item => item.ativo !== false && item.grupoId === groupId).map(item => item.masterId))
+  return activePeople().filter(([mid]) => ids.has(mid))
+}
+
+function serviceGroupConfig(groupId: string): ConfigLimpezaGrupo {
+  const own: Partial<ConfigLimpezaGrupo> = limpeza.gruposServicoConfig?.[groupId] ?? {}
+  const members = serviceMembers(groupId).map(([mid]) => mid)
+  const candidate = own.superintendenteMid ?? gruposServico[groupId]?.superintendenteMasterId ?? ''
+  const legacySelected = toStringArray(own.ajudantesMid)
+  const excluded = own.ajudantesExcluidosMid ?? (own.membrosDaOrigem !== true && legacySelected.length ? members.filter(mid => !legacySelected.includes(mid)) : [])
+  return { ...own, superintendenteMid: members.includes(candidate) ? candidate : '', ajudantesMid: integratedCleaningMembers(members, excluded) }
+}
+
+async function loadServiceGroups(): Promise<void> {
+  const [gruposSnap, publicadoresSnap] = await Promise.all([
+    get(secretarioGruposRef),
+    get(secretarioPublicadoresRef),
+  ])
+  gruposServico = gruposSnap.exists() ? gruposSnap.val() as Record<string, GrupoServico> : {}
+  publicadoresServico = publicadoresSnap.exists() ? publicadoresSnap.val() as Record<string, PublicadorServico> : {}
+}
+
 function effectiveGenerationData(): { config: ConfigLimpeza; people: RawPessoas } {
   if (!usingServiceGroups()) return { config: limpeza as ConfigLimpeza, people: pessoas }
   const groups = serviceGroupEntries()
@@ -121,14 +149,13 @@ function effectiveGenerationData(): { config: ConfigLimpeza; people: RawPessoas 
     if (position && publisher.masterId && people[publisher.masterId]?.active) people[publisher.masterId] = { ...people[publisher.masterId], limpeza: { grupo: position } }
   })
   const gruposConfig = Object.fromEntries(groups.map(([id, group], index) => {
-    const own = limpeza.gruposServicoConfig?.[id] ?? {}
+    const own = serviceGroupConfig(id)
     return [String(index + 1), { ...own, nome: group.nome?.trim() || `Grupo ${index + 1}` }]
   })) as Record<string, ConfigLimpezaGrupo>
   return { config: { ...(limpeza as ConfigLimpeza), grupos: groups.length, gruposConfig }, people }
 }
 
-function candidateOptions(selectedMid = ''): string {
-  const candidates = activePeople()
+function candidateOptions(selectedMid = '', candidates = activePeople()): string {
   return candidates
     .map(([mid, p]) =>
       `<option value="${mid}" ${selectedMid === mid ? 'selected' : ''}>${escapeHtml(p.name)}</option>`
@@ -167,12 +194,10 @@ async function loadAll(): Promise<void> {
   }
 
   try {
-    const [peopleSnap, configSnap, limpezaSnap, gruposSnap, publicadoresSnap] = await Promise.all([
+    const [peopleSnap, configSnap, limpezaSnap] = await Promise.all([
       get(pessoasRef),
       get(configRef),
       get(limpezaRef),
-      get(secretarioGruposRef),
-      get(secretarioPublicadoresRef),
     ])
     const config = configSnap.exists() ? configSnap.val() as {
       limpeza?: ConfigLimpeza; congregacao?: ConfigCongregacao; reunioes?: ConfigReunioes
@@ -190,12 +215,11 @@ async function loadAll(): Promise<void> {
     periodMode = savedMode === 'month' || savedMode === 'bimester'
       ? savedMode
       : limpeza.periodMode === 'month' ? 'month' : 'bimester'
-    const secretario = {
-      grupos:gruposSnap.exists() ? gruposSnap.val() as Record<string, GrupoServico> : {},
-      publicadores:publicadoresSnap.exists() ? publicadoresSnap.val() as Record<string, PublicadorServico> : {},
+    gruposServico = {}
+    publicadoresServico = {}
+    if (limpeza.aproveitarGruposServicoCampo === true) {
+      await loadServiceGroups()
     }
-    gruposServico = secretario.grupos ?? {}
-    publicadoresServico = secretario.publicadores ?? {}
     const ids = Object.keys(periodos).sort()
     selectedPeriodId = ids[ids.length - 1] ?? ''
   } catch {
@@ -305,6 +329,7 @@ async function saveGeneratedPeriod(): Promise<void> {
     }
     periodos[generated.id] = generated
     selectedPeriodId = generated.id
+    cleaningPdfPreview.clear()
     toast(`Escala gerada com ${generated.semanas.length} semanas`)
     renderEscala()
   } catch (error) {
@@ -445,12 +470,15 @@ function renderConfig(reuseOverride?: boolean): void {
     const gid = String(i + 1)
     const sourceId = reuseServiceGroups ? (serviceGroups[i]?.[0] ?? gid) : gid
     const item: Partial<ConfigLimpezaGrupo> = reuseServiceGroups
-      ? limpeza.gruposServicoConfig?.[sourceId] ?? {}
+      ? serviceGroupConfig(sourceId)
       : limpeza.gruposConfig?.[sourceId] ?? {}
     const serviceName = reuseServiceGroups ? gruposServico[sourceId]?.nome ?? `Grupo ${gid}` : ''
     const nome = reuseServiceGroups ? serviceName : item.nome ?? ''
     const superintendenteMid = item.superintendenteMid ?? ''
     const ajudantesMid = toStringArray(item.ajudantesMid as string[] | Record<string, string> | undefined)
+    const groupPeople = reuseServiceGroups
+      ? serviceMembers(sourceId)
+      : activePeople().filter(([, person]) => person.limpeza?.grupo === Number(gid))
 
     return `
       <div data-cleaning-group="${escapeHtml(sourceId)}" style="background:var(--surface);border:1px solid var(--border);border-radius:8px;
@@ -463,16 +491,16 @@ function renderConfig(reuseOverride?: boolean): void {
           <input id="gNome_${escapeHtml(sourceId)}" class="form-input" maxlength="40" value="${escapeHtml(nome)}" placeholder="Ex.: Salão do Reino">
         </div>
         <div class="form-group">
-          <label class="form-label">Superintendente</label>
+          <label class="form-label">Responsável pela limpeza</label>
           <select id="gSuper_${escapeHtml(sourceId)}" class="form-select">
             <option value="">Selecionar...</option>
-            ${candidateOptions(superintendenteMid)}
+            ${candidateOptions(superintendenteMid, groupPeople)}
           </select>
         </div>
         <div class="form-group">
           <label class="form-label">Ajudantes</label>
           <div class="cleaning-helper-grid">
-            ${activePeople().map(([mid, p]) => `
+            ${groupPeople.map(([mid, p]) => `
               <label title="${escapeHtml(p.name)}">
                 <input type="checkbox" data-group-helper="${escapeHtml(sourceId)}" value="${mid}" ${ajudantesMid.includes(mid) ? 'checked' : ''}>
                 <span>${escapeHtml(p.name)}</span>
@@ -517,7 +545,11 @@ function renderConfig(reuseOverride?: boolean): void {
     </div><div id="cleaningMessageSettings"></div>`
 
   document.getElementById('lUsarGruposServico')!.addEventListener('change', event => {
-    renderConfig((event.target as HTMLInputElement).checked)
+    const checked = (event.target as HTMLInputElement).checked
+    if (!checked || Object.keys(gruposServico).length) { renderConfig(checked); return }
+    void loadServiceGroups()
+      .then(() => renderConfig(true))
+      .catch(error => { toast(failureMessage(error, 'Não foi possível carregar os grupos do Secretário')); renderConfig(false) })
   })
   document.getElementById('btnSalvarLimpezaConfig')!
     .addEventListener('click', () => void saveConfig())
@@ -525,6 +557,8 @@ function renderConfig(reuseOverride?: boolean): void {
 }
 
 async function saveConfig(): Promise<void> {
+  const button = document.getElementById('btnSalvarLimpezaConfig') as HTMLButtonElement
+  if (button.disabled) return
   const checked = (id: string) => (document.getElementById(id) as HTMLInputElement).checked
   const value = (id: string) => (document.getElementById(id) as HTMLInputElement).value.trim()
   const reuseServiceGroups = checked('lUsarGruposServico')
@@ -542,6 +576,7 @@ async function saveConfig(): Promise<void> {
       nome: reuseServiceGroups ? '' : value(`gNome_${gid}`),
       superintendenteMid: value(`gSuper_${gid}`),
       ajudantesMid,
+      ...(reuseServiceGroups ? { membrosDaOrigem:true, ajudantesExcluidosMid: serviceMembers(gid).map(([mid]) => mid).filter(mid => !ajudantesMid.includes(mid)) } : {}),
     }
   }
 
@@ -555,16 +590,27 @@ async function saveConfig(): Promise<void> {
     gruposServicoConfig: reuseServiceGroups ? editedConfigs : limpeza.gruposServicoConfig ?? {},
   }
 
+  const patch: Record<string, unknown> = {}, expected: Record<string, unknown> = {}
+  const changed = (path: string, before: unknown, after: unknown): void => {
+    if (JSON.stringify(before ?? null) === JSON.stringify(after ?? null)) return
+    patch[path] = after ?? null; expected[path] = before ?? null
+  }
+  for (const key of ['ativa', 'aproveitarGruposServicoCampo', 'periodMode', 'grupos', 'inicioRotacao'] as const) changed(key, limpeza[key], nextConfig[key])
+  const collection = reuseServiceGroups ? 'gruposServicoConfig' : 'gruposConfig'
+  for (const [gid, config] of Object.entries(editedConfigs)) {
+    for (const [field, after] of Object.entries(config)) changed(`${collection}/${gid}/${field}`, (limpeza[collection]?.[gid] as unknown as Record<string, unknown> | undefined)?.[field], after)
+  }
+  if (!Object.keys(patch).length) { toast('Nenhuma alteração'); return }
   setLoading('btnSalvarLimpezaConfig', true, 'Salvar Configuração')
   try {
-    await set(configLimpezaRef, nextConfig)
+    await compareAndUpdate(configLimpezaRef, expected, patch)
     limpeza = nextConfig
     toast('Configuração salva ✓')
-    renderConfig()
-  } catch {
-    toast('Erro ao salvar configuração')
+    if (button.isConnected) renderConfig()
+  } catch (error) {
+    toast(failureMessage(error, 'Erro ao salvar configuração'))
   } finally {
-    setLoading('btnSalvarLimpezaConfig', false, 'Salvar Configuração')
+    button.disabled = false; button.textContent = 'Salvar Configuração'
   }
 }
 
@@ -635,7 +681,7 @@ async function toggleCleaningPublication(): Promise<void> {
       toast('Período publicado no Quadro')
     }
     renderPdf()
-  } catch { toast('Não foi possível alterar a publicação') }
+  } catch (error) { toast(failureMessage(error, 'Não foi possível alterar a publicação')) }
 }
 
 async function exportCleaningPdf(): Promise<void> {
@@ -649,8 +695,8 @@ async function exportCleaningPdf(): Promise<void> {
     const result = await downloadCleaningPdf(period, { requestedFontSize: fontSize })
     cleaningPdfPreview.mark(cleaningPdfPreviewInput(period, fontSize))
     toast(result.effectiveFontSize < fontSize ? `Previa ajustada para ${result.effectiveFontSize} pt sem quebrar texto` : 'Previa do PDF aberta')
-  } catch {
-    toast('Erro ao gerar o PDF')
+  } catch (error) {
+    toast(failureMessage(error, 'Erro ao gerar o PDF'))
   } finally {
     if (button) { button.disabled = false; button.textContent = 'Abrir previa do PDF' }
   }

@@ -46,8 +46,16 @@ export async function set(target: DatabaseReference, value: unknown): Promise<vo
   await apiJson(`database?path=${encodeURIComponent(target.path)}`, { method:'PUT', body:JSON.stringify({ value }) })
 }
 
+export async function compareAndSet(target: DatabaseReference, expected: unknown, value: unknown): Promise<void> {
+  await apiJson(`database?path=${encodeURIComponent(target.path)}`, { method:'PUT', body:JSON.stringify({ expected, value }) })
+}
+
 export async function update(target: DatabaseReference, value: Record<string, unknown>): Promise<void> {
   await apiJson(`database?path=${encodeURIComponent(target.path)}`, { method:'PATCH', body:JSON.stringify({ value }) })
+}
+
+export async function compareAndUpdate(target: DatabaseReference, expected: Record<string, unknown>, value: Record<string, unknown>): Promise<void> {
+  await apiJson(`database?path=${encodeURIComponent(target.path)}`, { method:'PATCH', body:JSON.stringify({ expected, value }) })
 }
 
 export async function remove(target: DatabaseReference): Promise<void> {

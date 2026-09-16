@@ -1,5 +1,5 @@
 import type { AppContext, ConfigCongregacao, MasterPessoa, RawPessoas } from '../types'
-import { configCongregacaoRef, get, pessoasRef, servicoCampoRef, update } from '../firebase'
+import { child, compareAndSet, configCongregacaoRef, get, pessoasRef, servicoCampoRef, update } from '../firebase'
 import { renderMenuCards, type ItemMenu } from '../ui/menu-cards'
 import { moduleBackButton, moduleTitle } from '../ui/module-header'
 import { generateFieldServicePeriod, validFieldServiceMonth, validFieldServiceTime, type FieldServiceAssignment, type FieldServicePeriod, type FieldServiceTemplate } from './servico-campo-domain'
@@ -22,7 +22,13 @@ let congregation: ConfigCongregacao = { nome:'Noroeste', cidade:'', circuito:'',
 let selectedMonth = localStorage.getItem(MONTH_KEY) ?? new Date().toISOString().slice(0, 7)
 let editingTemplateId = ''
 let changingPublication = false
+let generatingPeriod = false
 const fieldServicePdfPreview = new PublicationPreviewGate()
+let loadPromise: Promise<boolean> | null = null
+
+function failureMessage(error: unknown, fallback: string): string {
+  return error instanceof Error && error.message.trim() ? error.message : fallback
+}
 
 function fieldServicePdfInput(assignments = Object.values(currentPeriod()?.assignments ?? {})): Parameters<typeof import('./servico-campo-documents').createFieldServicePdf>[0] {
   return { month:selectedMonth, assignments, people, congregation:congregation.nome }
@@ -46,20 +52,31 @@ function sectionTitle(title: string): string { return `<div class="module-sectio
 
 export default function mount(appContext: AppContext): void {
   void appContext
-  screen = 'indice'; editingTemplateId = ''
+  screen = 'indice'; editingTemplateId = ''; loadPromise = null; data = {}; people = {}
   const host = document.getElementById('appContent'); if (!host) return
-  host.innerHTML = '<div id="servicoCampoRoot"><p class="empty-state">Carregando Serviço de Campo...</p></div>'
-  void load()
+  host.innerHTML = '<div id="servicoCampoRoot"></div>'
+  render(); void ensureLoaded()
 }
 
-async function load(): Promise<void> {
+function ensureLoaded(): Promise<boolean> {
+  loadPromise ??= load()
+  return loadPromise
+}
+
+async function load(): Promise<boolean> {
   try {
     const [serviceSnapshot, peopleSnapshot, congregationSnapshot] = await Promise.all([get(servicoCampoRef), get(pessoasRef), get(configCongregacaoRef)])
     data = serviceSnapshot.exists() ? serviceSnapshot.val() as ServiceRoot : {}
     people = peopleSnapshot.exists() ? peopleSnapshot.val() as RawPessoas : {}
     if (congregationSnapshot.exists()) congregation = { ...congregation, ...congregationSnapshot.val() as ConfigCongregacao }
-  } catch { root().innerHTML = `${moduleTitle('Serviço de Campo')}<p class="empty-state">Não foi possível carregar os dados. Volte ao módulo e tente novamente.</p>`; toast('Não foi possível carregar Serviço de Campo'); return }
-  render()
+  } catch { toast('Não foi possível carregar Serviço de Campo'); return false }
+  return true
+}
+
+async function openScreen(next: Screen): Promise<void> {
+  root().innerHTML = `${moduleTitle('Serviço de Campo')}<p class="empty-state">Carregando dados...</p>`
+  if (!await ensureLoaded()) { root().innerHTML = `${moduleTitle('Serviço de Campo')}<p class="empty-state">Não foi possível carregar os dados. Volte ao módulo e tente novamente.</p>`; return }
+  screen = next; render()
 }
 
 function render(): void {
@@ -74,7 +91,7 @@ function renderIndex(): void {
     { id:'programacao', titulo:'Programação', subtitulo:'Gerar, revisar, publicar e imprimir', icone:'▦', corFundo:'#8A5A00' },
     { id:'configuracao', titulo:'Configuração', subtitulo:'Saídas recorrentes e dirigentes', icone:'⚙', corFundo:'#1A6B3C' },
   ]
-  renderMenuCards(root().querySelector<HTMLElement>('#serviceMenu')!, items, selected => { screen = selected as Screen; render() })
+  renderMenuCards(root().querySelector<HTMLElement>('#serviceMenu')!, items, selected => { void openScreen(selected as Screen) })
 }
 
 function periodControl(): string {
@@ -115,15 +132,21 @@ function manualAssignmentForm(): string {
 }
 
 async function generatePeriod(): Promise<void> {
+  if (generatingPeriod || currentPeriod()?.published) return
   if (!Object.values(templates()).some(item => item.active !== false)) { toast('Cadastre ao menos uma saída recorrente'); return }
   if (!leaderIds().length) { toast('Selecione ao menos um dirigente para o rodízio'); return }
-  const period = generateFieldServicePeriod({ month:selectedMonth, templates:templates(), leaderIds:leaderIds(), periods:periods(), existing:currentPeriod() })
-  try { await update(servicoCampoRef, { [`periods/${selectedMonth}`]:period }); data.periods = { ...periods(), [selectedMonth]:period }; toast('Rodízio gerado e pronto para revisão'); render() } catch { toast('Não foi possível gerar o rodízio') }
+  if (Object.values(templates()).some(item => item.active !== false && (!item.date || item.date.startsWith(`${selectedMonth}-`)) && !item.leaderIds?.some(mid => leaderIds().includes(mid)))) { toast('Configure os dirigentes aprovados de cada arranjo antes de gerar'); return }
+  const month = selectedMonth, expected = structuredClone(currentPeriod() ?? null)
+  const period = generateFieldServicePeriod({ month, templates:templates(), leaderIds:leaderIds(), periods:periods(), existing:currentPeriod() })
+  generatingPeriod = true
+  try { await compareAndSet(child(servicoCampoRef, `periods/${month}`), expected, period); data.periods = { ...periods(), [month]:period }; fieldServicePdfPreview.clear(); toast('Rodízio gerado e pronto para revisão'); render() } catch (error) { toast(failureMessage(error, 'Não foi possível gerar o rodízio')) }
+  finally { generatingPeriod = false }
 }
 
 async function changeLeader(assignmentId: string, leaderId: string): Promise<void> {
   const period = currentPeriod(), assignment = period?.assignments?.[assignmentId]; if (!period || !assignment || period.published) return
-  try { await update(servicoCampoRef, { [`periods/${selectedMonth}/assignments/${assignmentId}/leaderId`]:leaderId }); assignment.leaderId = leaderId; toast('Dirigente atualizado'); render() } catch { toast('Não foi possível atualizar o dirigente') }
+  if (leaderId && !leaderIds().includes(leaderId)) { toast('Selecione um dirigente aprovado'); return }
+  try { await update(servicoCampoRef, { [`periods/${selectedMonth}/assignments/${assignmentId}/leaderId`]:leaderId }); assignment.leaderId = leaderId; fieldServicePdfPreview.clear(); toast('Dirigente atualizado'); render() } catch (error) { toast(failureMessage(error, 'Não foi possível atualizar o dirigente')) }
 }
 
 async function addManualAssignment(form: HTMLFormElement): Promise<void> {
@@ -132,13 +155,13 @@ async function addManualAssignment(form: HTMLFormElement): Promise<void> {
   if (Object.values(currentPeriod()?.assignments ?? {}).some(item => item.date === date && item.time === time && item.location.trim().localeCompare(location, 'pt-BR', { sensitivity:'base' }) === 0)) { toast('Esta saída já existe na programação'); return }
   const assignment: FieldServiceAssignment = { id:assignmentId, templateId:'', date, time, location, label:String(values.get('label') ?? '').trim() || 'Saída de campo', leaderId:String(values.get('leaderId') ?? ''), manual:true }
   const current = currentPeriod() ?? { month:selectedMonth, assignments:{}, published:false }
-  try { await update(servicoCampoRef, { [`periods/${selectedMonth}/month`]:selectedMonth, [`periods/${selectedMonth}/published`]:false, [`periods/${selectedMonth}/assignments/${assignmentId}`]:assignment }); current.assignments[assignmentId] = assignment; data.periods = { ...periods(), [selectedMonth]:current }; toast('Saída adicionada'); render() } catch { toast('Não foi possível adicionar a saída') }
+  try { await update(servicoCampoRef, { [`periods/${selectedMonth}/month`]:selectedMonth, [`periods/${selectedMonth}/published`]:false, [`periods/${selectedMonth}/assignments/${assignmentId}`]:assignment }); current.assignments[assignmentId] = assignment; data.periods = { ...periods(), [selectedMonth]:current }; fieldServicePdfPreview.clear(); toast('Saída adicionada'); render() } catch (error) { toast(failureMessage(error, 'Não foi possível adicionar a saída')) }
 }
 
 async function deleteAssignment(assignmentId: string): Promise<void> {
   const period = currentPeriod(); if (!period || period.published || !period.assignments[assignmentId]) return
   if (!confirm('Remover esta saída da programação?')) return
-  try { await update(servicoCampoRef, { [`periods/${selectedMonth}/assignments/${assignmentId}`]:null }); delete period.assignments[assignmentId]; toast('Saída removida'); render() } catch { toast('Não foi possível remover a saída') }
+  try { await update(servicoCampoRef, { [`periods/${selectedMonth}/assignments/${assignmentId}`]:null }); delete period.assignments[assignmentId]; fieldServicePdfPreview.clear(); toast('Saída removida'); render() } catch (error) { toast(failureMessage(error, 'Não foi possível remover a saída')) }
 }
 
 async function publishPeriod(): Promise<void> {
@@ -159,7 +182,7 @@ async function publishPeriod(): Promise<void> {
     try { await update(servicoCampoRef, { [`periods/${month}/published`]:true, [`periods/${month}/publishedAt`]:publishedAt }) }
     catch (error) { try { await unpublishAgendaModulePdf('servicoCampo', month) } catch { toast('Publicação incompleta. Confira o PDF no Quadro.'); return } throw error }
     period.published = true; period.publishedAt = publishedAt; toast('Mês publicado na Minha Agenda e no Quadro'); render()
-  } catch { toast('Não foi possível publicar o mês') }
+  } catch (error) { toast(failureMessage(error, 'Não foi possível publicar o mês')) }
   finally { changingPublication = false }
 }
 
@@ -179,15 +202,42 @@ async function reopenPeriod(): Promise<void> {
 async function openPdf(): Promise<void> {
   const assignments = Object.values(currentPeriod()?.assignments ?? {}); if (!assignments.length) return
   const input = fieldServicePdfInput(assignments)
-  try { const docs = await import('./servico-campo-documents'); await docs.previewFieldServicePdf(input); fieldServicePdfPreview.mark(input); toast('Prévia do PDF gerada e pronta para publicação') } catch { toast('Não foi possível gerar o PDF') }
+  try { const docs = await import('./servico-campo-documents'); await docs.previewFieldServicePdf(input); fieldServicePdfPreview.mark(input); toast('Prévia do PDF gerada e pronta para publicação') } catch (error) { toast(failureMessage(error, 'Não foi possível gerar o PDF')) }
 }
 
 function renderConfiguration(): void {
   const current = templates()[editingTemplateId]
-  const templateRows = Object.values(templates()).sort((a, b) => a.sortOrder - b.sortOrder || a.dow - b.dow || a.time.localeCompare(b.time)).map(item => `<div class="secretary-row"><div><strong>${DAYS[item.dow]} · ${esc(item.time)}</strong><small>${esc(item.location)} · ${esc(item.label)} · ${item.active ? 'Ativa' : 'Inativa'} · ${item.leaderIds?.length ? `${item.leaderIds.length} dirigente(s) próprio(s)` : 'rodízio geral'}</small></div><button class="btn btn-ghost" data-edit-service-template="${esc(item.id)}">Editar</button><button class="btn btn-danger" data-delete-service-template="${esc(item.id)}" title="Remover saída">✕</button></div>`).join('')
+  const templateRows = Object.values(templates()).sort((a, b) => a.sortOrder - b.sortOrder || a.dow - b.dow || a.time.localeCompare(b.time)).map(item => `<div class="secretary-row"><div><strong>${item.date ? esc(dateLabel(item.date)) : DAYS[item.dow]} · ${esc(item.time)}</strong><small>${esc(item.location)} · ${esc(item.label)} · ${item.active ? 'Ativa' : 'Inativa'} · ${item.leaderIds?.length ? `${item.leaderIds.length} dirigente(s)` : 'rodízio pendente'}</small></div><button class="btn btn-ghost" data-edit-service-template="${esc(item.id)}">Editar</button><button class="btn btn-danger" data-delete-service-template="${esc(item.id)}" title="Remover saída">✕</button></div>`).join('')
   const leaderRows = Object.entries(people).filter(([, person]) => person.active !== false && person.sex === 'M').sort((a, b) => a[1].name.localeCompare(b[1].name, 'pt-BR')).map(([masterId, person]) => `<label class="service-leader-option"><input type="checkbox" data-service-eligible="${esc(masterId)}" ${data.leaders?.[masterId] ? 'checked' : ''}><span><strong>${esc(person.name)}</strong><small>${esc(roleLabel(person))}</small></span></label>`).join('')
-  const ownLeaderRows = Object.entries(people).filter(([, person]) => person.active !== false && person.sex === 'M').sort((a, b) => a[1].name.localeCompare(b[1].name, 'pt-BR')).map(([masterId, person]) => `<label class="service-leader-option"><input name="templateLeader" type="checkbox" value="${esc(masterId)}" ${current?.leaderIds?.includes(masterId) ? 'checked' : ''}><span><strong>${esc(person.name)}</strong><small>${esc(roleLabel(person))}</small></span></label>`).join('')
-  root().innerHTML = `${sectionTitle('Configuração do Serviço de Campo')}<form id="serviceTemplateForm" class="form-panel"><h3 style="margin-top:0">${current ? 'Editar saída recorrente' : 'Nova saída recorrente'}</h3><input name="templateId" type="hidden" value="${esc(current?.id)}"><div class="module-form-grid"><label class="form-field"><span>Dia</span><select name="dow">${DAYS.map((day, dow) => `<option value="${dow}" ${current?.dow === dow ? 'selected' : ''}>${day}</option>`).join('')}</select></label><label class="form-field"><span>Hora</span><input name="time" type="time" value="${esc(current?.time ?? '08:30')}" required></label><label class="form-field"><span>Local</span><input name="location" maxlength="80" value="${esc(current?.location)}" required></label><label class="form-field"><span>Descrição</span><input name="label" maxlength="60" value="${esc(current?.label ?? 'Saída de campo')}"></label><label class="form-field"><span>Ordem</span><input name="sortOrder" type="number" value="${current?.sortOrder ?? Object.keys(templates()).length}"></label><label><input name="active" type="checkbox" ${current?.active !== false ? 'checked' : ''}> Saída ativa</label></div><details style="margin-top:12px"><summary>Rodízio próprio deste dia e horário</summary><p class="form-help">Sem seleção, esta saída usa o rodízio geral. Selecione irmãos aqui para criar um revezamento específico.</p><div class="service-leader-grid">${ownLeaderRows || '<p class="empty-state">Nenhum irmão ativo disponível.</p>'}</div></details><div class="service-actions"><button class="btn btn-primary" type="submit">Salvar saída</button>${current ? '<button id="cancelServiceTemplate" class="btn btn-ghost" type="button">Cancelar</button>' : ''}</div></form><div class="module-option-list">${templateRows || '<p class="empty-state">Nenhuma saída recorrente cadastrada.</p>'}</div><div class="form-panel"><h3 style="margin-top:0">Dirigentes do rodízio geral</h3><p class="form-help">Somente irmãos ativos aparecem como dirigentes. O rodízio funciona com qualquer quantidade de pessoas e evita repetir o responsável no mesmo dia enquanto houver outra pessoa disponível.</p><div class="service-leader-grid">${leaderRows || '<p class="empty-state">Nenhum irmão ativo disponível no cadastro Admin.</p>'}</div><button id="saveServiceLeaders" class="btn btn-primary" type="button">Salvar dirigentes</button></div><div id="fieldServiceMessageSettings"></div>`
+  const ownLeaderRows = leaderIds().map(masterId => `<label class="service-leader-option"><input name="templateLeader" type="checkbox" value="${esc(masterId)}" ${current?.leaderIds?.includes(masterId) ? 'checked' : ''}><span><strong>${esc(personName(masterId))}</strong><small>${esc(roleLabel(people[masterId]!))}</small></span></label>`).join('')
+  root().innerHTML = `${sectionTitle('Configuração do Serviço de Campo')}
+    <form id="serviceTemplateForm" class="form-panel"><h3>${current ? 'Editar saída' : 'Nova saída'}</h3>
+      <input name="templateId" type="hidden" value="${esc(current?.id)}">
+      <div class="module-form-grid">
+        <label class="form-field"><span>Programação</span><select name="mode"><option value="weekly" ${!current?.date ? 'selected' : ''}>Dia da semana</option><option value="date" ${current?.date ? 'selected' : ''}>Data específica</option></select></label>
+        <label class="form-field" data-service-weekday><span>Dia</span><select name="dow">${DAYS.map((day, dow) => `<option value="${dow}" ${current?.dow === dow ? 'selected' : ''}>${day}</option>`).join('')}</select></label>
+        <label class="form-field" data-service-date><span>Data</span><input name="date" type="date" value="${esc(current?.date ?? `${selectedMonth}-01`)}"></label>
+        <label class="form-field"><span>Hora</span><input name="time" type="time" value="${esc(current?.time ?? '08:30')}" required></label>
+        <label class="form-field"><span>Local</span><input name="location" maxlength="80" value="${esc(current?.location)}" required></label>
+        <label class="form-field"><span>Descrição</span><input name="label" maxlength="60" value="${esc(current?.label ?? 'Saída de campo')}"></label>
+        <label class="form-field"><span>Ordem</span><input name="sortOrder" type="number" value="${current?.sortOrder ?? Object.keys(templates()).length}"></label>
+        <label><input name="active" type="checkbox" ${current?.active !== false ? 'checked' : ''}> Saída ativa</label>
+      </div>
+      <details open><summary>Dirigentes deste arranjo</summary><div class="service-leader-grid">${ownLeaderRows || '<p class="empty-state">Nenhum dirigente aprovado.</p>'}</div></details>
+      <div class="service-actions"><button class="btn btn-primary" type="submit">Salvar saída</button>${current ? '<button id="cancelServiceTemplate" class="btn btn-ghost" type="button">Cancelar</button>' : ''}</div>
+    </form>
+    <div class="module-option-list">${templateRows || '<p class="empty-state">Nenhuma saída cadastrada.</p>'}</div>
+    <details class="form-panel"><summary>Dirigentes aprovados</summary><div class="service-leader-grid">${leaderRows || '<p class="empty-state">Nenhum irmão ativo disponível no cadastro Admin.</p>'}</div><button id="saveServiceLeaders" class="btn btn-primary" type="button">Salvar dirigentes</button></details>
+    <div id="fieldServiceMessageSettings"></div>`
+  const form = document.getElementById('serviceTemplateForm') as HTMLFormElement
+  const syncMode = (): void => {
+    const byDate = (form.elements.namedItem('mode') as HTMLSelectElement).value === 'date'
+    form.querySelector<HTMLElement>('[data-service-weekday]')!.hidden = byDate
+    form.querySelector<HTMLElement>('[data-service-date]')!.hidden = !byDate
+    ;(form.elements.namedItem('date') as HTMLInputElement).required = byDate
+  }
+  form.querySelector('[name="mode"]')!.addEventListener('change', syncMode)
+  syncMode()
   document.getElementById('serviceTemplateForm')?.addEventListener('submit', event => { event.preventDefault(); void saveTemplate(event.currentTarget as HTMLFormElement) })
   document.getElementById('cancelServiceTemplate')?.addEventListener('click', () => { editingTemplateId = ''; render() })
   document.querySelectorAll<HTMLButtonElement>('[data-edit-service-template]').forEach(button => button.addEventListener('click', () => { editingTemplateId = button.dataset.editServiceTemplate!; render() }))
@@ -200,6 +250,13 @@ async function saveTemplate(form: HTMLFormElement): Promise<void> {
   const values = new FormData(form), templateId = String(values.get('templateId') ?? '') || id('modelo'), time = String(values.get('time') ?? ''), location = String(values.get('location') ?? '').trim()
   if (!validFieldServiceTime(time) || !location) { toast('Preencha horário e local'); return }
   const item: FieldServiceTemplate = { id:templateId, label:String(values.get('label') ?? '').trim() || 'Saída de campo', dow:Number(values.get('dow')), time, location, active:values.get('active') === 'on', sortOrder:Number(values.get('sortOrder')) || 0, leaderIds:values.getAll('templateLeader').map(String).filter(Boolean) }
+  if (item.leaderIds?.some(masterId => !leaderIds().includes(masterId))) { toast('Selecione somente dirigentes aprovados'); return }
+  if (!item.leaderIds?.length) { toast('Selecione os dirigentes deste arranjo'); return }
+  if (values.get('mode') === 'date') {
+    const date = String(values.get('date') ?? '')
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(`${date}T12:00:00Z`)) || new Date(`${date}T12:00:00Z`).toISOString().slice(0, 10) !== date) { toast('Informe uma data válida'); return }
+    item.date = date
+  }
   try { await update(servicoCampoRef, { [`templates/${templateId}`]:item }); data.templates = { ...templates(), [templateId]:item }; editingTemplateId = ''; toast('Saída recorrente salva'); render() } catch { toast('Não foi possível salvar a saída') }
 }
 
@@ -215,5 +272,7 @@ async function deleteTemplate(templateId: string): Promise<void> {
 
 async function saveLeaders(): Promise<void> {
   const selected = Object.fromEntries([...document.querySelectorAll<HTMLInputElement>('[data-service-eligible]')].filter(input => input.checked).map(input => [input.dataset.serviceEligible!, true]))
-  try { await update(servicoCampoRef, { leaders:selected }); data.leaders = selected; toast('Dirigentes do rodízio salvos') } catch { toast('Não foi possível salvar os dirigentes') }
+  const patch = Object.fromEntries([...new Set([...Object.keys(data.leaders ?? {}), ...Object.keys(selected)])].filter(mid => Boolean(data.leaders?.[mid]) !== Boolean(selected[mid])).map(mid => [`leaders/${mid}`, selected[mid] ?? null]))
+  if (!Object.keys(patch).length) { toast('Nenhuma alteração'); return }
+  try { await update(servicoCampoRef, patch); data.leaders = selected; toast('Dirigentes aprovados salvos'); renderConfiguration() } catch { toast('Não foi possível salvar os dirigentes') }
 }

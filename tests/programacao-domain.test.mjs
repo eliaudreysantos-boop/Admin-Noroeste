@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  assistantNeedsSameSex, candidates, filterPrograms, isOfficialJwUrl,
+  completeMeetingRoles, assistantNeedsSameSex, candidates, filterPrograms, isOfficialJwUrl,
   assignmentConflicts, htmlToText, mergeImportedProgram, parseOfficialProgram, permissionForPart, programPendings, programReminderEntries, reminderMessage, suggestAssignments, validProgramDate,
 } from '../src/modules/programacao-domain.ts'
 
@@ -26,6 +26,46 @@ NOSSA VIDA CRISTÃ
 7. Estudo bíblico de congregação
 (30 min)
 `
+
+test('designacoes fixas preservam partes e nao duplicam na reimportacao', () => {
+  const original = parseOfficialProgram('https://www.jw.org/pt/x/', page)
+  const result = completeMeetingRoles(original)
+  assert.equal(original.parts.length, 7)
+  assert.equal(result.parts.length, 10)
+  assert.equal(permissionForPart(result.parts[0]), 'presidente')
+  assert.equal(permissionForPart(result.parts[1]), 'oracao-inicial')
+  assert.equal(permissionForPart(result.parts.at(-1)), 'oracao-final')
+  result.parts[0].assignedPersonId = 'p1'
+  assert.equal(completeMeetingRoles(result), result)
+  const merged = mergeImportedProgram(result, original, '2026-09-15')
+  assert.equal(merged.parts.find(part => permissionForPart(part) === 'presidente').assignedPersonId, 'p1')
+  assert.equal(completeMeetingRoles({ ...original, type: 'assembleia' }).parts.length, 7)
+})
+
+test('oracao e presidencia usam candidatos da permissao correspondente', () => {
+  const people = [{ id: 'p1', active: true, sex: 'masculino', role: 'publicador', permissions: ['oracao-inicial'], name: 'A' }]
+  const result = completeMeetingRoles(parseOfficialProgram('https://www.jw.org/pt/x/', page))
+  assert.equal(candidates(result.parts[0], people).length, 0)
+  assert.equal(candidates(result.parts[1], people).length, 1)
+})
+
+test('reimportacao preserva presidencia, oracoes e leitor com IDs do Android', () => {
+  const incoming = parseOfficialProgram('https://www.jw.org/pt/x/', page)
+  const roles = ['Presidente', 'Oracao inicial', 'Oracao final', 'Leitor do Estudo Biblico']
+    .map((title, i) => ({ id: `legacy-1-${i}`, title, section: 'vida-crista', durationMinutes: 1, assignedPersonId: 'p1', realizedPersonId: 'p2', status: 'realizado' }))
+  const result = mergeImportedProgram({ ...incoming, parts: [...incoming.parts, ...roles] }, incoming, '2026-09-15')
+  for (const role of roles) assert.deepEqual(result.parts.find(part => part.id === role.id), role)
+  assert.equal(result.parts.length, incoming.parts.length + roles.length)
+})
+
+test('reimportacao aborta quando perderia designacoes com IDs legados', () => {
+  const incoming = parseOfficialProgram('https://www.jw.org/pt/x/', page)
+  const existing = structuredClone(incoming)
+  existing.parts[0] = { ...existing.parts[0], id: 'legacy-1-tesouros', assignedPersonId: 'p1' }
+  const before = structuredClone(existing)
+  assert.throws(() => mergeImportedProgram(existing, incoming, '2026-09-15'), /sem correspondência/)
+  assert.deepEqual(existing, before)
+})
 
 const person = (overrides = {}) => ({ id: 'p1', masterId: 'm1', name: 'Ana', whatsapp: '5585999999999', sex: 'feminino', role: 'publicador', active: true, permissions: ['iniciando-conversas', 'ajudante'], ...overrides })
 

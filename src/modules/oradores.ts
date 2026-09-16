@@ -29,6 +29,7 @@ type OradoresTab = 'indice' | 'resumo' | 'cadastro' | 'programacao' | 'designaco
 let activeTab: OradoresTab = 'indice'
 const speakerSchedulePreview = new PublicationPreviewGate()
 let changingPublication = false
+let loadPromise: Promise<boolean> | null = null
 
 function speakerSchedulePreviewInput(rows: SchedulePdfRow[]): unknown {
   return { congregation:localCongregationName(), period:selectedProgramacaoPeriod, rows }
@@ -82,16 +83,19 @@ export default function mount(_ctx: AppContext): void {
   const el = document.getElementById('appContent')
   if (!el) return
 
-  el.innerHTML = `
-    <div id="oradoresRoot">
-      <p style="padding:24px;color:var(--ink-3);text-align:center">Carregando...</p>
-    </div>`
-
+  el.innerHTML = '<div id="oradoresRoot"></div>'
   activeTab = 'indice'
-  void loadOradores()
+  loadPromise = null; discursos = {}; pessoas = {}; taskMeetings = []; oradoresPlanning = {}
+  render()
+  void ensureOradoresLoaded().then(ok => { if (ok && activeTab === 'indice') render() })
 }
 
-async function loadOradores(): Promise<void> {
+function ensureOradoresLoaded(): Promise<boolean> {
+  loadPromise ??= loadOradores()
+  return loadPromise
+}
+
+async function loadOradores(): Promise<boolean> {
   try {
     const [snap, peopleSnap, scaleSnap, planningSnap] = await Promise.all([get(tarefasDiscursosRef), get(pessoasRef), get(tarefasScaleRef), get(tarefasPlanejamentoRef)])
     discursos = snap.exists() ? (snap.val() as LegacyDiscursos) : {}
@@ -103,8 +107,17 @@ async function loadOradores(): Promise<void> {
     toast('Erro ao carregar Oradores')
     const root = document.getElementById('oradoresRoot')
     if (root) root.innerHTML = '<p class="empty-state">Não foi possível carregar Oradores. Volte aos módulos e tente novamente.</p>'
-    return
+    return false
   }
+  return true
+}
+
+async function openOradoresTab(next: OradoresTab): Promise<void> {
+  const element = document.getElementById('oradoresRoot')
+  if (!element) return
+  element.innerHTML = `${moduleTitle('Oradores', '#5C6062')}${moduleBackButton()}<p class="empty-state">Carregando dados...</p>`
+  if (!await ensureOradoresLoaded()) { element.innerHTML = `${moduleTitle('Oradores', '#5C6062')}${moduleBackButton()}<p class="empty-state">Não foi possível carregar Oradores. Volte aos módulos e tente novamente.</p>`; return }
+  activeTab = next
   render()
 }
 
@@ -140,7 +153,7 @@ function render(): void {
         { id: 'pendencias', titulo: 'Pendências', subtitulo: `${aConfirmar} compromisso${aConfirmar === 1 ? '' : 's'} a confirmar`, icone: '!', corFundo: '#B3261E' },
         { id: 'config', titulo: 'Configuração', subtitulo: 'WhatsApp e mensagens do módulo', icone: '⚙', corFundo: '#5C6062' },
       ]
-      renderMenuCards(menu, items, id => { activeTab = id as OradoresTab; render() })
+      renderMenuCards(menu, items, id => { void openOradoresTab(id as OradoresTab) })
     }
   }
 

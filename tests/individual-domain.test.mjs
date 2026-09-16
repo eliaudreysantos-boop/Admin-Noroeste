@@ -15,6 +15,18 @@ const root = {
   servicoCampo:{ periods:{ '2026-09':{ month:'2026-09', published:true, assignments:{ s1:{ id:'s1', templateId:'t1', date:'2026-09-17', time:'16:00', location:'Salão do Reino', label:'Saída de campo', leaderId:'m1' } } } } },
 }
 
+test('Vida e Ministerio usa horario central e omite semanas sem reuniao na Agenda e Quadro', () => {
+  const data = structuredClone(root)
+  data.master.config = { reunioes: { meiaDeSemana: { horario: '19:00' } } }
+  delete data.programacao.settings.meetingTime
+  assert.equal(collectAgendaEvents(data, 'm1').find(event => event.source === 'programacao').time, '19:00')
+  for (const type of ['assembleia', 'celebracao']) {
+    data.programacao.programs.w.type = type
+    assert.equal(collectAgendaEvents(data, 'm1').some(event => event.source === 'programacao'), false)
+    assert.equal(collectAnnouncementEvents(data).some(event => event.source === 'programacao'), false)
+  }
+})
+
 test('cache de identidades remove telefone e grupo de limpeza', () => {
   const people = sanitizeAgendaPeople({ m1:{ name:'Ana', whatsapp:'5585999999999', active:true, sex:'F', role:'publicador', limpeza:{ grupo:3 } } })
   assert.deepEqual(people.m1, { name:'Ana', whatsapp:'', active:true, sex:'F', role:'publicador', limpeza:{ grupo:null } })

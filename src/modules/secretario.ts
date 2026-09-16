@@ -1,9 +1,10 @@
 import type { AppContext, ConfigCongregacao, RawPessoas } from '../types'
-import { configCongregacaoRef, get, pessoasRef, secretarioRef, update } from '../firebase'
+import { child, compareAndSet, configCongregacaoRef, get, pessoasRef, secretarioRef, update } from '../firebase'
 import { apiJson, uploadPdf } from '../secure-api.ts'
+import { closureSnapshot } from './secretario-domain'
 import { renderMenuCards, type ItemMenu } from '../ui/menu-cards'
 import { moduleBackButton } from '../ui/module-header'
-import { CATEGORY_LABELS, activityByServiceYear, archiveCanBeDeleted, attendanceByMonth, duplicateReportGroups, isClosedMonth, isReportLate, matchingReports, pendingPublishers, publisherReportState, records, reportCreatedBy, reportLastEditedBy, serviceYearStart, summarizeCongregation, validSecretaryDate, validSecretaryMonth, type PublisherCategory, type PublisherReportState, type SecretaryAttendance, type SecretaryGroup, type SecretaryPublisher, type SecretaryReport } from './secretario-domain'
+import { CATEGORY_LABELS, activityByServiceYear, archiveCanBeDeleted, attendanceByMonth, duplicateReportGroups, firstOpenCompetence, isClosedMonth, isReportLate, matchingReports, pendingPublishers, publisherReportState, records, reportCreatedBy, reportLastEditedBy, serviceYearStart, summarizeCongregation, validSecretaryDate, validSecretaryMonth, type PublisherCategory, type PublisherReportState, type SecretaryAttendance, type SecretaryGroup, type SecretaryPublisher, type SecretaryReport } from './secretario-domain'
 
 type Tab = 'indice' | 'publicadores' | 'grupos' | 'relatorios' | 'conferencia' | 'assistencia' | 'analise' | 'documentos' | 'arquivos'
 interface ArchiveRecord { id: string; nome: string; tipo: string; referencia: string; criadoEm: string }
@@ -24,6 +25,8 @@ let reportMonth = new Date().toISOString().slice(0, 7)
 let publisherSearch = '', publisherGroupFilter = 'todos', publisherCategoryFilter = 'todos', publisherStatusFilter: PublisherReportState | 'todos' = 'todos'
 let reportGroupFilter = 'todos', reportCategoryFilter = 'todos', reportStatusFilter: 'todos' | 'recebido' | 'atrasado' | 'com_estudos' | 'sem_estudos' = 'todos'
 const previewedOfficialTemplates: Partial<Record<TemplateKey, string>> = {}
+let loadPromise: Promise<boolean> | null = null
+const publisherBaselines = new WeakMap<HTMLFormElement, SecretaryPublisher | null>()
 
 const esc = (value: unknown): string => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;')
 const today = (): string => new Date().toISOString().slice(0, 10)
@@ -41,6 +44,7 @@ const personName = (masterId: string): string => people[masterId]?.name ?? 'Cada
 const reportOriginLabel = (report: SecretaryReport): string => reportCreatedBy(report) === 'pessoa' ? (reportLastEditedBy(report) === 'secretario' ? 'Enviado pela pessoa · ajustado pelo secretário' : 'Enviado pela pessoa') : 'Lançado pelo secretário'
 const whatsappNumber = (masterId: string): string => String(people[masterId]?.whatsapp ?? '').replace(/\D/g, '')
 const isReportMonthClosed = (competence: string): boolean => isClosedMonth(competence, root['fechamentos'])
+const activeCompetence = (): string => firstOpenCompetence(today().slice(0, 7), root['fechamentos'], Object.values(reports()).map(report => report.competencia))
 
 function toast(message: string): void { const element = document.getElementById('toast'); if (!element) return; element.textContent = message; element.classList.add('show'); setTimeout(() => element.classList.remove('show'), 2600) }
 function sectionTitle(title: string): string { return `<div style="margin-bottom:14px">${moduleBackButton()}<h2 style="font-size:1.05rem;color:#5C6062;margin:0">${esc(title)}</h2></div>` }
@@ -55,12 +59,21 @@ function groupOptions(selected = ''): string { return `<option value="">Sem grup
 function publisherOptions(selected = ''): string { return Object.values(publishers()).filter(item => item.ativo).sort((a, b) => personName(a.masterId).localeCompare(personName(b.masterId), 'pt-BR')).map(item => `<option value="${item.id}" ${item.id === selected ? 'selected' : ''}>${esc(personName(item.masterId))}</option>`).join('') }
 
 export default function mount(_context: AppContext): void {
-  activeTab = 'indice'; const element = document.getElementById('appContent'); if (!element) return
-  element.innerHTML = '<div id="secretarioRoot"><p style="padding:24px;color:var(--ink-3);text-align:center">Carregando...</p></div>'; void load()
+  activeTab = 'indice'; loadPromise = null; root = {}; people = {}; const element = document.getElementById('appContent'); if (!element) return
+  element.innerHTML = '<div id="secretarioRoot"></div>'; render(); void ensureLoaded()
 }
-async function load(): Promise<void> {
-  try { const [secretarySnapshot, peopleSnapshot, congregationSnapshot] = await Promise.all([get(secretarioRef), get(pessoasRef), get(configCongregacaoRef)]); root = secretarySnapshot.exists() ? records(secretarySnapshot.val()) : {}; people = peopleSnapshot.exists() ? peopleSnapshot.val() as RawPessoas : {}; if (congregationSnapshot.exists()) congregation = { ...congregation, ...congregationSnapshot.val() as ConfigCongregacao } } catch { const element = document.getElementById('secretarioRoot'); if (element) element.innerHTML = `${sectionTitle('Secretário')}<p class="empty-state">Não foi possível carregar os dados. Volte ao módulo e tente novamente.</p>`; toast('Erro ao carregar Secretário'); return }
-  render()
+function ensureLoaded(): Promise<boolean> {
+  loadPromise ??= load()
+  return loadPromise
+}
+async function load(): Promise<boolean> {
+  try { const [secretarySnapshot, peopleSnapshot, congregationSnapshot] = await Promise.all([get(secretarioRef), get(pessoasRef), get(configCongregacaoRef)]); root = secretarySnapshot.exists() ? records(secretarySnapshot.val()) : {}; people = peopleSnapshot.exists() ? peopleSnapshot.val() as RawPessoas : {}; if (congregationSnapshot.exists()) congregation = { ...congregation, ...congregationSnapshot.val() as ConfigCongregacao }; reportMonth = activeCompetence(); return true } catch { toast('Erro ao carregar Secretário'); return false }
+}
+async function openTab(tab: Tab): Promise<void> {
+  const element = document.getElementById('secretarioRoot'); if (!element) return
+  element.innerHTML = `${sectionTitle('Secretário')}<p class="empty-state">Carregando dados...</p>`
+  if (!await ensureLoaded()) { element.innerHTML = `${sectionTitle('Secretário')}<p class="empty-state">Não foi possível carregar os dados. Volte ao módulo e tente novamente.</p>`; return }
+  activeTab = tab; render()
 }
 function render(): void {
   const element = document.getElementById('secretarioRoot'); if (!element) return
@@ -78,23 +91,27 @@ function renderIndex(element: HTMLElement): void {
     { id: 'documentos', titulo: 'Documentos', subtitulo: 'Preenchimento de S-21, S-88 e S-3', icone: '▤', corFundo: '#7E3AF2' },
     { id: 'arquivos', titulo: 'Arquivo', subtitulo: 'Histórico e arquivo da congregação', icone: '□', corFundo: '#8A5A00' },
   ]
-  renderMenuCards(element.querySelector<HTMLElement>('#secretarioMenu')!, items, selected => { activeTab = selected as Tab; render() })
+  renderMenuCards(element.querySelector<HTMLElement>('#secretarioMenu')!, items, selected => { void openTab(selected as Tab) })
 }
 function renderPublishers(element: HTMLElement): void {
   const current = publishers()[editingPublisher]
-  const list = Object.values(publishers()), statuses = list.map(item => publisherReportState(item, reportMonth, reports()))
+  const list = Object.values(publishers()), monthReports = Object.fromEntries(Object.entries(reports()).filter(([, report]) => report.competencia === reportMonth))
+  const states = new Map(list.map(item => [item.id, publisherReportState(item, reportMonth, monthReports)]))
+  const statuses = [...states.values()]
   const metrics = (label: string, value: number) => `<div class="secretary-metric"><strong>${value}</strong><span>${label}</span></div>`
   const filtered = list.filter(item => {
-    const state = publisherReportState(item, reportMonth, reports()), name = personName(item.masterId).toLocaleLowerCase('pt-BR')
+    const state = states.get(item.id)!, name = personName(item.masterId).toLocaleLowerCase('pt-BR')
     return (!publisherSearch || name.includes(publisherSearch.toLocaleLowerCase('pt-BR'))) && (publisherGroupFilter === 'todos' || item.grupoId === publisherGroupFilter) && (publisherCategoryFilter === 'todos' || item.categoria === publisherCategoryFilter) && (publisherStatusFilter === 'todos' || state === publisherStatusFilter)
   })
-  const groupLabel = (groupId: string): string => groups()[groupId]?.nome || 'Sem grupo'
+  const groupList = groups()
+  const groupLabel = (groupId: string): string => groupList[groupId]?.nome || 'Sem grupo'
   const stateLabel: Record<PublisherReportState, string> = { recebido:'Recebido', atrasado:'Atrasado', sem_relatorio:'Sem relatório', inativo:'Inativo' }
   const grouped = new Map<string, SecretaryPublisher[]>(); filtered.sort((a, b) => groupLabel(a.grupoId).localeCompare(groupLabel(b.grupoId), 'pt-BR') || personName(a.masterId).localeCompare(personName(b.masterId), 'pt-BR')).forEach(item => grouped.set(item.grupoId, [...(grouped.get(item.grupoId) ?? []), item]))
-  const rows = [...grouped.entries()].map(([groupId, members]) => `<div class="form-panel"><h3 style="margin-top:0">${esc(groupLabel(groupId))}</h3><div class="module-option-list">${members.map(item => { const state = publisherReportState(item, reportMonth, reports()); return `<div class="secretary-row"><div><strong>${esc(personName(item.masterId))}</strong><small>${esc(CATEGORY_LABELS[item.categoria])} · ${stateLabel[state]}</small></div><button class="btn btn-ghost" data-edit-publisher="${item.id}">Editar</button></div>` }).join('')}</div></div>`).join('')
+  const rows = [...grouped.entries()].map(([groupId, members]) => `<div class="form-panel"><h3 style="margin-top:0">${esc(groupLabel(groupId))}</h3><div class="module-option-list">${members.map(item => { const state = states.get(item.id)!; return `<div class="secretary-row"><div><strong>${esc(personName(item.masterId))}</strong><small>${esc(CATEGORY_LABELS[item.categoria])} · ${stateLabel[state]}</small></div><button class="btn btn-ghost" data-edit-publisher="${item.id}">Editar</button></div>` }).join('')}</div></div>`).join('')
   const personField = current ? `<label class="form-field"><span>Pessoa do Admin</span><input value="${esc(personName(current.masterId))}" readonly><input name="masterId" type="hidden" value="${esc(current.masterId)}"></label>` : `<label class="form-field"><span>Pessoa do Admin</span><select name="masterId" required><option value="">Selecionar...</option>${personOptions('', true)}</select></label>`
   element.innerHTML = `${sectionTitle('Publicadores')}<div class="form-panel"><div class="form-group"><label class="form-label">Competência</label><input id="publisherMonth" class="form-input" type="month" value="${reportMonth}"></div><div class="secretary-metrics">${metrics('Ativos', list.filter(item => item.ativo).length)}${metrics('Recebidos', statuses.filter(state => state === 'recebido').length)}${metrics('Atrasados', statuses.filter(state => state === 'atrasado').length)}${metrics('Sem relatório', statuses.filter(state => state === 'sem_relatorio').length)}</div><div class="module-form-grid"><label class="form-field"><span>Buscar nome</span><input id="publisherSearch" value="${esc(publisherSearch)}" maxlength="80"></label><label class="form-field"><span>Grupo</span><select id="publisherGroupFilter"><option value="todos">Todos os grupos</option>${Object.values(groups()).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')).map(group => `<option value="${group.id}" ${publisherGroupFilter === group.id ? 'selected' : ''}>${esc(group.nome)}</option>`).join('')}<option value="" ${publisherGroupFilter === '' ? 'selected' : ''}>Sem grupo</option></select></label><label class="form-field"><span>Categoria</span><select id="publisherCategoryFilter"><option value="todos">Todas as categorias</option>${Object.entries(CATEGORY_LABELS).map(([id, label]) => `<option value="${id}" ${publisherCategoryFilter === id ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select></label><label class="form-field"><span>Status do relatório</span><select id="publisherStatusFilter"><option value="todos">Todos</option>${Object.entries(stateLabel).map(([id, label]) => `<option value="${id}" ${publisherStatusFilter === id ? 'selected' : ''}>${label}</option>`).join('')}</select></label></div></div><form id="publisherForm" class="form-panel"><input type="hidden" name="recordId" value="${esc(current?.id)}"><div class="module-form-grid">${personField}<label class="form-field"><span>Categoria</span><select name="categoria">${categoryOptions(current?.categoria ?? 'publicador')}</select></label><label class="form-field"><span>Grupo</span><select name="grupoId">${groupOptions(current?.grupoId)}</select></label><label class="form-field"><span>Situação</span><select name="ativo"><option value="true" ${current?.ativo !== false ? 'selected' : ''}>Ativo</option><option value="false" ${current?.ativo === false ? 'selected' : ''}>Inativo</option></select></label></div><div class="secretary-actions"><label><input name="reativado" type="checkbox" ${current?.reativado ? 'checked' : ''}> Reativado neste ano de serviço</label><label><input name="surdo" type="checkbox" ${current?.surdo ? 'checked' : ''}> Surdo</label><label><input name="cego" type="checkbox" ${current?.cego ? 'checked' : ''}> Cego</label><label><input name="preso" type="checkbox" ${current?.preso ? 'checked' : ''}> Preso</label></div><div class="secretary-actions"><button class="btn btn-primary" type="submit">${current ? 'Salvar alterações' : 'Vincular pessoa'}</button>${current ? '<button class="btn btn-ghost" id="cancelPublisher" type="button">Cancelar</button>' : ''}</div></form><div class="module-option-list">${rows || '<p class="empty-state">Nenhum publicador encontrado para estes filtros.</p>'}</div>`
   const refresh = (): void => render()
+  publisherBaselines.set(element.querySelector<HTMLFormElement>('#publisherForm')!, current ? structuredClone(current) : null)
   element.querySelector<HTMLInputElement>('#publisherMonth')?.addEventListener('change', event => { reportMonth = (event.currentTarget as HTMLInputElement).value || reportMonth; refresh() })
   element.querySelector<HTMLInputElement>('#publisherSearch')?.addEventListener('input', event => { publisherSearch = (event.currentTarget as HTMLInputElement).value; refresh() })
   element.querySelector<HTMLSelectElement>('#publisherGroupFilter')?.addEventListener('change', event => { publisherGroupFilter = (event.currentTarget as HTMLSelectElement).value; refresh() })
@@ -103,11 +120,22 @@ function renderPublishers(element: HTMLElement): void {
   element.querySelector<HTMLFormElement>('#publisherForm')?.addEventListener('submit', event => { event.preventDefault(); void submitPublisher(event.currentTarget as HTMLFormElement) }); element.querySelector('#cancelPublisher')?.addEventListener('click', () => { editingPublisher = ''; render() }); element.querySelectorAll<HTMLButtonElement>('[data-edit-publisher]').forEach(button => button.addEventListener('click', () => { editingPublisher = button.dataset.editPublisher!; render() }))
 }
 async function submitPublisher(form: HTMLFormElement): Promise<void> {
+  const button = form.querySelector<HTMLButtonElement>('button[type="submit"]')!
+  if (button.disabled) return
   const data = new FormData(form), masterId = String(data.get('masterId') ?? ''), recordId = String(data.get('recordId') ?? '') || newId('pub')
   if (!people[masterId]) { toast('Selecione uma pessoa do cadastro do Admin'); return }
   if (Object.values(publishers()).some(item => item.masterId === masterId && item.id !== recordId)) { toast('Esta pessoa já está vinculada'); return }
   const item: SecretaryPublisher = { id: recordId, masterId, categoria: String(data.get('categoria')) as PublisherCategory, grupoId: String(data.get('grupoId') ?? ''), ativo: String(data.get('ativo')) === 'true', reativado:data.get('reativado') === 'on', surdo:data.get('surdo') === 'on', cego:data.get('cego') === 'on', preso:data.get('preso') === 'on' }
-  try { await save(`publicadores/${recordId}`, item, 'Publicador salvo'); editingPublisher = ''; render() } catch { toast('Não foi possível salvar') }
+  button.disabled = true
+  try {
+    const expected = publisherBaselines.get(form) ?? null
+    const next = { ...expected, ...item }
+    await compareAndSet(child(secretarioRef, `publicadores/${recordId}`), expected, next)
+    syncLocal(`publicadores/${recordId}`, next)
+    toast('Publicador salvo')
+    if (form.isConnected) { editingPublisher = ''; render() }
+  } catch (error) { toast(error instanceof Error ? error.message : 'Não foi possível salvar') }
+  finally { button.disabled = false }
 }
 function renderGroups(element: HTMLElement): void {
   const current = groups()[editingGroup], rows = Object.values(groups()).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')).map(group => `<div class="secretary-row"><div><strong>${esc(group.nome)}</strong><small>${group.superintendenteMasterId ? esc(personName(group.superintendenteMasterId)) : 'Sem superintendente'} · ${group.ativo ? 'Ativo' : 'Inativo'}</small></div><button class="btn btn-ghost" data-edit-group="${group.id}">Editar</button></div>`).join('')
@@ -178,20 +206,31 @@ function renderConference(element: HTMLElement): void {
 async function markSent(): Promise<void> {
   if (changingClosure || !validSecretaryMonth(reportMonth)) return
   if (!window.confirm(`Fechar a competência ${reportMonth}? Relatórios deixarão de poder ser alterados até a reabertura.`)) return
-  const month = reportMonth, now = new Date().toISOString(), current = records<Record<string, unknown>>(root['fechamentos'])[month] ?? {}, closing = { ...current, enviadoEm:now, fechadoEm:now }
-  const patch: Record<string, unknown> = { [`fechamentos/${month}`]:closing }
-  Object.entries(reports()).filter(([, report]) => report.competencia === month).forEach(([id]) => { patch[`relatorios/${id}/status`] = 'fechado' })
+  const month = reportMonth, button = document.getElementById('markReportSent') as HTMLButtonElement | null
   changingClosure = true
-  try { await update(secretarioRef, patch); syncLocal(`fechamentos/${month}`, closing); Object.values(reports()).filter(report => report.competencia === month).forEach(report => { report.status = 'fechado' }); toast('Competência fechada e envio registrado'); render() } catch { toast('Não foi possível fechar a competência') } finally { changingClosure = false }
+  if (button) button.disabled = true
+  try {
+    const { closing } = await apiJson<{ closing:Record<string, unknown> }>('workflow-transition', { method:'POST', body:JSON.stringify({ action:'close-month', key:month, expected:closureSnapshot(root, month) }) })
+    syncLocal(`fechamentos/${month}`, closing)
+    Object.values(reports()).filter(report => report.competencia === month).forEach(report => { report.status = 'fechado' })
+    toast('Competência fechada e envio registrado')
+    if (button?.isConnected) { reportMonth = activeCompetence(); render() }
+  } catch (error) { toast(error instanceof Error ? error.message : 'Não foi possível fechar a competência') }
+  finally { changingClosure = false; if (button) button.disabled = false }
 }
 async function reopenMonth(): Promise<void> {
   if (changingClosure || !validSecretaryMonth(reportMonth)) return
   if (!window.confirm(`Reabrir a competência ${reportMonth} para ajustes?`)) return
-  const month = reportMonth, current = records<Record<string, unknown>>(root['fechamentos'])[month] ?? {}, closing = { ...current, fechadoEm:null, reabertoEm:new Date().toISOString() }
-  const patch: Record<string, unknown> = { [`fechamentos/${month}`]:closing }
-  Object.entries(reports()).filter(([, report]) => report.competencia === month).forEach(([id, report]) => { patch[`relatorios/${id}/status`] = reportLastEditedBy(report) === 'secretario' ? 'revisado' : 'enviado' })
+  const month = reportMonth, button = document.getElementById('reopenReportMonth') as HTMLButtonElement | null
   changingClosure = true
-  try { await update(secretarioRef, patch); syncLocal(`fechamentos/${month}`, closing); Object.values(reports()).filter(report => report.competencia === month).forEach(report => { report.status = reportLastEditedBy(report) === 'secretario' ? 'revisado' : 'enviado' }); toast('Competência reaberta'); render() } catch { toast('Não foi possível reabrir a competência') } finally { changingClosure = false }
+  if (button) button.disabled = true
+  try {
+    const { closing } = await apiJson<{ closing:Record<string, unknown> }>('workflow-transition', { method:'POST', body:JSON.stringify({ action:'reopen-month', key:month, expected:closureSnapshot(root, month) }) })
+    syncLocal(`fechamentos/${month}`, closing)
+    Object.values(reports()).filter(report => report.competencia === month).forEach(report => { report.status = reportLastEditedBy(report) === 'secretario' ? 'revisado' : 'enviado' })
+    toast('Competência reaberta'); if (button?.isConnected) render()
+  } catch (error) { toast(error instanceof Error ? error.message : 'Não foi possível reabrir a competência') }
+  finally { changingClosure = false; if (button) button.disabled = false }
 }
 function renderAttendance(element: HTMLElement): void {
   const current = attendance()[editingAttendance], values = attendance(), year = serviceYearStart(reportMonth), midweek = attendanceByMonth(values, 'meio_semana', year), weekend = attendanceByMonth(values, 'fim_semana', year)

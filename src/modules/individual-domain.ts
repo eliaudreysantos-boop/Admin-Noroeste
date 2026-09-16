@@ -129,9 +129,10 @@ export function collectAgendaEvents(rootValue: unknown, masterId: string, allowe
       const room = rows(roomValue)
       return [text(room['id']), text(room['name'])] as const
     }))
-    const meetingTime = text(rows(programacao['settings'])['meetingTime']) || undefined
+    const meetingTime = text(rows(programacao['settings'])['meetingTime']) || text(rows(rows(rows(rows(root['master'])['config'])['reunioes'])['meiaDeSemana'])['horario']) || undefined
     Object.entries(rows(programacao['programs'] ?? programacao['semanas'])).forEach(([programId, programValue]) => {
       const program = rows(programValue), date = text(program['meetingDate']) || programId
+      if (program['type'] === 'assembleia' || program['type'] === 'celebracao') return
       values(program['parts']).forEach((partValue, index) => {
         const part = rows(partValue), assigned = text(part['assignedPersonId']), substitute = text(part['substitutePersonId']), responsible = substitute || assigned, assistant = text(part['assistantPersonId']), realized = text(part['realizedPersonId'])
         const isAssistant = profileIds.has(assistant) && responsible !== assistant

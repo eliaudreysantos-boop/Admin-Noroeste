@@ -8,6 +8,11 @@ import type {
 
 export type CleaningPeriodMode = 'month' | 'bimester'
 
+export function integratedCleaningMembers(members: string[], excluded: string[] = []): string[] {
+  const exclusions = new Set(excluded)
+  return [...new Set(members)].filter(mid => !exclusions.has(mid))
+}
+
 const MONTHS = [
   'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
   'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro',

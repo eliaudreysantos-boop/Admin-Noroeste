@@ -60,6 +60,7 @@ let rootLoadError = ''
 let restoreCandidate: Record<string, unknown> | null = null
 let restoreFileName = ''
 let previewedAgendaPdfKey = ''
+let baseLoadPromise: Promise<boolean> | null = null
 
 type AdminTab = 'indice' | 'pessoas' | 'usuarios' | 'config' | 'vinculos' | 'dados'
 let activeTab: AdminTab = 'indice'
@@ -149,6 +150,8 @@ export default function mount(_ctx: AppContext): void {
   rootLoadError = ''
   restoreCandidate = null
   restoreFileName = ''
+  baseLoadPromise = null
+  pessoas = {}; usuarios = {}; config = {}; agendaConfig = {}; agendaDocuments = {}
 
   const root = document.getElementById('appContent')!
   root.innerHTML = `
@@ -157,12 +160,17 @@ export default function mount(_ctx: AppContext): void {
       <div id="mestreContent"></div>
     </div>`
 
-  void loadAll()
+  renderContent()
+  void ensureBaseLoaded()
 }
 
 // ─── Tabs ────────────────────────────────────────────────────────────────────
 
-function switchTab(t: typeof activeTab): void {
+async function switchTab(t: typeof activeTab): Promise<void> {
+  const content = document.getElementById('mestreContent')
+  if (!content) return
+  content.innerHTML = `${moduleBackButton()}<p class="empty-state">Carregando dados...</p>`
+  if (!await ensureBaseLoaded()) { content.innerHTML = `${moduleBackButton()}<p class="empty-state">Não foi possível carregar os dados do Admin. Volte ao módulo e tente novamente.</p>`; return }
   activeTab = t
   if ((t === 'vinculos' || t === 'dados') && !rootData) {
     void loadRootData()
@@ -187,9 +195,12 @@ async function loadRootData(force = false): Promise<void> {
   }
 }
 
-async function loadAll(): Promise<void> {
-  document.getElementById('mestreContent')!.innerHTML =
-    '<p style="padding:24px;color:var(--ink-3);text-align:center">Carregando…</p>'
+function ensureBaseLoaded(): Promise<boolean> {
+  baseLoadPromise ??= loadAll()
+  return baseLoadPromise
+}
+
+async function loadAll(): Promise<boolean> {
   try {
     const [pSnap, uSnap, cSnap, aSnap, dSnap] = await Promise.all([
       get(pessoasRef), get(usuariosRef), get(configRef), get(agendaConfigRef), get(agendaDocumentsRef),
@@ -201,8 +212,9 @@ async function loadAll(): Promise<void> {
     agendaDocuments = dSnap.exists() ? (dSnap.val() as Record<string, AgendaPublicDocument>) : {}
   } catch {
     toast('Erro ao carregar dados do Firebase')
+    return false
   }
-  renderContent()
+  return true
 }
 
 function renderContent(): void {
@@ -247,7 +259,7 @@ function renderIndex(): void {
     { id: 'vinculos', titulo: 'Vínculos', subtitulo: 'IDs compartilhados entre os módulos', icone: '⌁', corFundo: '#1A6B3C' },
     { id: 'dados', titulo: 'Dados', subtitulo: 'Backup completo e restauração', icone: '▤', corFundo: '#B3261E' },
   ]
-  renderMenuCards(content.querySelector<HTMLElement>('#mestreMenu')!, items, id => switchTab(id as typeof activeTab))
+  renderMenuCards(content.querySelector<HTMLElement>('#mestreMenu')!, items, id => { void switchTab(id as typeof activeTab) })
 }
 
 interface LinkIssue {
