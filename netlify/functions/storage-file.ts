@@ -5,7 +5,7 @@ import { appSession, json, objectBody, validCsrf } from '../lib/secure-session.t
 const MAX_PDF_BYTES = 4 * 1024 * 1024
 const PDF_STORE = 'admin-noroeste-pdfs'
 const MODULES: Record<string, keyof AppPermissions> = {
-  tarefas:'tarefas', limpeza:'limpeza', oradores:'oradores', escala:'escala',
+  tarefas:'tarefas', limpeza:'limpeza', escala:'escala',
   servicoCampo:'servicoCampo',
 }
 
@@ -14,7 +14,6 @@ export function validStoragePath(path: string): boolean {
 }
 
 export function canManageStoragePath(path: string, apps: AppPermissions): boolean {
-  if (/^secretario\/templates\/(s21|s88|s3)\.pdf$/.test(path)) return apps.mestre || apps.secretario === true
   if (/^agenda\/documentos\/admin\/[A-Za-z0-9._-]+\.pdf$/.test(path)) return apps.mestre === true
   const match = path.match(/^agenda\/documentos\/modulos\/([^/]+)\//)
   const permission = match ? MODULES[match[1] ?? ''] : undefined
@@ -22,7 +21,7 @@ export function canManageStoragePath(path: string, apps: AppPermissions): boolea
 }
 
 export function canReadPublicStoragePath(path: string): boolean {
-  return /^agenda\/documentos\/(admin|modulos\/(tarefas|limpeza|oradores|escala|servicoCampo))\/[A-Za-z0-9/_.-]+\.pdf$/.test(path)
+  return /^agenda\/documentos\/(admin|modulos\/(tarefas|limpeza|escala|servicoCampo))\/[A-Za-z0-9/_.-]+\.pdf$/.test(path)
 }
 
 function decodePdf(value: unknown): Uint8Array | null {
@@ -34,9 +33,14 @@ function decodePdf(value: unknown): Uint8Array | null {
   } catch { return null }
 }
 
-export default async (request: Request): Promise<Response> => {
+export async function storageFileResponse(
+  request: Request,
+  createStore = () => getStore(PDF_STORE, { consistency:'strong' }),
+  resolveSession = appSession,
+): Promise<Response> {
   if (!['GET', 'POST', 'DELETE'].includes(request.method)) return json(405, { error:'Método não permitido.' })
-  const store = getStore(PDF_STORE, { consistency:'strong' })
+  let store: ReturnType<typeof createStore>
+  try { store = createStore() } catch { return json(503, { error:'Armazenamento de PDF indisponível.' }) }
   if (request.method === 'GET') {
     const path = new URL(request.url).searchParams.get('path') ?? ''
     if (!validStoragePath(path) || !canReadPublicStoragePath(path)) return json(404, { error:'PDF não encontrado.' })
@@ -61,7 +65,7 @@ export default async (request: Request): Promise<Response> => {
   }
 
   let session
-  try { session = await appSession(request) } catch { return json(503, { error:'Sessão indisponível.' }) }
+  try { session = await resolveSession(request) } catch { return json(503, { error:'Sessão indisponível.' }) }
   if (!session) return json(401, { error:'Sessão expirada.' })
   if (!validCsrf(request, session)) return json(403, { error:'Validação da sessão ausente.' })
   const body = await objectBody(request), path = String(body['path'] ?? '')
@@ -85,3 +89,5 @@ export default async (request: Request): Promise<Response> => {
     return json(503, { error:'Armazenamento de PDF indisponível.' })
   }
 }
+
+export default (request: Request): Promise<Response> => storageFileResponse(request)

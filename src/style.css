@@ -12,8 +12,6 @@
   --color-mestre:      #003F72;
   --color-tarefas:     #7E3AF2;
   --color-escala:      #1A6B3C;
-  --color-programacao: #003F72;
-  --color-secretario:  #B3261E;
 
   /* Superfícies */
   --bg:        #F4F6F9;
@@ -982,20 +980,12 @@ textarea.form-input {
 .cleaning-helper-grid { display:grid; grid-template-columns:minmax(0, 1fr) minmax(0, 1fr); gap:4px 10px; max-height:150px; overflow-y:auto; border:1px solid var(--border); border-radius:6px; padding:8px; background:var(--surface-2); }
 .cleaning-helper-grid label { min-width:0; display:flex; align-items:flex-start; gap:5px; cursor:pointer; padding:2px 0; font-size:.8rem; }
 .cleaning-helper-grid span { min-width:0; overflow-wrap:anywhere; }
-.secretary-row { display: flex; justify-content: space-between; gap: 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); }
-.secretary-row > div:first-child { min-width: 0; }
-.secretary-row strong, .secretary-row small { display: block; overflow-wrap: anywhere; }
-.secretary-row small { margin-top: 3px; color: var(--ink-3); font-size: .75rem; }
-.secretary-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
-.secretary-row .secretary-actions { flex-wrap: nowrap; flex: 0 0 auto; margin-top: 0; }
-.pdf-preview-modal { width: min(1080px, calc(100vw - 28px)); max-width: none; }
-.pdf-preview-modal iframe { display: block; width: 100%; height: min(72vh, 820px); border: 1px solid var(--border); background: #fff; }
-.pdf-preview-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; margin-top: 10px; }
-.secretary-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-bottom: 14px; }
-.secretary-metric { padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
-.secretary-metric strong, .secretary-metric span { display: block; }
-.secretary-metric strong { color: var(--blue-deep); font-size: 1.15rem; }
-.secretary-metric span { margin-top: 3px; color: var(--ink-3); font-size: .72rem; font-weight: 700; text-transform: uppercase; }
+.module-list-row { display: flex; justify-content: space-between; gap: 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.module-list-row > div:first-child { min-width: 0; }
+.module-list-row strong, .module-list-row small { display: block; overflow-wrap: anywhere; }
+.module-list-row small { margin-top: 3px; color: var(--ink-3); font-size: .75rem; }
+.module-row-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.module-list-row .module-row-actions { flex-wrap: nowrap; flex: 0 0 auto; margin-top: 0; }
 .scale-days { display: grid; gap: 10px; }
 .scale-day { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); overflow: hidden; }
 .scale-day h3 { margin: 0; padding: 9px 12px; background: #E3F5EB; color: #1A6B3C; font-size: .86rem; }
@@ -1050,8 +1040,6 @@ textarea.form-input {
 .agenda-day i.tarefas, .agenda-source-legend i.tarefas { background: #7047A3; }
 .agenda-day i.limpeza, .agenda-source-legend i.limpeza { background: #008C95; }
 .agenda-day i.escala, .agenda-source-legend i.escala { background: #1A6B3C; }
-.agenda-day i.oradores, .agenda-source-legend i.oradores { background: #B65D12; }
-.agenda-day i.programacao, .agenda-source-legend i.programacao { background: #006EB6; }
 .agenda-day i.servicoCampo, .agenda-source-legend i.servicoCampo { background: #A73569; }
 .agenda-day-markers { display: flex; align-items: center; min-height: 20px; }
 .agenda-day-markers i { margin-top: 8px; }
@@ -1080,15 +1068,6 @@ textarea.form-input {
 .agenda-source-legend i { margin: 0; }
 .agenda-past-toggle { display: flex; align-items: center; gap: 8px; min-height: 44px; color: var(--ink-2); font-size: .8rem; }
 .agenda-summary-empty { opacity: .72; }
-.agenda-report-current { display: grid; gap: 5px; margin-top: 12px; padding: 13px 14px; border: 1px solid var(--border); border-left: 4px solid var(--primary); border-radius: 7px; background: var(--surface); }
-.agenda-report-current > span { color: var(--ink-3); font-size: .7rem; font-weight: 800; text-transform: uppercase; }
-.agenda-report-current strong { color: var(--ink); font-size: .96rem; }
-.agenda-report-current p { margin: 0; color: var(--ink-2); font-size: .8rem; }
-.agenda-report-current.confirmacao-pendente { border-left-color: var(--danger); }
-.agenda-report-current.alterado { border-left-color: var(--gold); }
-.agenda-report-current.realizado { border-left-color: var(--success); }
-.agenda-report-primary { justify-self: start; margin-top: 7px; }
-.agenda-report-failure { margin-top: 12px; }
 .agenda-board-body { padding: 0 16px 16px; border-top: 1px solid var(--border); }
 .agenda-board-body > :first-child { margin-top: 14px; }
 .agenda-document-list { display: grid; gap: 8px; margin-top: 12px; }
@@ -1128,21 +1107,7 @@ textarea.form-input {
 .service-leader-option strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .82rem; }
 .service-leader-option small { margin-top: 2px; color: var(--ink-3); font-size: .7rem; }
 .admin-agenda-documents { margin-top: 18px; }
-.oradores-section-head { display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:10px; }
-.oradores-section-head h3 { margin:0; font-size:.95rem; color:#5C6062; }
-.oradores-program-card { overflow:hidden; border:1px solid var(--border); border-left:4px solid var(--talk-color, #5C6062); border-radius:8px; background:var(--surface); }
-.oradores-program-head { display:flex; justify-content:space-between; gap:10px; padding:10px 12px; border-bottom:1px solid var(--border); }
-.oradores-program-head strong, .oradores-program-head small, .oradores-program-body strong, .oradores-program-body span, .oradores-program-body small { display:block; }
-.oradores-program-head small, .oradores-program-body small { margin-top:3px; color:var(--ink-3); font-size:.74rem; }
-.oradores-program-body { padding:10px 12px; }
-.oradores-program-body span { margin-top:3px; color:var(--ink-2); font-size:.8rem; }
-.oradores-card-actions { display:flex; flex-wrap:wrap; gap:6px; padding:0 12px 10px; }
-.oradores-card-actions .btn { padding:5px 8px; font-size:.72rem; }
-.oradores-program-options > summary { cursor:pointer; padding:8px 12px; font-size:.8rem; font-weight:600; }
-.oradores-program-head > div { min-width:0; overflow-wrap:anywhere; }
 @media (max-width:699px) {
-  .oradores-program-head { flex-wrap:wrap; }
-  .oradores-program-body { overflow-wrap:anywhere; }
 }
 .task-mobile-scale { display:none !important; }
 .task-scale-table-wrap { overflow:auto; border:1px solid var(--border); border-radius:8px; background:var(--surface); }
@@ -1164,7 +1129,6 @@ textarea.form-input {
 
 @media (min-width: 900px) {
   .scale-days { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .secretary-metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
 
 @media (max-width: 560px) {
@@ -1173,9 +1137,8 @@ textarea.form-input {
   .cleaning-period-row { grid-template-columns: 72px minmax(0, 1fr); gap: 4px 8px; }
   .cleaning-period-dates { grid-column: 1 / -1; }
   .cleaning-helper-grid { grid-template-columns:minmax(0, 1fr); }
-  .secretary-row { align-items: flex-start; }
-  .secretary-row .secretary-actions { flex-direction: column; }
-  .pdf-preview-modal iframe { height: 62vh; }
+  .module-list-row { align-items: flex-start; }
+  .module-list-row .module-row-actions { flex-direction: column; }
   .agenda-event { grid-template-columns: 1fr auto; gap: 6px 10px; }
   .agenda-event time { grid-column: 1 / -1; }
   .agenda-day { min-height: 44px; padding: 4px; }

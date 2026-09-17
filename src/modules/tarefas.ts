@@ -1,3 +1,5 @@
+import { lockPublicationUi } from '../ui/publication-busy'
+import { downloadPdf } from '../ui/pdf-download'
 import type { AppContext } from '../types'
 import {
   get,
@@ -35,13 +37,10 @@ import {
   type TaskPeriod,
   type TaskPerson,
   type TaskRole,
-  type TaskSpeaker,
-  type TaskTalk,
 } from './tarefas-domain'
 import { formatTaskDate } from './tarefas-output'
-import { createTaskSchedulePdf, previewTaskSchedulePdf } from './tarefas-documents'
+import { createTaskSchedulePdf, downloadTaskSchedulePdf } from './tarefas-documents'
 import { publishAgendaModulePdf, unpublishAgendaModulePdf } from './agenda-documents'
-import { PublicationPreviewGate } from './pdf-publication-preview'
 import { mountModuleMessageSettings } from './module-message-settings'
 
 type TarefasTab = 'indice' | 'resumo' | 'escala' | 'participantes' | 'pendencias' | 'config'
@@ -79,8 +78,6 @@ let pessoas: Record<string, TarefasPessoa> = {}
 let periods: Record<string, TarefasPeriod> = {}
 let planning: TarefasPlanning = {}
 let events: Record<string, TaskEvent> = {}
-let speakers: Record<string, TaskSpeaker> = {}
-let talks: Record<string, TaskTalk> = {}
 let congregationName = 'Noroeste'
 let masterPeople: Record<string, { name?: string; whatsapp?: string; active?: boolean }> = {}
 let context: AppContext
@@ -97,12 +94,9 @@ let participantSearch = ''
 let participantMeetingRule = ''
 let participantRoleFilter = ''
 let pendingTarget: PendingTarget | null = null
-const taskPdfPreview = new PublicationPreviewGate()
+let changingPublication = false
 let loadPromise: Promise<boolean> | null = null
 
-function taskPdfPreviewInput(periodId: string, meetings: TarefasMeeting[], font: number): unknown {
-  return { periodId, meetings, congregationName, pessoas, font }
-}
 
 function monthNow(): string {
   const date = new Date()
@@ -161,7 +155,7 @@ function meetingRefFor(meeting: TarefasMeeting): { periodId: string; meetingId: 
 }
 
 function domainContext(): TaskDomainContext {
-  return { people: pessoas, periods, events, speakers, talks }
+  return { people: pessoas, periods, events }
 }
 
 function formatDate(value: string | undefined): string {
@@ -197,7 +191,7 @@ export default function mount(ctx: AppContext): void {
   context = ctx
   activeTab = 'indice'
   loadPromise = null
-  pessoas = {}; periods = {}; planning = {}; events = {}; speakers = {}; talks = {}; masterPeople = {}
+  pessoas = {}; periods = {}; planning = {}; events = {}; masterPeople = {}
   const el = document.getElementById('appContent')
   if (!el) return
 
@@ -227,7 +221,6 @@ async function loadTarefas(): Promise<boolean> {
       scale?: { periods?: Record<string, TarefasPeriod> }
       planning?: TarefasPlanning
       events?: Record<string, TaskEvent>
-      discursos?: { oradores?: Record<string, TaskSpeaker>; programacao?: Record<string, TaskTalk> }
     } : {}
     pessoas = tarefas.people ?? {}
     periods = tarefas.scale?.periods ?? {}
@@ -239,8 +232,6 @@ async function loadTarefas(): Promise<boolean> {
       ? savedPeriodMode
       : planning.periodMode === 'month' ? 'month' : 'bimester'
     events = tarefas.events ?? {}
-    speakers = tarefas.discursos?.oradores ?? {}
-    talks = tarefas.discursos?.programacao ?? {}
     const congregacao = congregacaoSnap.exists() ? (congregacaoSnap.val() as { nome?: string }) : {}
     congregationName = congregacao.nome?.trim() || 'Noroeste'
     masterPeople = masterPeopleSnap.exists() ? (masterPeopleSnap.val() as Record<string, { name?: string; whatsapp?: string; active?: boolean }>) : {}
@@ -313,8 +304,8 @@ function renderEscala(): void {
       </div>
       <div class="scale-actions" style="margin-top:8px">
         <button id="btnGenerateScale" class="btn btn-primary" type="button" ${locked ? 'disabled' : ''}>Gerar escala · ${activeRules} regras</button>
-        <button id="btnTarefasPdf" class="btn btn-ghost" type="button">Abrir prévia</button>
-        <button id="btnToggleTaskLock" class="btn btn-ghost" type="button">${locked ? 'Reabrir escala' : 'Publicar escala'}</button>
+        <button id="btnTarefasPdf" class="btn btn-ghost" type="button">${locked ? 'Baixar PDF' : 'Baixar PDF e publicar período'}</button>
+        ${locked ? '<button id="btnToggleTaskLock" class="btn btn-ghost" type="button">Reabrir escala</button>' : ''}
         <button id="btnClearTaskScale" class="btn btn-danger" type="button" ${locked || !allPeriodMeetings.length ? 'disabled' : ''}>Limpar escala</button>
       </div>
       <details style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border)">
@@ -333,7 +324,7 @@ function renderEscala(): void {
         ? allPeriodMeetings.map(meeting => meetingCard(meeting)).join('')
         : emptyState('Nenhuma reunião cadastrada neste período.')}
     </div>
-    ${preservedMeetings.length ? `<details class="form-panel" style="margin-top:12px"><summary>Registros preservados fora do período atual (${preservedMeetings.length})</summary><div class="module-option-list" style="margin-top:10px">${preservedMeetings.map(entry => `<div class="secretary-row"><div><strong>${escapeHtml(formatDate(entry.meeting.date))}</strong><small>${canonicalMeetingType(entry.meeting.type) === 'midweek' ? 'Meio de semana' : 'Fim de semana'} · ${assignmentCount(entry.meeting)} função(ões)</small></div></div>`).join('')}</div></details>` : ''}`
+    ${preservedMeetings.length ? `<details class="form-panel" style="margin-top:12px"><summary>Registros preservados fora do período atual (${preservedMeetings.length})</summary><div class="module-option-list" style="margin-top:10px">${preservedMeetings.map(entry => `<div class="module-list-row"><div><strong>${escapeHtml(formatDate(entry.meeting.date))}</strong><small>${canonicalMeetingType(entry.meeting.type) === 'midweek' ? 'Meio de semana' : 'Fim de semana'} · ${assignmentCount(entry.meeting)} função(ões)</small></div></div>`).join('')}</div></details>` : ''}`
 
   document.getElementById('tarefasPrintFont')?.addEventListener('input', (event) => {
     const value = Number((event.target as HTMLInputElement).value)
@@ -400,7 +391,11 @@ function renderEscala(): void {
   }
 }
 
-async function toggleTaskLock(periodId: string): Promise<void> {
+async function toggleTaskLock(periodId: string, download = false): Promise<void> {
+  if (changingPublication) return
+  changingPublication = true
+  const releaseUi = lockPublicationUi()
+  let pdfBytes: Uint8Array | undefined
   const locked = periods[periodId]?.locked === true
   try {
     const period = periods[periodId]
@@ -408,10 +403,11 @@ async function toggleTaskLock(periodId: string): Promise<void> {
     if (!locked) {
       if (!meetings.length) { toast('Gere e revise a escala antes de publicar'); return }
       const font = printFont()
-      if (!taskPdfPreview.matches(taskPdfPreviewInput(periodId, meetings, font))) { toast('Abra a prévia atual do PDF antes de publicar'); return }
+
       const first = meetings[0]?.date ?? `${periodId}-01`
       const last = meetings[meetings.length - 1]?.date ?? first
       const result = await createTaskSchedulePdf(meetings, congregationName, pessoas, font)
+      pdfBytes = result.bytes
       await publishAgendaModulePdf(result.bytes, { modulo:'tarefas', periodo:periodId, inicio:first, fim:last, origemPeriodoId:periodId, nome:`tarefas-${periodId}.pdf` })
       try {
         await update(tarefasScaleRef, { [`${periodId}/locked`]:true })
@@ -426,9 +422,11 @@ async function toggleTaskLock(periodId: string): Promise<void> {
     }
     periods[periodId] ??= {}
     periods[periodId].locked = !locked
+    if (download && pdfBytes) downloadPdf(pdfBytes, `tarefas-${periodId}.pdf`)
     toast(locked ? 'Escala reaberta para edição' : 'Escala publicada no Minha Agenda')
     renderEscala()
-  } catch { toast('Não foi possível alterar o travamento') }
+  } catch { toast('Não foi possível alterar a publicação. Confira o período e tente novamente.') }
+  finally { changingPublication = false; releaseUi() }
 }
 
 async function clearTaskScale(periodId: string): Promise<void> {
@@ -588,7 +586,7 @@ function renderTaskConfig(): void {
   content.innerHTML = `${sectionTitle('Configuração', 'Preferências próprias de Tarefas. Dias e horários das reuniões continuam vindo do Admin.')}
     <div class="form-panel"><div class="module-form-grid"><label class="form-field"><span>Formato padrão</span><select id="taskConfigMode"><option value="month" ${selectedPeriodMode === 'month' ? 'selected' : ''}>Mensal</option><option value="bimester" ${selectedPeriodMode === 'bimester' ? 'selected' : ''}>Bimestral</option></select></label><label class="form-field"><span>Fonte preferida do PDF: <strong id="taskConfigFontValue">${printFont()} pt</strong></span><input id="taskConfigFont" type="range" min="${PRINT_MIN_PT}" max="${PRINT_MAX_PT}" value="${printFont()}"></label></div><button id="saveTaskConfig" class="btn btn-primary" type="button">Salvar preferências</button></div>
     <div class="form-panel"><h3 style="margin-top:0">Regras do motor</h3><p class="form-help">Estas opções valem apenas para as próximas gerações. Regras de integridade continuam obrigatórias.</p><div class="engine-rule-list"><label><input id="taskRulePresident" type="checkbox" ${rules.presidenteSegundaTarefa ? 'checked' : ''} ${canEditRules ? '' : 'disabled'}> Aproveitar o presidente em uma segunda tarefa mecânica</label><label><input id="taskRuleBalance" type="checkbox" ${rules.equilibrarDesignacoes ? 'checked' : ''} ${canEditRules ? '' : 'disabled'}> Equilibrar o total de designações</label><label><input id="taskRuleRepeat" type="checkbox" ${rules.evitarRepetirFuncao ? 'checked' : ''} ${canEditRules ? '' : 'disabled'}> Evitar repetir a mesma função</label></div>${canEditRules ? '<div class="scale-actions" style="margin-top:12px"><button id="saveTaskRules" class="btn btn-primary" type="button">Salvar regras</button><button id="restoreTaskRules" class="btn btn-ghost" type="button">Restaurar padrões</button></div>' : '<div class="notice">Somente o Admin pode alterar estas regras.</div>'}</div>
-    <div class="form-panel"><h3 style="margin-top:0">Datas sem reunião</h3><div style="display:flex;gap:8px"><input id="taskExcludedDate" class="form-input" type="date"><button id="addTaskExcludedDate" class="btn btn-ghost" type="button">Adicionar</button></div><div class="module-option-list" style="margin-top:10px">${dates.map(date => `<div class="secretary-row"><strong>${escapeHtml(formatDate(date))}</strong><button class="btn btn-danger" data-remove-task-date="${escapeHtml(date)}" type="button">Remover</button></div>`).join('') || '<p class="empty-state">Nenhuma data excluída.</p>'}</div></div><div id="taskMessageSettings"></div>`
+    <div class="form-panel"><h3 style="margin-top:0">Datas sem reunião</h3><div style="display:flex;gap:8px"><input id="taskExcludedDate" class="form-input" type="date"><button id="addTaskExcludedDate" class="btn btn-ghost" type="button">Adicionar</button></div><div class="module-option-list" style="margin-top:10px">${dates.map(date => `<div class="module-list-row"><strong>${escapeHtml(formatDate(date))}</strong><button class="btn btn-danger" data-remove-task-date="${escapeHtml(date)}" type="button">Remover</button></div>`).join('') || '<p class="empty-state">Nenhuma data excluída.</p>'}</div></div><div id="taskMessageSettings"></div>`
   document.getElementById('taskConfigFont')?.addEventListener('input', event => { const value = (event.target as HTMLInputElement).value; document.getElementById('taskConfigFontValue')!.textContent = `${value} pt` })
   document.getElementById('saveTaskConfig')?.addEventListener('click', async () => {
     const mode = (document.getElementById('taskConfigMode') as HTMLSelectElement).value === 'month' ? 'month' : 'bimester'
@@ -942,12 +940,14 @@ function emptyState(text: string): string {
 }
 
 async function gerarPdfTarefas(preferredFontPt: number): Promise<void> {
+  if (changingPublication) return
   const periodId = periodKeyForDate(`${selectedPeriodMonth}-01`, selectedPeriodMode)
   const meetings = Object.values(periods[periodId]?.meetings ?? {}).filter(meeting => canonicalMeetingType(meeting.type)).sort((a, b) => String(a.date ?? '').localeCompare(String(b.date ?? '')))
   if (meetings.length === 0) {
     toast('Nenhuma reunião para gerar PDF')
     return
   }
-  try { await previewTaskSchedulePdf(meetings, congregationName, pessoas, preferredFontPt, periodId); taskPdfPreview.mark(taskPdfPreviewInput(periodId, meetings, preferredFontPt)); toast('Prévia do PDF aberta e pronta para publicação') }
+  if (!periods[periodId]?.locked) { await toggleTaskLock(periodId, true); return }
+  try { await downloadTaskSchedulePdf(meetings, congregationName, pessoas, preferredFontPt, periodId); toast('Download do PDF iniciado') }
   catch { toast('Não foi possível gerar o PDF') }
 }

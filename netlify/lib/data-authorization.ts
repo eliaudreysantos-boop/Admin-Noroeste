@@ -1,3 +1,4 @@
+import { activeData, isRetiredPath } from './retired-data.ts'
 import type { AppPermissions } from '../../src/types.ts'
 
 const PRIVATE_ROOTS = new Set(['appSessoesPrivadas', 'agendaDispositivosPrivados', 'agendaAssinaturasPrivadas', 'autenticacaoTentativasPrivadas', 'pendenciasMigracao'])
@@ -11,42 +12,35 @@ export function normalizeDataPath(value: string): string | null {
 
 export function canAccessData(path: string, apps: AppPermissions, write: boolean): boolean {
   const [root, second, third, fourth] = path.split('/')
-  if (PRIVATE_ROOTS.has(root ?? '')) return false
+  if (isRetiredPath(path) || PRIVATE_ROOTS.has(root ?? '')) return false
   if (apps.mestre) return true
   if (!root) return false
   if (root === 'master') return !write && (second === 'pessoas' || second === 'config')
   if (root === 'usuarios') return false
   if (root === 'tarefas') {
     if (apps.tarefas === true) return true
-    if (apps.oradores === true) {
-      if (second === 'discursos' || second === 'events') return true
-      if (second === 'scale') return !write
-      if (second === 'planning') return !write || third === 'oradoresPublicacoes'
-    }
     return !write && apps.limpeza === true && second === 'planning'
   }
   if (root === 'limpeza') return apps.limpeza === true
   if (root === 'escala') return apps.escala === true
-  if (root === 'programacao') return apps.programacao === true
-  if (root === 'secretario') return apps.secretario === true || (!write && apps.limpeza === true && (second === 'publicadores' || second === 'grupos'))
   if (root === 'servicoCampo') return apps.servicoCampo === true
   if (root === 'agenda') {
     if (second === 'config') {
       if (!write) return true
       const messagePermissions: Record<string, keyof AppPermissions> = {
-        tarefas:'tarefas', limpeza:'limpeza', escala:'escala', oradores:'oradores',
-        programacao:'programacao', servicoCampo:'servicoCampo',
+        tarefas:'tarefas', limpeza:'limpeza', escala:'escala',
+        servicoCampo:'servicoCampo',
       }
       const permission = fourth ? messagePermissions[fourth] : undefined
       return third === 'moduleWhatsApp' && Boolean(permission && apps[permission])
     }
-    if (second === 'documentos') return !write || Boolean(apps.tarefas || apps.limpeza || apps.oradores || apps.escala || apps.servicoCampo)
+    if (second === 'documentos') return !write || Boolean(apps.tarefas || apps.limpeza || apps.escala || apps.servicoCampo)
   }
   return false
 }
 
 const DOCUMENT_PERMISSIONS: Record<string, keyof AppPermissions> = {
-  tarefas:'tarefas', limpeza:'limpeza', oradores:'oradores', escala:'escala', servicoCampo:'servicoCampo',
+  tarefas:'tarefas', limpeza:'limpeza', escala:'escala', servicoCampo:'servicoCampo',
 }
 
 function documentModule(id: string, value: unknown): string {
@@ -54,10 +48,13 @@ function documentModule(id: string, value: unknown): string {
     const module = (value as Record<string, unknown>)['modulo']
     if (typeof module === 'string') return module
   }
-  return id.match(/^modulo-(tarefas|limpeza|oradores|escala|servicoCampo)-/)?.[1] ?? (id.startsWith('admin-') ? 'admin' : '')
+  return id.match(/^modulo-(tarefas|limpeza|escala|servicoCampo)-/)?.[1] ?? (id.startsWith('admin-') ? 'admin' : '')
 }
 
 export function canMutateData(path: string, method: string, value: unknown, apps: AppPermissions): boolean {
+  if (isRetiredPath(path) || (path === 'tarefas' && method === 'DELETE')) return false
+  if (!path && method !== 'PATCH') return false
+  if (method === 'PATCH' && value && typeof value === 'object' && Object.keys(value).some(key => isRetiredPath([path, key].filter(Boolean).join('/')))) return false
   if (apps.mestre) return true
   if (path.startsWith('agenda/documentos/')) return false
   if (path !== 'agenda/documentos') return true
@@ -76,7 +73,7 @@ export function canMutateData(path: string, method: string, value: unknown, apps
 
 export function withoutPrivateRoots(value: unknown): unknown {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return value
-  return Object.fromEntries(Object.entries(value as Record<string, unknown>).filter(([key]) => !PRIVATE_ROOTS.has(key)))
+  return activeData('', Object.fromEntries(Object.entries(value as Record<string, unknown>).filter(([key]) => !PRIVATE_ROOTS.has(key))))
 }
 
 export function containsPrivateRoot(value: unknown): boolean {

@@ -1,6 +1,6 @@
 import type { MasterPessoa } from '../types'
 
-export type AgendaSource = 'tarefas' | 'limpeza' | 'escala' | 'oradores' | 'programacao' | 'servicoCampo'
+export type AgendaSource = 'tarefas' | 'limpeza' | 'escala' | 'servicoCampo'
 export type AgendaStatus = 'futuro' | 'confirmacao-pendente' | 'alterado' | 'realizado'
 
 export interface AgendaEvent {
@@ -111,42 +111,6 @@ export function collectAgendaEvents(rootValue: unknown, masterId: string, allowe
     })
   }
 
-  if (allowed.oradores !== false) {
-    const discursos = rows(tarefas['discursos']), speakers = rows(discursos['oradores'])
-    const speakerIds = new Set(Object.entries(speakers).filter(([, speaker]) => text(rows(speaker)['masterId']) === masterId || taskIds.has(text(rows(speaker)['pessoaId']))).map(([id]) => id))
-    Object.entries(rows(discursos['programacao'])).forEach(([id, talkValue]) => {
-      const talk = rows(talkValue), selected = text(talk['realizadoPorId']) || text(talk['substitutoId']) || text(talk['oradorId'])
-      if (!speakerIds.has(selected) && !speakerIds.has(text(talk['oradorSecundarioId']))) return
-      const type = text(talk['tipo']), destination = text(talk['congregacaoDestinoNome']), origin = text(talk['congregacaoOrigemNome']), confirmation = rows(talk['confirmacao'])['status'] === true
-      add({ id:`oradores:${id}`, source:'oradores', date:text(talk['data']), time:text(talk['horarioLocal']) || undefined, title:type === 'saida_orador' ? 'Discurso em outra congregação' : 'Discurso público', detail:text(talk['temaTitulo']) || (talk['temaNumero'] ? `Tema ${String(talk['temaNumero'])}` : 'Tema a confirmar'), location:destination || origin || text(talk['localCongregacaoNome']) || undefined, note:text(talk['observacoes']), status:text(talk['status']) === 'realizado' || text(talk['realizadoPorId']) ? 'realizado' : confirmation ? 'futuro' : 'confirmacao-pendente' })
-    })
-  }
-
-  if (allowed.programacao !== false) {
-    const programacao = rows(root['programacao']), profiles = rows(programacao['pessoas'])
-    const profileIds = new Set(Object.entries(profiles).filter(([id, profile]) => text(rows(profile)['masterId']) === masterId || id === masterId).map(([id]) => id))
-    const rooms = new Map(values(rows(programacao['settings'])['rooms']).map(roomValue => {
-      const room = rows(roomValue)
-      return [text(room['id']), text(room['name'])] as const
-    }))
-    const meetingTime = text(rows(programacao['settings'])['meetingTime']) || text(rows(rows(rows(rows(root['master'])['config'])['reunioes'])['meiaDeSemana'])['horario']) || undefined
-    Object.entries(rows(programacao['programs'] ?? programacao['semanas'])).forEach(([programId, programValue]) => {
-      const program = rows(programValue), date = text(program['meetingDate']) || programId
-      if (program['type'] === 'assembleia' || program['type'] === 'celebracao') return
-      values(program['parts']).forEach((partValue, index) => {
-        const part = rows(partValue), assigned = text(part['assignedPersonId']), substitute = text(part['substitutePersonId']), responsible = substitute || assigned, assistant = text(part['assistantPersonId']), realized = text(part['realizedPersonId'])
-        const isAssistant = profileIds.has(assistant) && responsible !== assistant
-        const isResponsible = profileIds.has(responsible)
-        const isRealized = profileIds.has(realized)
-        if (!isResponsible && !isAssistant && !isRealized) return
-        const roomId = text(part['roomId']) || 'main'
-        const status: AgendaStatus = text(part['status']) === 'realizado' || isRealized ? 'realizado' : substitute && isResponsible ? 'alterado' : part['confirmedAt'] ? 'futuro' : 'confirmacao-pendente'
-        const role = isAssistant ? 'Ajudante' : substitute && isResponsible ? 'Substituto' : isRealized ? 'Realizou' : ''
-        add({ id:`programacao:${programId}:${text(part['id']) || index}:${role || 'principal'}`, source:'programacao', date, time:meetingTime, title:role ? `${role} - ${text(part['title'])}` : text(part['title']) || 'Parte da reunião', detail:'Vida e Ministério', location:rooms.get(roomId) || (roomId === 'main' ? 'Salão principal' : undefined), note:text(part['reference']), status })
-      })
-    })
-  }
-
   if (allowed.servicoCampo !== false) {
     const service = rows(root['servicoCampo'])
     Object.entries(rows(service['periods'])).forEach(([periodId, periodValue]) => {
@@ -185,20 +149,6 @@ export function collectAnnouncementEvents(rootValue: unknown, allowed: Partial<R
       add(event, name)
     })
   })
-  if (allowed.oradores !== false) {
-    const tarefas = rows(root['tarefas']), discursos = rows(tarefas['discursos']), speakers = rows(discursos['oradores']), taskPeople = rows(tarefas['people']), congregations = rows(discursos['congregacoes'])
-    Object.entries(rows(discursos['programacao'])).forEach(([id, talkValue]) => {
-      const talk = rows(talkValue), speaker = rows(speakers[text(talk['oradorId'])]), taskPerson = rows(taskPeople[text(speaker['pessoaId'])])
-      const masterId = text(speaker['masterId']) || text(taskPerson['masterId'])
-      const type = text(talk['tipo']), isVisitor = text(speaker['tipo']) === 'visitante' || type === 'discurso_visitante'
-      if (masterId && people[masterId]) return
-      if (!isVisitor) return
-      const name = text(rows(people[masterId])['name']) || text(speaker['nome']) || text(speaker['name']) || text(talk['oradorNome']) || 'Orador a definir'
-      const congregationId = type === 'saida_orador' ? text(talk['congregacaoDestinoId']) || text(talk['congregacaoId']) : text(talk['congregacaoOrigemId']) || text(talk['congregacaoId'])
-      const congregation = rows(congregations[congregationId]), destination = text(talk['congregacaoDestinoNome']), origin = text(talk['congregacaoOrigemNome']), confirmation = rows(talk['confirmacao'])['status'] === true
-      add({ id:`oradores:${id}`, source:'oradores', date:text(talk['data']), time:text(talk['horarioLocal']) || undefined, title:type === 'saida_orador' ? 'Discurso em outra congregação' : 'Discurso público', detail:text(talk['temaTitulo']) || (talk['temaNumero'] ? `Tema ${String(talk['temaNumero'])}` : 'Tema a confirmar'), location:destination || origin || text(congregation['nome']) || text(talk['localCongregacaoNome']) || undefined, status:text(talk['status']) === 'realizado' || text(talk['realizadoPorId']) ? 'realizado' : confirmation ? 'futuro' : 'confirmacao-pendente' }, name)
-    })
-  }
   return [...grouped.values()].sort((a, b) => a.date.localeCompare(b.date) || (a.time || '').localeCompare(b.time || '') || a.title.localeCompare(b.title, 'pt-BR'))
 }
 
@@ -254,8 +204,8 @@ export function announcementMessage(events: AnnouncementEvent[]): string {
 
 function eventMeetingKind(event: AnnouncementEvent): BoardMeetingKind | null {
   if (event.source === 'tarefas') return /meio de semana/i.test(event.detail) ? 'midweek' : /fim de semana/i.test(event.detail) ? 'weekend' : null
-  if (event.source === 'programacao' || /meio de semana/i.test(event.detail)) return 'midweek'
-  if (event.source === 'oradores' || /fim de semana|limpeza semanal/i.test(event.detail)) return 'weekend'
+  if (/meio de semana/i.test(event.detail)) return 'midweek'
+  if (/fim de semana|limpeza semanal/i.test(event.detail)) return 'weekend'
   return null
 }
 
@@ -273,16 +223,16 @@ export function boardMeetingDates(events: AnnouncementEvent[], today: string): B
 export function boardMeetingEvents(events: AnnouncementEvent[], selected: BoardMeetingDate | undefined): AnnouncementEvent[] {
   if (!selected) return []
   const sources = selected.kind === 'midweek'
-    ? new Set<AgendaSource>(['tarefas', 'programacao', 'limpeza'])
-    : new Set<AgendaSource>(['tarefas', 'oradores', 'limpeza'])
+    ? new Set<AgendaSource>(['tarefas', 'limpeza'])
+    : new Set<AgendaSource>(['tarefas', 'limpeza'])
   return events.filter(event => event.date === selected.date && sources.has(event.source))
 }
 
 function boardMeetingText(events: AnnouncementEvent[], selected: BoardMeetingDate | undefined, includeCleaning: boolean): string {
   if (!selected) return 'Quadro de anúncios Noroeste: nenhuma reunião futura selecionada.'
   const groups: Array<[string, AgendaSource]> = selected.kind === 'midweek'
-    ? [['TAREFAS', 'tarefas'], ['VIDA E MINISTÉRIO', 'programacao']]
-    : [['ORADORES', 'oradores'], ['TAREFAS', 'tarefas']]
+    ? [['TAREFAS', 'tarefas']]
+    : [['TAREFAS', 'tarefas']]
   if (includeCleaning) groups.push(['LIMPEZA', 'limpeza'])
   return groups.map(([title, source]) => {
     const rows = events.filter(event => event.source === source)

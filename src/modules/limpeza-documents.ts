@@ -1,6 +1,6 @@
 import { PDFDocument, StandardFonts, type PDFFont, type PDFPage } from 'pdf-lib/cjs/index.js'
 import type { LimpezaPeriodoGerado, LimpezaSemanaGerada } from '../types'
-import { previewPdf } from '../ui/pdf-preview.ts'
+import { downloadPdf } from '../ui/pdf-download.ts'
 import { A4_PORTRAIT, PDF_INK, PDF_LINE, PDF_MUTED, drawPublicPdfHeader } from '../ui/public-pdf-layout.ts'
 
 export interface CleaningPdfOptions { requestedFontSize: number }
@@ -82,6 +82,6 @@ export async function createCleaningPdf(period: LimpezaPeriodoGerado, options: C
 
 export async function downloadCleaningPdf(period: LimpezaPeriodoGerado, options: CleaningPdfOptions): Promise<CleaningPdfResult> {
   const result = await createCleaningPdf(period, options)
-  previewPdf(result.bytes, `limpeza-${period.id}.pdf`, 'Previa da escala de limpeza')
+  downloadPdf(result.bytes, `limpeza-${period.id}.pdf`)
   return result
 }

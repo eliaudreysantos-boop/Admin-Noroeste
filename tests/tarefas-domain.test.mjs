@@ -25,7 +25,7 @@ const basePerson = (overrides = {}) => ({
 const baseContext = (people, meeting = { date: '2026-09-12', type: 'weekend', assignments: {} }) => ({
   people,
   periods: { '2026-09': { meetings: { m1: meeting } } },
-  events: {}, speakers: {}, talks: {},
+  events: {},
 })
 
 test('meio de semana não aplica Presidente nem Leitor', () => {
@@ -61,13 +61,6 @@ test('folga usa a paridade do dia e evento respeita o tipo declarado', () => {
     { data: '2026-09-12', impactoTarefas: { bloqueiaReuniao: true, tiposReuniao: ['weekend_s2'] } },
     { date: '2026-09-12', type: 'weekend' },
   ), true)
-})
-
-test('conflito de discurso é resolvido por IDs', () => {
-  const context = baseContext({ p1: basePerson({ masterId: 'm1' }) })
-  context.speakers = { o1: { pessoaId: 'p1', tipo: 'local' } }
-  context.talks = { d1: { data: '2026-09-12', tipo: 'saida_orador', oradorId: 'o1' } }
-  assert.equal(eligibility('p1', 'mic1', { date: '2026-09-12', type: 'weekend' }, {}, context).reason, 'Discurso na mesma data')
 })
 
 test('somente Presidente pode acumular exatamente uma função mecânica', () => {

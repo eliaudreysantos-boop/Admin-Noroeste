@@ -4,17 +4,9 @@ import {
   assertCleaningPeriodEditable,
   cleaningGroupFor,
   generateCleaningPeriod,
-  integratedCleaningMembers,
   periodBounds,
 } from '../src/modules/limpeza-domain.ts'
 
-test('integracao acompanha membros sem alterar origem e preserva exclusoes locais', () => {
-  const members = ['m1', 'm2']
-  assert.deepEqual(integratedCleaningMembers(members), ['m1', 'm2'])
-  assert.deepEqual(integratedCleaningMembers([...members, 'm3'], ['m2']), ['m1', 'm3'])
-  assert.deepEqual(integratedCleaningMembers(['m2', 'm3'], ['m2']), ['m3'])
-  assert.deepEqual(members, ['m1', 'm2'])
-})
 
 const config = {
   ativa: true,

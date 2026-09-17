@@ -16,10 +16,10 @@ const root = {
   servicoCampo:{ periods:{ '2026-09':{ month:'2026-09', published:true, assignments:{ s1:{ id:'s1', templateId:'t', date:'2026-09-18', time:'16:00', location:'Salão', label:'Saída', leaderId:'m1' } } } } },
 }
 
-function fetcher() {
+function fetcher(data = root) {
   return async url => {
     const path = new URL(url).pathname.replace(/^\//, '').replace(/\.json$/, '')
-    const value = path.split('/').reduce((current, key) => current?.[key], root)
+    const value = path.split('/').reduce((current, key) => current?.[key], data)
     return new Response(JSON.stringify(value ?? null), { status:200 })
   }
 }
@@ -34,9 +34,22 @@ test('feed pessoal valida token e devolve apenas a agenda vinculada', async () =
   assert.match(body, /SUMMARY:Leitor/)
   assert.doesNotMatch(body, /SUMMARY:Microfone 1/)
   assert.match(body, /TRIGGER:-P1D/)
-  assert.match(body, /DTSTART;TZID=America\/Fortaleza:20260916T190000/)
+  assert.doesNotMatch(body, /SUMMARY:Leitura da Bíblia/)
   assert.match(body, /LOCATION:Praça Central/)
   assert.match(response.headers.get('content-disposition'), /inline.*\.ics/)
+})
+
+test('assinatura pessoal inclui tarefas e limpeza mesmo com selecao restrita do quadro', async () => {
+  const data = structuredClone(root)
+  data.limpeza = { periodos:{ p:{ publicado:true, semanas:[{ dataMeioSemana:'2026-09-15', dataFimSemana:'2026-09-20', grupoNome:'Grupo teste', membrosMid:['m1'] }] } } }
+  const response = await calendarResponse(new Request(`https://app.test/.netlify/functions/calendar?token=${token}`), fetcher(data), store({ token, tipo:'pessoal', masterId:'m1', modulos:['oradores'], ativo:true, criadoEm:'2026-09-01' }))
+  const body = await response.text()
+  assert.equal(response.status, 200)
+  assert.match(body, /SUMMARY:Leitor/)
+  assert.equal((body.match(/SUMMARY:Limpeza/g) || []).length, 2)
+  assert.match(body, /SUMMARY:Escala TPL/)
+  assert.doesNotMatch(body, /SUMMARY:Leitura da Bíblia/)
+  assert.match(body, /SUMMARY:Dirigente/)
 })
 
 test('feed do quadro respeita os módulos escolhidos', async () => {

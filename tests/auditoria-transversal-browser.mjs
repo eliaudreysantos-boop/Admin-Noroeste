@@ -12,12 +12,9 @@ try {
     page.on('dialog', dialog => dialog.accept())
     const sources = {
       servicoCampo: { leaders: { m1:true, m2:true }, templates: {}, periods: {} },
-      secretario: { fechamentos: { '2026-08': { fechado:false } }, publicadores: {}, relatorios: {} },
-      'master/pessoas': Object.fromEntries(['m1', 'm2', 'm3'].map(mid => [mid, { name:`Pessoa ${mid}`, active:true, sex:'M' }])),
+      'master/pessoas': Object.fromEntries(['m1', 'm2', 'm3'].map(mid => [mid, { name:`Pessoa ${mid}`, active:true, sex:'M', limpeza:{ grupo:mid === 'm3' ? 2 : 1 } }])),
       'master/config/congregacao': { nome:'Teste' },
-      'master/config': { limpeza: { ativa:true, aproveitarGruposServicoCampo:true, grupos:1, inicioRotacao:'2026-09-01' } },
-      'secretario/grupos': { g1:{ nome:'Grupo 1', ativo:true, superintendenteMasterId:'m1' } },
-      'secretario/publicadores': { p1:{ masterId:'m1', grupoId:'g1', ativo:true }, p2:{ masterId:'m2', grupoId:'g1', ativo:true } },
+      'master/config': { limpeza: { ativa:true, grupos:2, gruposConfig:{ '1':{ superintendenteMid:'m1', ajudantesMid:['m1', 'm2'] } }, inicioRotacao:'2026-09-01' } },
     }
     await page.route('**/.netlify/functions/**', async route => {
       const url = new URL(route.request().url()), endpoint = url.pathname.split('/').pop()
@@ -42,31 +39,20 @@ try {
     await page.getByText('Saída recorrente salva', { exact:true }).waitFor()
     assert.equal(Object.values(writes.at(-1).value)[0].date, '2026-09-21')
     await page.evaluate(async () => {
-      const module = await import('/src/modules/secretario.ts')
-      module.default({})
-    })
-    await page.locator('[data-menu-card="conferencia"]').click()
-    assert.equal(await page.locator('#conferenceMonth').inputValue(), '2026-08')
-    const before = reads
-    await page.locator('#markReportSent').click()
-    await page.waitForFunction(() => document.querySelector('#conferenceMonth')?.value === '2026-09')
-    assert.equal(reads, before)
-    await page.evaluate(async () => {
       const module = await import('/src/modules/limpeza.ts')
       module.default({})
     })
     await page.locator('[data-menu-card="config"]').click()
     assert.equal(await page.locator('[data-group-helper]:checked').count(), 2)
-    assert.equal(await page.locator('#gSuper_g1 option[value="m3"]').count(), 0)
-    assert.equal(await page.locator('#gSuper_g1').inputValue(), 'm1')
+    assert.equal(await page.locator('#gSuper_1 option[value="m3"]').count(), 0)
+    assert.equal(await page.locator('#gSuper_1').inputValue(), 'm1')
     await page.locator('[data-group-helper][value="m2"]').uncheck()
     await page.locator('#btnSalvarLimpezaConfig').click()
     await page.getByText('Configuração salva ✓', { exact:true }).waitFor()
-    assert.deepEqual(writes.at(-1).value['gruposServicoConfig/g1/ajudantesExcluidosMid'], ['m2'])
-    assert.equal(writes.at(-1).value['gruposServicoConfig/g1/membrosDaOrigem'], true)
+    assert.deepEqual(writes.at(-1).value['gruposConfig/1/ajudantesMid'], ['m1'])
     assert.equal(Object.hasOwn(writes.at(-1).value, 'gruposConfig'), false)
     assert.deepEqual(errors, [])
-    console.log(JSON.stringify({ width, approvedOnly:true, specificDate:true, closingAdvances:true, cleaningMembers:true, localExclusions:true }))
+    console.log(JSON.stringify({ width, approvedOnly:true, specificDate:true, cleaningMembers:true, ownGroups:true }))
     await context.close()
   }
 } finally { await browser.close() }

@@ -29,11 +29,11 @@ const identity = (masterId, installationId, canChoosePerson = false) => async ()
 test('duas instalações criam assinaturas independentes', async () => {
   const memory = memoryStore()
   const first = await subscriptionsResponse(request('POST', { tipo:'quadro', installationId:installationA, modulos:['tarefas'] }), memory.store, () => tokenA, identity('m_1', installationA))
-  const second = await subscriptionsResponse(request('POST', { tipo:'quadro', installationId:installationB, modulos:['oradores'] }), memory.store, () => tokenB, identity('m_1', installationB))
+  const second = await subscriptionsResponse(request('POST', { tipo:'quadro', installationId:installationB, modulos:['limpeza'] }), memory.store, () => tokenB, identity('m_1', installationB))
   assert.equal(first.status, 201)
   assert.equal(second.status, 201)
   assert.deepEqual(memory.values.get(tokenA).modulos, ['tarefas'])
-  assert.deepEqual(memory.values.get(tokenB).modulos, ['oradores'])
+  assert.deepEqual(memory.values.get(tokenB).modulos, ['limpeza'])
 })
 
 test('a mesma pessoa pode ter uma assinatura independente por instalação', async () => {
@@ -49,7 +49,7 @@ test('a mesma pessoa pode ter uma assinatura independente por instalação', asy
 test('uma instalação não altera nem revoga a assinatura da outra', async () => {
   const memory = memoryStore()
   memory.values.set(tokenA, { token:tokenA, tipo:'quadro', installationId:installationA, modulos:['tarefas'], ativo:true, criadoEm:'2026-09-01' })
-  const deniedUpdate = await subscriptionsResponse(request('PATCH', { token:tokenA, installationId:installationB, modulos:['oradores'] }), memory.store, () => tokenB, identity('m_1', installationB))
+  const deniedUpdate = await subscriptionsResponse(request('PATCH', { token:tokenA, installationId:installationB, modulos:['limpeza'] }), memory.store, () => tokenB, identity('m_1', installationB))
   const deniedDelete = await subscriptionsResponse(request('DELETE', { token:tokenA, installationId:installationB }), memory.store, () => tokenB, identity('m_1', installationB))
   assert.equal(deniedUpdate.status, 403)
   assert.equal(deniedDelete.status, 403)
@@ -59,9 +59,9 @@ test('uma instalação não altera nem revoga a assinatura da outra', async () =
 test('dono altera módulos e revoga o próprio token', async () => {
   const memory = memoryStore()
   memory.values.set(tokenA, { token:tokenA, tipo:'quadro', installationId:installationA, modulos:['tarefas'], ativo:true, criadoEm:'2026-09-01' })
-  const updated = await subscriptionsResponse(request('PATCH', { token:tokenA, installationId:installationA, modulos:['oradores', 'servicoCampo'] }), memory.store, () => tokenB, identity('m_1', installationA))
+  const updated = await subscriptionsResponse(request('PATCH', { token:tokenA, installationId:installationA, modulos:['limpeza', 'servicoCampo'] }), memory.store, () => tokenB, identity('m_1', installationA))
   assert.equal(updated.status, 200)
-  assert.deepEqual(memory.values.get(tokenA).modulos, ['oradores', 'servicoCampo'])
+  assert.deepEqual(memory.values.get(tokenA).modulos, ['limpeza', 'servicoCampo'])
   const revoked = await subscriptionsResponse(request('DELETE', { token:tokenA, installationId:installationA }), memory.store, () => tokenB, identity('m_1', installationA))
   assert.equal(revoked.status, 200)
   assert.equal(memory.values.get(tokenA).ativo, false)

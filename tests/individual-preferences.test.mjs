@@ -29,7 +29,7 @@ test('preferencias ficam isoladas por pessoa e contexto', () => {
 
 test('assinatura inicial do quadro inclui todos os módulos públicos', () => {
   assert.deepEqual(defaultAgendaUiPreferences('2026-09').board.subscriptionModules, [
-    'tarefas', 'limpeza', 'escala', 'oradores', 'programacao', 'servicoCampo',
+    'tarefas', 'limpeza', 'escala', 'servicoCampo',
   ])
 })
 

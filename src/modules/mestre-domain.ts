@@ -88,29 +88,10 @@ export function linkIssueSource(
   id: string,
 ): { path: string; record: unknown } {
   const tarefas = objectValue(data['tarefas'])
-  const secretario = objectValue(data['secretario'])
-  const programacao = objectValue(data['programacao'])
   const escala = objectValue(data['escala'])
   const servicoCampo = objectValue(data['servicoCampo'])
   const usuarios = objectValue(data['usuarios'])
-  const discursos = objectValue(tarefas['discursos'])
 
-  if (module === 'Secretário') {
-    const publicadores = objectValue(secretario['publicadores'])
-    if (id in publicadores) return { path: `secretario/publicadores/${id}`, record: publicadores[id] }
-    const pessoas = objectValue(secretario['pessoas'])
-    return { path: `secretario/pessoas/${id}`, record: pessoas[id] }
-  }
-  if (module === 'Relatórios') {
-    const relatorios = objectValue(secretario['relatorios'])
-    return { path: `secretario/relatorios/${id}`, record: relatorios[id] }
-  }
-  if (module === 'Programação') {
-    const pessoas = objectValue(programacao['pessoas'])
-    if (id in pessoas) return { path: `programacao/pessoas/${id}`, record: pessoas[id] }
-    const people = objectValue(programacao['people'])
-    return { path: `programacao/people/${id}`, record: people[id] }
-  }
   if (module === 'Serviço de Campo') {
     const [periodId, assignmentId] = id.split('/')
     if (assignmentId) {
@@ -126,7 +107,6 @@ export function linkIssueSource(
   const sources: Record<string, { path: string; record: unknown }> = {
     Tarefas: { path: `tarefas/people/${id}`, record: objectValue(tarefas['people'])[id] },
     Escala: { path: `escala/participants/${id}`, record: objectValue(escala['participants'])[id] },
-    Oradores: { path: `tarefas/discursos/oradores/${id}`, record: objectValue(discursos['oradores'])[id] },
     Usuários: { path: `usuarios/${id}`, record: usuarios[id] },
   }
   return sources[module] ?? { path: 'desconhecido', record: null }

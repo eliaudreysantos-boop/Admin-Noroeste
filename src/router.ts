@@ -10,16 +10,13 @@ const MODULE_META: Record<
   mestre:      { label: 'Admin',        desc: 'Pessoas, config e usuários',   icon: '⚙️',  color: '#003F72' },
   tarefas:     { label: 'Tarefas',      desc: 'Funções da reunião',           icon: '📋', color: '#7E3AF2' },
   limpeza:     { label: 'Limpeza',      desc: 'Grupos, rodízio e PDF',        icon: '🧹', color: '#006EB6' },
-  oradores:    { label: 'Oradores',     desc: 'Discursos públicos',           icon: '🎙️', color: '#5C6062' },
   escala:      { label: 'Escala TPL',   desc: 'Escala de campo TPL',          icon: '🌿', color: '#1A6B3C' },
-  programacao: { label: 'Vida e Ministério', desc: 'Reunião do meio de semana', icon: '📅', color: '#003F72' },
-  secretario:  { label: 'Secretário',   desc: 'Relatórios e publicadores',    icon: '📂', color: '#B3261E' },
   servicoCampo:{ label: 'Serviço de Campo', desc: 'Saídas, dirigentes e locais', icon: '⌖', color: '#8A5A00' },
   individual:  { label: 'Minha agenda',  desc: 'Suas designações e compromissos', icon: '✓', color: '#006EB6' },
 }
 
 const MODULES_ORDER: ModuleName[] = [
-  'mestre', 'secretario', 'servicoCampo', 'oradores', 'programacao', 'tarefas', 'limpeza', 'escala', 'individual',
+  'mestre', 'servicoCampo', 'tarefas', 'limpeza', 'escala', 'individual',
 ]
 
 // ─── Lazy loaders ───────────────────────────────────────────────────────────
@@ -32,10 +29,7 @@ async function loadModule(
     mestre:      () => import('./modules/mestre'),
     tarefas:     () => import('./modules/tarefas'),
     limpeza:     () => import('./modules/limpeza'),
-    oradores:    () => import('./modules/oradores'),
     escala:      () => import('./modules/escala'),
-    programacao: () => import('./modules/programacao'),
-    secretario:  () => import('./modules/secretario'),
     servicoCampo:() => import('./modules/servico-campo'),
     individual:  () => import('./modules/individual'),
   }

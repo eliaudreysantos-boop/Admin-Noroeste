@@ -11,7 +11,6 @@ try {
     page.on('pageerror', error => errors.push(error.message))
     const sources = {
       escala:{ participants:{ m1:{ active:true, capPerMonth:3 } } },
-      secretario:{ publicadores:{ p1:{ id:'p1', masterId:'m1', categoria:'publicador', grupoId:'', ativo:true } } },
       'master/pessoas':{ m1:{ name:'Pessoa Teste', active:true, sex:'M' } },
     }
     await page.route('**/.netlify/functions/**', async route => {
@@ -48,27 +47,6 @@ try {
     await page.getByText('Participante salvo', { exact:true }).waitFor()
     assert.equal(await page.locator('#pmCap').inputValue(), '12')
     await page.locator('#pmCancel').click()
-    await page.evaluate(async () => (await import('/src/modules/secretario.ts')).default({}))
-    await page.locator('[data-menu-card="publicadores"]').click()
-    await page.locator('[data-edit-publisher="p1"]').click()
-    mode = 'fail'
-    const before = writes.length
-    await page.evaluate(() => { const b = document.querySelector('#publisherForm button[type="submit"]'); b.click(); b.click() })
-    await page.getByText('Falha simulada de rede', { exact:true }).waitFor()
-    assert.equal(writes.length, before + 1)
-    assert.equal(await page.locator('#publisherForm button[type="submit"]').isEnabled(), true)
-    await page.locator('#cancelPublisher').click()
-    await page.locator('[data-edit-publisher="p1"]').click()
-    mode = 'hold'
-    waiting = new Promise(resolve => { started = resolve })
-    await page.locator('#publisherForm button[type="submit"]').click()
-    await waiting
-    await page.locator('#cancelPublisher').click()
-    await page.locator('[data-edit-publisher="p1"]').click()
-    await page.locator('#publisherForm [name="categoria"]').selectOption('pioneiro_regular')
-    release()
-    await page.getByText('Publicador salvo', { exact:true }).waitFor()
-    assert.equal(await page.locator('#publisherForm [name="categoria"]').inputValue(), 'pioneiro_regular')
     assert.deepEqual(errors, [])
     console.log(JSON.stringify({ width, duplicatePrevented:true, cancelAfterFailure:true, lateResponsePreservesEditor:true }))
     await context.close()

@@ -1,9 +1,10 @@
+import { lockPublicationUi } from '../ui/publication-busy'
+import { downloadPdf } from '../ui/pdf-download'
 import type { AppContext, ConfigCongregacao, MasterPessoa, RawPessoas } from '../types'
 import { child, compareAndSet, configCongregacaoRef, get, pessoasRef, servicoCampoRef, update } from '../firebase'
 import { renderMenuCards, type ItemMenu } from '../ui/menu-cards'
 import { moduleBackButton, moduleTitle } from '../ui/module-header'
 import { generateFieldServicePeriod, validFieldServiceMonth, validFieldServiceTime, type FieldServiceAssignment, type FieldServicePeriod, type FieldServiceTemplate } from './servico-campo-domain'
-import { PublicationPreviewGate } from './pdf-publication-preview'
 import { mountModuleMessageSettings } from './module-message-settings'
 
 interface ServiceRoot {
@@ -23,7 +24,6 @@ let selectedMonth = localStorage.getItem(MONTH_KEY) ?? new Date().toISOString().
 let editingTemplateId = ''
 let changingPublication = false
 let generatingPeriod = false
-const fieldServicePdfPreview = new PublicationPreviewGate()
 let loadPromise: Promise<boolean> | null = null
 
 function failureMessage(error: unknown, fallback: string): string {
@@ -116,11 +116,10 @@ function assignmentRow(assignment: FieldServiceAssignment, locked: boolean): str
 function renderSchedule(): void {
   const period = currentPeriod(), assignments = Object.values(period?.assignments ?? {}).sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time) || a.location.localeCompare(b.location, 'pt-BR')), locked = period?.published === true
   const eligible = new Set(leaderIds()), blank = assignments.filter(item => !item.leaderId || !eligible.has(item.leaderId)).length
-  root().innerHTML = `${sectionTitle('Programação de Serviço de Campo')}${periodControl()}${locked ? '<div class="notice">Este mês está publicado no Quadro e bloqueado para edição.</div>' : ''}<div class="service-summary"><div><strong>${assignments.length}</strong><span>Saídas</span></div><div><strong>${new Set(assignments.map(item => item.date)).size}</strong><span>Dias</span></div><div><strong>${blank}</strong><span>Sem dirigente</span></div><div><strong>${leaderIds().length}</strong><span>No rodízio</span></div></div><div class="service-actions"><button id="serviceGenerate" class="btn btn-primary" type="button" ${locked ? 'disabled' : ''}>${assignments.length ? 'Completar mês' : 'Gerar rodízio'}</button><button id="servicePdf" class="btn btn-ghost" type="button" ${assignments.length ? '' : 'disabled'}>Prévia PDF</button>${locked ? '<button id="serviceReopen" class="btn btn-ghost" type="button">Reabrir mês</button>' : `<button id="servicePublish" class="btn btn-ghost" type="button" ${assignments.length && !blank ? '' : 'disabled'}>Publicar mês</button>`}</div>${locked ? '' : manualAssignmentForm()}<div class="service-assignment-list">${assignments.map(item => assignmentRow(item, locked)).join('') || '<p class="empty-state">Configure as saídas e gere o rodízio deste mês.</p>'}</div>`
+  root().innerHTML = `${sectionTitle('Programação de Serviço de Campo')}${periodControl()}${locked ? '<div class="notice">Este mês está publicado no Quadro e bloqueado para edição.</div>' : ''}<div class="service-summary"><div><strong>${assignments.length}</strong><span>Saídas</span></div><div><strong>${new Set(assignments.map(item => item.date)).size}</strong><span>Dias</span></div><div><strong>${blank}</strong><span>Sem dirigente</span></div><div><strong>${leaderIds().length}</strong><span>No rodízio</span></div></div><div class="service-actions"><button id="serviceGenerate" class="btn btn-primary" type="button" ${locked ? 'disabled' : ''}>${assignments.length ? 'Completar mês' : 'Gerar rodízio'}</button><button id="servicePdf" class="btn btn-ghost" type="button" ${assignments.length ? '' : 'disabled'}>${locked ? 'Baixar PDF' : 'Baixar PDF e publicar período'}</button>${locked ? '<button id="serviceReopen" class="btn btn-ghost" type="button">Reabrir mês</button>' : ''}</div>${locked ? '' : manualAssignmentForm()}<div class="service-assignment-list">${assignments.map(item => assignmentRow(item, locked)).join('') || '<p class="empty-state">Configure as saídas e gere o rodízio deste mês.</p>'}</div>`
   bindPeriod()
   document.getElementById('serviceGenerate')?.addEventListener('click', () => void generatePeriod())
   document.getElementById('servicePdf')?.addEventListener('click', () => void openPdf())
-  document.getElementById('servicePublish')?.addEventListener('click', () => void publishPeriod())
   document.getElementById('serviceReopen')?.addEventListener('click', () => void reopenPeriod())
   document.getElementById('manualServiceForm')?.addEventListener('submit', event => { event.preventDefault(); void addManualAssignment(event.currentTarget as HTMLFormElement) })
   document.querySelectorAll<HTMLSelectElement>('[data-service-leader]').forEach(select => select.addEventListener('change', () => void changeLeader(select.dataset.serviceLeader!, select.value)))
@@ -139,14 +138,14 @@ async function generatePeriod(): Promise<void> {
   const month = selectedMonth, expected = structuredClone(currentPeriod() ?? null)
   const period = generateFieldServicePeriod({ month, templates:templates(), leaderIds:leaderIds(), periods:periods(), existing:currentPeriod() })
   generatingPeriod = true
-  try { await compareAndSet(child(servicoCampoRef, `periods/${month}`), expected, period); data.periods = { ...periods(), [month]:period }; fieldServicePdfPreview.clear(); toast('Rodízio gerado e pronto para revisão'); render() } catch (error) { toast(failureMessage(error, 'Não foi possível gerar o rodízio')) }
+  try { await compareAndSet(child(servicoCampoRef, `periods/${month}`), expected, period); data.periods = { ...periods(), [month]:period }; toast('Rodízio gerado e pronto para revisão'); render() } catch (error) { toast(failureMessage(error, 'Não foi possível gerar o rodízio')) }
   finally { generatingPeriod = false }
 }
 
 async function changeLeader(assignmentId: string, leaderId: string): Promise<void> {
   const period = currentPeriod(), assignment = period?.assignments?.[assignmentId]; if (!period || !assignment || period.published) return
   if (leaderId && !leaderIds().includes(leaderId)) { toast('Selecione um dirigente aprovado'); return }
-  try { await update(servicoCampoRef, { [`periods/${selectedMonth}/assignments/${assignmentId}/leaderId`]:leaderId }); assignment.leaderId = leaderId; fieldServicePdfPreview.clear(); toast('Dirigente atualizado'); render() } catch (error) { toast(failureMessage(error, 'Não foi possível atualizar o dirigente')) }
+  try { await update(servicoCampoRef, { [`periods/${selectedMonth}/assignments/${assignmentId}/leaderId`]:leaderId }); assignment.leaderId = leaderId; toast('Dirigente atualizado'); render() } catch (error) { toast(failureMessage(error, 'Não foi possível atualizar o dirigente')) }
 }
 
 async function addManualAssignment(form: HTMLFormElement): Promise<void> {
@@ -155,13 +154,13 @@ async function addManualAssignment(form: HTMLFormElement): Promise<void> {
   if (Object.values(currentPeriod()?.assignments ?? {}).some(item => item.date === date && item.time === time && item.location.trim().localeCompare(location, 'pt-BR', { sensitivity:'base' }) === 0)) { toast('Esta saída já existe na programação'); return }
   const assignment: FieldServiceAssignment = { id:assignmentId, templateId:'', date, time, location, label:String(values.get('label') ?? '').trim() || 'Saída de campo', leaderId:String(values.get('leaderId') ?? ''), manual:true }
   const current = currentPeriod() ?? { month:selectedMonth, assignments:{}, published:false }
-  try { await update(servicoCampoRef, { [`periods/${selectedMonth}/month`]:selectedMonth, [`periods/${selectedMonth}/published`]:false, [`periods/${selectedMonth}/assignments/${assignmentId}`]:assignment }); current.assignments[assignmentId] = assignment; data.periods = { ...periods(), [selectedMonth]:current }; fieldServicePdfPreview.clear(); toast('Saída adicionada'); render() } catch (error) { toast(failureMessage(error, 'Não foi possível adicionar a saída')) }
+  try { await update(servicoCampoRef, { [`periods/${selectedMonth}/month`]:selectedMonth, [`periods/${selectedMonth}/published`]:false, [`periods/${selectedMonth}/assignments/${assignmentId}`]:assignment }); current.assignments[assignmentId] = assignment; data.periods = { ...periods(), [selectedMonth]:current }; toast('Saída adicionada'); render() } catch (error) { toast(failureMessage(error, 'Não foi possível adicionar a saída')) }
 }
 
 async function deleteAssignment(assignmentId: string): Promise<void> {
   const period = currentPeriod(); if (!period || period.published || !period.assignments[assignmentId]) return
   if (!confirm('Remover esta saída da programação?')) return
-  try { await update(servicoCampoRef, { [`periods/${selectedMonth}/assignments/${assignmentId}`]:null }); delete period.assignments[assignmentId]; fieldServicePdfPreview.clear(); toast('Saída removida'); render() } catch (error) { toast(failureMessage(error, 'Não foi possível remover a saída')) }
+  try { await update(servicoCampoRef, { [`periods/${selectedMonth}/assignments/${assignmentId}`]:null }); delete period.assignments[assignmentId]; toast('Saída removida'); render() } catch (error) { toast(failureMessage(error, 'Não foi possível remover a saída')) }
 }
 
 async function publishPeriod(): Promise<void> {
@@ -169,10 +168,11 @@ async function publishPeriod(): Promise<void> {
   const period = currentPeriod(), assignments = Object.values(period?.assignments ?? {})
   const eligible = new Set(leaderIds())
   if (!period || !assignments.length || assignments.some(item => !item.leaderId || !eligible.has(item.leaderId))) { toast('Defina um dirigente ativo para todas as saídas'); return }
-  if (!fieldServicePdfPreview.matches(fieldServicePdfInput(assignments))) { toast('Abra a prévia atual do PDF antes de publicar'); return }
+
   const month = selectedMonth, pdfInput = structuredClone(fieldServicePdfInput(assignments))
   const publishedAt = new Date().toISOString()
   changingPublication = true
+  const releaseUi = lockPublicationUi()
   try {
     const { createFieldServicePdf } = await import('./servico-campo-documents')
     const { publishAgendaModulePdf, unpublishAgendaModulePdf } = await import('./agenda-documents')
@@ -181,33 +181,37 @@ async function publishPeriod(): Promise<void> {
     await publishAgendaModulePdf(bytes, { modulo:'servicoCampo', periodo:month, inicio:`${month}-01`, fim:`${month}-${lastDay}`, origemPeriodoId:month, nome:`servico-de-campo-${month}.pdf` })
     try { await update(servicoCampoRef, { [`periods/${month}/published`]:true, [`periods/${month}/publishedAt`]:publishedAt }) }
     catch (error) { try { await unpublishAgendaModulePdf('servicoCampo', month) } catch { toast('Publicação incompleta. Confira o PDF no Quadro.'); return } throw error }
+    downloadPdf(bytes, `servico-de-campo-${month}.pdf`)
     period.published = true; period.publishedAt = publishedAt; toast('Mês publicado na Minha Agenda e no Quadro'); render()
   } catch (error) { toast(failureMessage(error, 'Não foi possível publicar o mês')) }
-  finally { changingPublication = false }
+  finally { changingPublication = false; releaseUi() }
 }
 
 async function reopenPeriod(): Promise<void> {
   const period = currentPeriod(); if (!period || changingPublication || !confirm(`Reabrir ${monthLabel(selectedMonth)} para edição?`)) return
   const month = selectedMonth
   changingPublication = true
+  const releaseUi = lockPublicationUi()
   try {
     await update(servicoCampoRef, { [`periods/${month}/published`]:false, [`periods/${month}/publishedAt`]:null })
     try { const { unpublishAgendaModulePdf } = await import('./agenda-documents'); await unpublishAgendaModulePdf('servicoCampo', month) }
     catch (error) { try { await update(servicoCampoRef, { [`periods/${month}/published`]:true, [`periods/${month}/publishedAt`]:period.publishedAt ?? true }) } catch { toast('Falha ao restaurar a publicação. Confira o período.'); return } throw error }
     period.published = false; delete period.publishedAt; toast('Mês reaberto'); render()
   } catch { toast('Não foi possível reabrir o mês') }
-  finally { changingPublication = false }
+  finally { changingPublication = false; releaseUi() }
 }
 
 async function openPdf(): Promise<void> {
+  if (changingPublication) return
+  if (!currentPeriod()?.published) { await publishPeriod(); return }
   const assignments = Object.values(currentPeriod()?.assignments ?? {}); if (!assignments.length) return
   const input = fieldServicePdfInput(assignments)
-  try { const docs = await import('./servico-campo-documents'); await docs.previewFieldServicePdf(input); fieldServicePdfPreview.mark(input); toast('Prévia do PDF gerada e pronta para publicação') } catch (error) { toast(failureMessage(error, 'Não foi possível gerar o PDF')) }
+  try { const docs = await import('./servico-campo-documents'); await docs.downloadFieldServicePdf(input); toast('Download do PDF iniciado') } catch (error) { toast(failureMessage(error, 'Não foi possível gerar o PDF')) }
 }
 
 function renderConfiguration(): void {
   const current = templates()[editingTemplateId]
-  const templateRows = Object.values(templates()).sort((a, b) => a.sortOrder - b.sortOrder || a.dow - b.dow || a.time.localeCompare(b.time)).map(item => `<div class="secretary-row"><div><strong>${item.date ? esc(dateLabel(item.date)) : DAYS[item.dow]} · ${esc(item.time)}</strong><small>${esc(item.location)} · ${esc(item.label)} · ${item.active ? 'Ativa' : 'Inativa'} · ${item.leaderIds?.length ? `${item.leaderIds.length} dirigente(s)` : 'rodízio pendente'}</small></div><button class="btn btn-ghost" data-edit-service-template="${esc(item.id)}">Editar</button><button class="btn btn-danger" data-delete-service-template="${esc(item.id)}" title="Remover saída">✕</button></div>`).join('')
+  const templateRows = Object.values(templates()).sort((a, b) => a.sortOrder - b.sortOrder || a.dow - b.dow || a.time.localeCompare(b.time)).map(item => `<div class="module-list-row"><div><strong>${item.date ? esc(dateLabel(item.date)) : DAYS[item.dow]} · ${esc(item.time)}</strong><small>${esc(item.location)} · ${esc(item.label)} · ${item.active ? 'Ativa' : 'Inativa'} · ${item.leaderIds?.length ? `${item.leaderIds.length} dirigente(s)` : 'rodízio pendente'}</small></div><button class="btn btn-ghost" data-edit-service-template="${esc(item.id)}">Editar</button><button class="btn btn-danger" data-delete-service-template="${esc(item.id)}" title="Remover saída">✕</button></div>`).join('')
   const leaderRows = Object.entries(people).filter(([, person]) => person.active !== false && person.sex === 'M').sort((a, b) => a[1].name.localeCompare(b[1].name, 'pt-BR')).map(([masterId, person]) => `<label class="service-leader-option"><input type="checkbox" data-service-eligible="${esc(masterId)}" ${data.leaders?.[masterId] ? 'checked' : ''}><span><strong>${esc(person.name)}</strong><small>${esc(roleLabel(person))}</small></span></label>`).join('')
   const ownLeaderRows = leaderIds().map(masterId => `<label class="service-leader-option"><input name="templateLeader" type="checkbox" value="${esc(masterId)}" ${current?.leaderIds?.includes(masterId) ? 'checked' : ''}><span><strong>${esc(personName(masterId))}</strong><small>${esc(roleLabel(people[masterId]!))}</small></span></label>`).join('')
   root().innerHTML = `${sectionTitle('Configuração do Serviço de Campo')}

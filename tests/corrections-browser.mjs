@@ -23,14 +23,9 @@ const sources = {
       p2:{ masterId:'m2', name:'Ajudante Dois', active:true, rule:'both', roles:{ microfone:true } },
     },
     scale:{ periods:{ '2026-09':{ locked:false, meetings:{ mid:{ date:'2026-09-02', type:'midweek', assignments:{ mic1:'p1' } } } } } },
-    planning:{ editingPeriod:'2026-09', periodMode:'month' }, events:{}, discursos:{ oradores:{}, programacao:{} },
+    planning:{ editingPeriod:'2026-09', periodMode:'month' }, events:{},
   },
   limpeza:{ periodos:{ '2026-09':cleaningPeriod } },
-  secretario:{
-    publicadores:{ p1:{ id:'p1', masterId:'m1', categoria:'publicador', grupoId:'g1', ativo:true } },
-    grupos:{ g1:{ id:'g1', nome:'Grupo 1', superintendenteMasterId:'m1', ativo:true } },
-    relatorios:{}, fechamentos:{ '2026-09':{ fechadoEm:'2026-10-10' }, '2026-10':{ fechadoEm:'2026-11-10' } },
-  },
   servicoCampo:{
     leaders:{ m1:true },
     templates:{ t1:{ id:'t1', label:'Saída', dow:1, time:'08:30', location:'Salão', active:true, sortOrder:0, leaderIds:['m1'] } },
@@ -55,48 +50,41 @@ try {
       return route.fulfill({ json:{ ok:true } })
     }
     const paths = JSON.parse(url.searchParams.get('paths') || '[]')
-    if (paths.includes('secretario') || paths.includes('servicoCampo') || paths.includes('tarefas')) await new Promise(resolve => setTimeout(resolve, 2500))
+    if (paths.includes('servicoCampo') || paths.includes('tarefas')) await new Promise(resolve => setTimeout(resolve, 2500))
     return route.fulfill({ json:{ results:paths.map(path => ({ value:sources[path] ?? {} })) } })
   })
 
-  await page.goto('http://127.0.0.1:5174/')
-
-  await page.locator('[data-menu-card="secretario"]').click()
-  await page.locator('[data-menu-card="relatorios"]').waitFor({ timeout:300 })
-  await page.locator('[data-menu-card="relatorios"]').click()
-  await page.getByText('Carregando dados...', { exact:true }).waitFor()
-  await page.locator('#reportMonth').waitFor()
-  assert.equal(await page.locator('#reportMonth').inputValue(), '2026-11')
-  await page.locator('#btnBack').click()
-  await page.locator('#btnBack').click()
+  await page.goto(process.env.APP_TEST_URL || 'http://127.0.0.1:5174/')
 
   await page.locator('[data-menu-card="servicoCampo"]').click()
   await page.locator('[data-menu-card="programacao"]').waitFor({ timeout:300 })
   await page.locator('[data-menu-card="programacao"]').click()
   await page.getByText('Carregando dados...', { exact:true }).waitFor()
-  await page.locator('#servicePdf').click()
-  await page.locator('.pdf-preview-modal iframe').waitFor()
-  await page.locator('[data-pdf-close]').click()
-  await page.locator('#servicePublish').click()
+  {
+    const downloaded = page.waitForEvent('download')
+    await page.locator('#servicePdf').click()
+    assert.equal(await (await downloaded).failure(), null)
+  }
   await page.locator('#serviceReopen').waitFor()
   assert.ok(writes.some(write => write.path === 'servicoCampo' && write.body?.value?.['periods/2027-01/published'] === true))
   page.once('dialog', dialog => dialog.accept())
   await page.locator('#serviceReopen').click()
-  await page.locator('#servicePublish').waitFor()
+  await page.getByRole('button', { name:'Baixar PDF e publicar período', exact:true }).waitFor()
   assert.ok(writes.some(write => write.path === 'servicoCampo' && write.body?.value?.['periods/2027-01/published'] === false))
   await page.locator('#btnBack').click()
   await page.locator('#btnBack').click()
 
   await page.locator('[data-menu-card="limpeza"]').click()
   await page.locator('[data-menu-card="pdf"]').click()
-  await page.locator('#btnGerarPdfLimpeza').click()
-  await page.locator('.pdf-preview-modal iframe').waitFor()
-  await page.locator('[data-pdf-close]').click()
-  await page.locator('#btnPublicarPdfLimpeza').click()
+  {
+    const downloaded = page.waitForEvent('download')
+    await page.locator('#btnGerarPdfLimpeza').click()
+    assert.equal(await (await downloaded).failure(), null)
+  }
   await page.getByRole('button', { name:'Reabrir período', exact:true }).waitFor()
   assert.ok(writes.some(write => write.path === 'limpeza/periodos' && write.body?.value?.['2026-09/publicado'] === true))
   await page.getByRole('button', { name:'Reabrir período', exact:true }).click()
-  await page.getByRole('button', { name:'Publicar período', exact:true }).waitFor()
+  await page.getByRole('button', { name:'Baixar PDF e publicar período', exact:true }).waitFor()
   assert.ok(writes.some(write => write.path === 'limpeza/periodos' && write.body?.value?.['2026-09/publicado'] === false))
   await page.locator('#btnBack').click()
   await page.locator('#btnBack').click()
@@ -106,27 +94,21 @@ try {
   await page.locator('[data-menu-card="escala"]').click()
   await page.getByText('Carregando dados...', { exact:true }).waitFor()
   await page.getByText('Refazer uma função ou ajustar a impressão', { exact:true }).click()
-  await page.locator('#btnTarefasPdf').click()
-  await page.locator('.pdf-preview-modal iframe').waitFor()
-  await page.locator('[data-pdf-close]').click()
-  await page.locator('.tarefas-assignment-select[data-role="mic1"]').first().selectOption('p2')
-  await page.getByText('Designação atualizada', { exact:true }).waitFor()
-  await page.locator('#btnToggleTaskLock').click()
-  await page.getByText('Abra a prévia atual do PDF antes de publicar', { exact:true }).waitFor()
-  await page.getByText('Refazer uma função ou ajustar a impressão', { exact:true }).click()
-  await page.locator('#btnTarefasPdf').click()
-  await page.locator('.pdf-preview-modal iframe').waitFor()
-  await page.locator('[data-pdf-close]').click()
-  await page.locator('#btnToggleTaskLock').click()
+  {
+    const downloaded = page.waitForEvent('download')
+    await page.locator('#btnTarefasPdf').click()
+    assert.equal(await (await downloaded).failure(), null)
+  }
   await page.getByRole('button', { name:'Reabrir escala', exact:true }).waitFor()
   await page.locator('#btnToggleTaskLock').click()
-  await page.getByRole('button', { name:'Publicar escala', exact:true }).waitFor()
+  await page.getByText('Refazer uma função ou ajustar a impressão', { exact:true }).click()
+  await page.getByRole('button', { name:'Baixar PDF e publicar período', exact:true }).waitFor()
   assert.ok(writes.some(write => write.path === 'tarefas/scale/periods' && write.body?.value?.['2026-09/locked'] === true))
 
   assert.deepEqual(pageErrors, [])
   assert.ok(writes.some(write => write.endpoint === 'storage-file' && write.method === 'POST'))
   assert.ok(writes.some(write => write.path === 'agenda/documentos'))
-  console.log(JSON.stringify({ secretaryImmediateIndex:true, taskImmediateIndex:true, firstOpenCompetence:'2026-11', fieldServicePreview:true, cleaningPreview:true, taskStalePreviewBlocked:true, simulatedPublication:true, simulatedReopen:true, pageErrors:0 }))
+  console.log(JSON.stringify({ taskImmediateIndex:true, fieldServiceDownload:true, cleaningDownload:true, taskDownload:true, simulatedPublication:true, simulatedReopen:true, pageErrors:0 }))
   await context.close()
 } finally {
   await browser.close()

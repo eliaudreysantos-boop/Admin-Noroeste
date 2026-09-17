@@ -72,11 +72,11 @@ test('relatório aponta o caminho real de coleções atuais e legadas', () => {
       periods: { '2026-09': { assignments: { saida1: { leaderId: 'm5' } } } },
     },
   }
-  assert.equal(linkIssueSource(data, 'Secretário', 'antigo').path, 'secretario/pessoas/antigo')
-  assert.equal(linkIssueSource(data, 'Secretário', 'atual').path, 'secretario/publicadores/atual')
-  assert.equal(linkIssueSource(data, 'Relatórios', 'mensal').path, 'secretario/relatorios/mensal')
-  assert.equal(linkIssueSource(data, 'Programação', 'legacy').path, 'programacao/people/legacy')
-  assert.equal(linkIssueSource(data, 'Programação', 'current').path, 'programacao/pessoas/current')
+  assert.equal(linkIssueSource(data, 'Secretário', 'antigo').path, 'desconhecido')
+  assert.equal(linkIssueSource(data, 'Secretário', 'atual').path, 'desconhecido')
+  assert.equal(linkIssueSource(data, 'Relatórios', 'mensal').path, 'desconhecido')
+  assert.equal(linkIssueSource(data, 'Programação', 'legacy').path, 'desconhecido')
+  assert.equal(linkIssueSource(data, 'Programação', 'current').path, 'desconhecido')
   assert.equal(linkIssueSource(data, 'Serviço de Campo', 'm5').path, 'servicoCampo/leaders/m5')
   assert.equal(linkIssueSource(data, 'Serviço de Campo', '2026-09/saida1').path, 'servicoCampo/periods/2026-09/assignments/saida1')
 })

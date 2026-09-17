@@ -10,12 +10,11 @@ export type BackupValidation =
 
 type Row = Record<string, unknown>
 
-const row = (value: unknown): Row => value && typeof value === 'object' && !Array.isArray(value)
-  ? value as Row
-  : {}
+const isRow = (value: unknown): value is Row => Boolean(value && typeof value === 'object' && !Array.isArray(value))
+const row = (value: unknown): Row => isRow(value) ? value : {}
 
 function records(value: unknown): Record<string, Row> {
-  return Object.fromEntries(Object.entries(row(value)).filter(([, item]) => item && typeof item === 'object' && !Array.isArray(item))) as Record<string, Row>
+  return Object.fromEntries(Object.entries(row(value)).map(([id, item]) => [id, row(item)]))
 }
 
 function hasActiveAdmin(users: Record<string, Row>): boolean {
@@ -48,6 +47,7 @@ export function validateBackup(value: unknown): BackupValidation {
   const people = records(master.pessoas)
   const users = records(data.usuarios)
   if (!data.master || !master.pessoas) return { ok: false, error: 'O arquivo não contém master/pessoas.' }
+  if (!isRow(master.pessoas) || !isRow(data.usuarios)) return { ok:false, error:'As coleções de pessoas e usuários precisam conter registros válidos.' }
   if (!data.usuarios || Object.keys(users).length === 0) return { ok: false, error: 'O arquivo não contém usuários.' }
 
   for (const [masterId, person] of Object.entries(people)) {

@@ -1,3 +1,5 @@
+import { lockPublicationUi } from '../ui/publication-busy'
+import { downloadPdf } from '../ui/pdf-download'
 import type { AppContext, RawPessoas } from '../types'
 import { apiJson } from '../secure-api.ts'
 import { child, compareAndUpdate, escalaRef, get, pessoasRef, update } from '../firebase'
@@ -13,9 +15,8 @@ import {
 import {
   confirmationMessage, dayLabel, monthLabel,
 } from './escala-output'
-import { createScaleSchedulePdf, previewScaleSchedulePdf } from './escala-documents'
+import { createScaleSchedulePdf, downloadScaleSchedulePdf } from './escala-documents'
 import { publishAgendaModulePdf, unpublishAgendaModulePdf } from './agenda-documents'
-import { PublicationPreviewGate } from './pdf-publication-preview'
 import { mountModuleMessageSettings } from './module-message-settings'
 
 type Tab = 'indice' | 'locais' | 'participantes' | 'disponibilidade' | 'escalaAtual' | 'mensagens' | 'pendencias' | 'config'
@@ -43,7 +44,6 @@ let publishedMonth = '', selectedMonth = monthNow(), selectedLocalId = '', selec
 let publishedMonths: Record<string, boolean> = {}
 let tab: Tab = 'indice'
 let pendingParticipantId = ''
-const scalePdfPreview = new PublicationPreviewGate()
 let changingPublication = false
 let loadPromise: Promise<boolean> | null = null
 const monthLocked = (month = selectedMonth) => isPublishedMonth(month, publishedMonth, publishedMonths)
@@ -360,11 +360,10 @@ function renderScale(): void {
   const dates = table ? Object.keys(table.rows ?? {}).sort() : activeDates(selectedMonth, local.daysActive ?? [], exclusions[selectedMonth] ?? [])
   const slots = table?.slots ?? localSlots(local)
   const activeRules = Object.values(normalizeEscalaGenerationRules(settings.engineRules)).filter(Boolean).length
-  root().innerHTML = `${periodControls()}${published ? '<div class="notice warning">Este mês está publicado e bloqueado para edição.</div>' : ''}<div class="scale-actions"><button id="sGenerateAll" class="btn btn-primary" ${published ? 'disabled' : ''}>${hasData(selectedMonth) ? 'Completar mês' : 'Gerar mês'} · ${activeRules} regras</button><button id="sPdf" class="btn btn-ghost" ${hasData(selectedMonth) ? '' : 'disabled'}>Gerar PDF</button>${published ? '<button id="sUnpublish" class="btn btn-ghost">Despublicar</button>' : `<button id="sPublish" class="btn btn-ghost" ${hasData(selectedMonth) ? '' : 'disabled'}>Publicar mês</button>${hasData(selectedMonth) ? '<button id="sDelete" class="btn btn-danger">Apagar mês</button>' : ''}`}</div><div class="scale-days">${dates.map(date => `<section class="scale-day"><h3>${esc(dayLabel(date))}</h3>${slots.map(time => slotHtml(date, time, table)).join('')}</section>`).join('') || '<p class="empty-state">Este local não tem dias ativos neste mês.</p>'}</div>`
+  root().innerHTML = `${periodControls()}${published ? '<div class="notice warning">Este mês está publicado e bloqueado para edição.</div>' : ''}<div class="scale-actions"><button id="sGenerateAll" class="btn btn-primary" ${published ? 'disabled' : ''}>${hasData(selectedMonth) ? 'Completar mês' : 'Gerar mês'} · ${activeRules} regras</button><button id="sPdf" class="btn btn-ghost" ${hasData(selectedMonth) ? '' : 'disabled'}>${published ? 'Baixar PDF' : 'Baixar PDF e publicar período'}</button>${published ? '<button id="sUnpublish" class="btn btn-ghost">Despublicar</button>' : `${hasData(selectedMonth) ? '<button id="sDelete" class="btn btn-danger">Apagar mês</button>' : ''}`}</div><div class="scale-days">${dates.map(date => `<section class="scale-day"><h3>${esc(dayLabel(date))}</h3>${slots.map(time => slotHtml(date, time, table)).join('')}</section>`).join('') || '<p class="empty-state">Este local não tem dias ativos neste mês.</p>'}</div>`
   bindPeriod(renderScale)
   document.getElementById('sGenerateAll')!.addEventListener('click', () => void generate())
   document.getElementById('sPdf')!.addEventListener('click', printPdf)
-  document.getElementById('sPublish')?.addEventListener('click', () => void publish())
   document.getElementById('sUnpublish')?.addEventListener('click', () => void unpublish())
   document.getElementById('sDelete')?.addEventListener('click', () => void deleteMonth())
   document.querySelectorAll<HTMLButtonElement>('[data-slot]').forEach(button => button.addEventListener('click', () => pairModal(button.dataset['date']!, button.dataset['time']!)))
@@ -415,12 +414,13 @@ async function savePair(date: string, time: string, overlay: HTMLElement): Promi
 async function publish(): Promise<void> {
   if (monthLocked() || changingPublication) return
   if (!hasData(selectedMonth)) { toast('Gere e revise a escala antes de publicar'); return }
-  if (!scalePdfPreview.matches(scalePdfInput())) { toast('Abra a prévia atual do PDF antes de publicar'); return }
+
   const month = selectedMonth
   const pdfInput = structuredClone(scalePdfInput())
   const directory = participantDirectory()
   const snapshot = { publicadoEm:now(), appliedRules:{ ...normalizeEscalaGenerationRules(settings.engineRules), version:1 }, participants:Object.fromEntries(Object.keys(directory).map(id => [id, { name:name(id), masterId:centralId(id) || directory[id]?.masterId || undefined, active:directory[id]?.active !== false }])), nomes:Object.fromEntries(Object.keys(directory).map(id => [id, name(id)])), locais:Object.fromEntries(orderedLocals().map(([id, local]) => [id, local.name ?? id])) }
   changingPublication = true
+  const releaseUi = lockPublicationUi()
   try {
     const result = await createScaleSchedulePdf(pdfInput)
     const lastDay = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate()
@@ -431,9 +431,10 @@ async function publish(): Promise<void> {
       catch { toast('Publicação incompleta. Reabra o módulo e confira o PDF no Quadro.'); return }
       throw error
     }
+    downloadPdf(result.bytes, `escala-tpl-${month}.pdf`)
     publishedMonth = month; publishedMonths[month] = true; historicalSnapshots[month] = snapshot; toast('Mês publicado e bloqueado'); renderScale()
   } catch { toast('Não foi possível publicar') }
-  finally { changingPublication = false }
+  finally { changingPublication = false; releaseUi() }
 }
 async function unpublish(): Promise<void> {
   if (!monthLocked() || changingPublication) return
@@ -441,6 +442,7 @@ async function unpublish(): Promise<void> {
   const month = selectedMonth, previousLatest = publishedMonth, previousFlag = publishedMonths[month] ?? null
   const nextLatest = publishedMonth === month ? '' : publishedMonth
   changingPublication = true
+  const releaseUi = lockPublicationUi()
   try {
     await update(escalaRef, { publishedMonth:nextLatest, [`publishedMonths/${month}`]:null })
     try { await unpublishAgendaModulePdf('escala', month) }
@@ -451,7 +453,7 @@ async function unpublish(): Promise<void> {
     }
     publishedMonth = nextLatest; delete publishedMonths[month]; toast('Mês aberto para edição'); renderScale()
   } catch { toast('Não foi possível despublicar') }
-  finally { changingPublication = false }
+  finally { changingPublication = false; releaseUi() }
 }
 
 async function deleteMonth(): Promise<void> {
@@ -597,8 +599,10 @@ async function saveConfig(): Promise<void> {
 }
 
 function printPdf(): void {
+  if (changingPublication) return
+  if (!monthLocked()) { void publish(); return }
   const input = scalePdfInput()
-  void previewScaleSchedulePdf(input)
-    .then(() => { scalePdfPreview.mark(input); toast('Prévia do PDF aberta e pronta para publicação') })
+  void downloadScaleSchedulePdf(input)
+    .then(() => { toast('Download do PDF iniciado') })
     .catch(() => toast('Não foi possível gerar o PDF'))
 }

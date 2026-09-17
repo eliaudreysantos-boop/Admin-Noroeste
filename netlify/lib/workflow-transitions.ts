@@ -1,15 +1,5 @@
-import { closureSnapshot, records, reportLastEditedBy, type SecretaryReport } from '../../src/modules/secretario-domain.ts'
 import { conditionalValue } from './conditional-write.ts'
-
-export function transitionMonth(current: unknown, month: string, expected: unknown, close: boolean, now: string): Record<string, unknown> | undefined {
-  const root = records(current)
-  if (conditionalValue(closureSnapshot(root, month), expected, true) !== true) return undefined
-  const closings = records<Record<string, unknown>>(root['fechamentos']), previous = closings[month] ?? {}
-  if (Boolean(previous['fechadoEm']) === close) return undefined
-  const closing = close ? { ...previous, fechadoEm:now, enviadoEm:now } : { ...previous, fechadoEm:null, reabertoEm:now }
-  const reports = Object.fromEntries(Object.entries(records<SecretaryReport>(root['relatorios'])).map(([id, report]) => [id, report.competencia === month ? { ...report, status:close ? 'fechado' : reportLastEditedBy(report) === 'secretario' ? 'revisado' : 'enviado' } : report]))
-  return { ...root, fechamentos:{ ...closings, [month]:closing }, relatorios:reports }
-}
+const records = <T = unknown>(value: unknown): Record<string, T> => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, T> : {}
 
 export function removeUnusedParticipant(current: unknown, id: string, expected: unknown): Record<string, unknown> | undefined {
   const root = records(current), profiles = records<Record<string, unknown>>(root['participants'])

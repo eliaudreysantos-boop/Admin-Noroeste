@@ -41,3 +41,21 @@ test('recusa pessoas malformadas e tolera vínculos legados da Minha Agenda', ()
     pessoa2: { nome: 'Pessoa 2', senha: 'x', ativo: true, apps: { mestre: false, individual: true }, masterId: 'm1' },
   } }).ok, true)
 })
+
+test('nao ignora cadastros corrompidos ao validar um backup', () => {
+  for (const invalid of ['texto', 42, true, [], null]) {
+    const person = validBackup(); person.master.pessoas.m2 = invalid
+    assert.equal(validateBackup(person).ok, false, `pessoa: ${JSON.stringify(invalid)}`)
+    const user = validBackup(); user.usuarios.other = invalid
+    assert.equal(validateBackup(user).ok, false, `usuario: ${JSON.stringify(invalid)}`)
+  }
+})
+
+test('recusa colecao de pessoas com formato errado sem impedir colecao vazia', () => {
+  for (const invalid of [[], 'texto', 42, true]) {
+    const data = validBackup(); data.master.pessoas = invalid
+    assert.equal(validateBackup(data).ok, false)
+  }
+  const empty = validBackup(); empty.master.pessoas = {}
+  assert.equal(validateBackup(empty).ok, true)
+})

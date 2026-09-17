@@ -1,6 +1,6 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf-lib/cjs/index.js'
 import type { MasterPessoa } from '../types'
-import { previewPdf } from '../ui/pdf-preview.ts'
+import { downloadPdf } from '../ui/pdf-download.ts'
 import { A4_PORTRAIT, PDF_INK, PDF_LINE, drawPublicPdfHeader } from '../ui/public-pdf-layout.ts'
 import type { FieldServiceAssignment } from './servico-campo-domain.ts'
 
@@ -71,8 +71,8 @@ export async function createFieldServicePdf(input: {
   return pdf.save()
 }
 
-export async function previewFieldServicePdf(input: Parameters<typeof createFieldServicePdf>[0]): Promise<void> {
+export async function downloadFieldServicePdf(input: Parameters<typeof createFieldServicePdf>[0]): Promise<void> {
   const bytes = await createFieldServicePdf(input)
   const filename = `servico-de-campo-${input.month}.pdf`
-  previewPdf(bytes, filename, 'Prévia da programação de Serviço de Campo')
+  downloadPdf(bytes, filename)
 }

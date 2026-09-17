@@ -13,8 +13,6 @@ const MODULE_LABELS: Record<MessageSettingsModule, string> = {
   tarefas:'Tarefas',
   limpeza:'Limpeza',
   escala:'Escala TPL',
-  oradores:'Oradores',
-  programacao:'Vida e Ministério',
   servicoCampo:'Serviço de Campo',
 }
 
@@ -22,8 +20,6 @@ const MEETING_DEFAULTS: Record<MessageSettingsModule, string> = {
   tarefas:'Olá. Seguem as designações de tarefas da reunião:\n\n{dados_da_reuniao}\n\nAgradecemos pela atenção.',
   limpeza:'Olá. Segue a programação de limpeza:\n\n{dados_da_reuniao}\n\nAgradecemos pela colaboração.',
   escala:'Olá. Segue a programação da Escala TPL:\n\n{dados_da_reuniao}\n\nAgradecemos pela atenção.',
-  oradores:'Olá. Segue a programação de discursos públicos:\n\n{dados_da_reuniao}\n\nAgradecemos pela atenção.',
-  programacao:'Olá. Segue a programação da reunião Vida e Ministério:\n\n{dados_da_reuniao}\n\nAgradecemos pela atenção.',
   servicoCampo:'Olá. Segue a programação do serviço de campo:\n\n{programacao_servico_campo}\n\nSua participação será muito bem recebida. Agradecemos pela atenção.',
 }
 

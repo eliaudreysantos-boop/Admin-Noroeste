@@ -1,8 +1,9 @@
+import { loadAgendaRoot } from '../lib/agenda-root.ts'
 import { agendaToIcs, collectAgendaEvents, collectAnnouncementEvents, eventsInFeedWindow, type AgendaSource } from '../../src/modules/individual-domain.ts'
 import type { AgendaConfig, AgendaSubscription } from '../../src/types.ts'
-import { adminDatabase, privateSubscriptionStore, type SubscriptionStore } from '../lib/subscription-store.ts'
+import { privateSubscriptionStore, type SubscriptionStore } from '../lib/subscription-store.ts'
 
-const SOURCES: AgendaSource[] = ['tarefas', 'limpeza', 'escala', 'oradores', 'programacao', 'servicoCampo']
+const SOURCES: AgendaSource[] = ['tarefas', 'limpeza', 'escala', 'servicoCampo']
 
 function configuredDatabaseUrl(): string {
   return ((globalThis as unknown as { process?: { env?: Record<string, string | undefined> } }).process?.env?.['FIREBASE_DATABASE_URL'] ?? '').trim().replace(/\/$/, '')
@@ -28,58 +29,6 @@ function boardReminders(config: AgendaConfig): Partial<Record<AgendaSource, stri
   return Object.fromEntries(SOURCES.map(source => [source, source === 'servicoCampo' ? [] : values]))
 }
 
-async function loadAgendaRoot(fetcher: typeof fetch, databaseURL: string): Promise<Record<string, unknown>> {
-  const paths = [
-    'master/pessoas',
-    'tarefas/people', 'tarefas/scale/periods',
-    'tarefas/discursos/oradores', 'tarefas/discursos/programacao', 'tarefas/discursos/congregacoes',
-    'limpeza/periodos',
-    'escala/participants', 'escala/scales', 'escala/tables', 'escala/publishedMonth', 'escala/publishedMonths', 'escala/publishedSnapshots',
-    'programacao', 'agenda/config', 'servicoCampo', 'master/config', 'escala/settings',
-  ] as const
-  const values = await Promise.all(paths.map(async path => {
-    const response = await fetcher(`${databaseURL}/${path}.json`)
-    if (!response.ok) throw new Error(`Firebase indisponível em ${path}`)
-    return response.json() as Promise<unknown>
-  }))
-  const value = (index: number): unknown => values[index] ?? undefined
-  return {
-    master:{ pessoas:value(0), config:value(16) },
-    tarefas:{
-      people:value(1),
-      scale:{ periods:value(2) },
-      discursos:{ oradores:value(3), programacao:value(4), congregacoes:value(5) },
-    },
-    limpeza:{ periodos:value(6) },
-    escala:{
-      participants:value(7), scales:value(8), tables:value(9), settings:value(17), publishedMonth:value(10),
-      publishedMonths:value(11), publishedSnapshots:value(12),
-    },
-    programacao:value(13),
-    agenda:{ config:value(14) }, servicoCampo:value(15),
-  }
-}
-
-async function loadPrivateAgendaRoot(): Promise<Record<string, unknown>> {
-  const paths = [
-    'master/pessoas',
-    'tarefas/people', 'tarefas/scale/periods',
-    'tarefas/discursos/oradores', 'tarefas/discursos/programacao', 'tarefas/discursos/congregacoes',
-    'limpeza/periodos',
-    'escala/participants', 'escala/scales', 'escala/tables', 'escala/publishedMonth', 'escala/publishedMonths', 'escala/publishedSnapshots',
-    'programacao', 'agenda/config', 'servicoCampo', 'master/config', 'escala/settings',
-  ] as const
-  const values = await Promise.all(paths.map(path => adminDatabase().ref(path).get().then(snapshot => snapshot.exists() ? snapshot.val() as unknown : undefined)))
-  const value = (index: number): unknown => values[index]
-  return {
-    master:{ pessoas:value(0), config:value(16) },
-    tarefas:{ people:value(1), scale:{ periods:value(2) }, discursos:{ oradores:value(3), programacao:value(4), congregacoes:value(5) } },
-    limpeza:{ periodos:value(6) },
-    escala:{ participants:value(7), scales:value(8), tables:value(9), settings:value(17), publishedMonth:value(10), publishedMonths:value(11), publishedSnapshots:value(12) },
-    programacao:value(13), agenda:{ config:value(14) }, servicoCampo:value(15),
-  }
-}
-
 export async function calendarResponse(request: Request, fetcher: typeof fetch = fetch, store: SubscriptionStore = privateSubscriptionStore, databaseURL = configuredDatabaseUrl()): Promise<Response> {
   if (request.method !== 'GET') return json(405, 'Método não permitido.')
   const token = new URL(request.url).searchParams.get('token')?.trim() ?? ''
@@ -94,10 +43,14 @@ export async function calendarResponse(request: Request, fetcher: typeof fetch =
 
   let root: Record<string, unknown>
   try {
-    if (fetcher === fetch) root = await loadPrivateAgendaRoot()
+    if (fetcher === fetch) root = await loadAgendaRoot()
     else {
       if (!/^https:\/\/[A-Za-z0-9.-]+$/.test(databaseURL)) return json(503, 'Banco do calendário não configurado.')
-      root = await loadAgendaRoot(fetcher, databaseURL)
+      root = await loadAgendaRoot(async path => {
+        const response = await fetcher(`${databaseURL}/${path}.json`)
+        if (!response.ok) throw new Error('Agenda unavailable')
+        return response.json()
+      })
     }
   }
   catch { return json(503, 'Não foi possível montar o calendário.') }

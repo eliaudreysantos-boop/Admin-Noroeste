@@ -1,3 +1,4 @@
+import { activeData, preserveArchivedTasks } from '../lib/retired-data.ts'
 import { appSession, json, objectBody, validCsrf } from '../lib/secure-session.ts'
 import { adminDatabase } from '../lib/subscription-store.ts'
 import { readBatch } from '../lib/database-reads.ts'
@@ -29,7 +30,7 @@ export default async (request: Request): Promise<Response> => {
     if (request.method === 'GET') {
       const snapshot = await reference.get()
       const value = snapshot.exists() ? snapshot.val() as unknown : null
-      return json(200, { value:path ? value : withoutPrivateRoots(value) })
+      return json(200, { value:path ? activeData(path, value) : withoutPrivateRoots(value) })
     }
     if (request.method === 'DELETE') {
       if (!canMutateData(path, request.method, undefined, session.usuario.apps)) return json(403, { error:'Alteração não autorizada.' })
@@ -47,17 +48,27 @@ export default async (request: Request): Promise<Response> => {
         const result = await reference.transaction(current => {
           const proposed = request.method === 'PATCH'
             ? conditionalPatch(current, body['expected'] as Record<string, unknown>, value as Record<string, unknown>)
-            : conditionalValue(current, body['expected'], value ?? null)
+            : conditionalValue(path === 'tarefas' ? activeData(path, current) : current, body['expected'], value ?? null)
           matched = proposed !== undefined
           // A no-op still checks the server version when the local cache starts empty.
-          return matched ? proposed : current
+          return matched ? (path === 'tarefas' ? preserveArchivedTasks(current, proposed) : proposed) : current
         })
         if (!result.committed || !matched) return json(409, { error:'Este registro foi alterado por outra pessoa. Recarregue o aplicativo para conferir os dados antes de editar novamente.' })
       }
-      else if (request.method === 'PUT') await reference.set(value ?? null)
+      else if (request.method === 'PUT') {
+        if (path === 'tarefas') await reference.transaction(current => preserveArchivedTasks(current, value))
+        else await reference.set(value ?? null)
+      }
       else {
         if (!value || typeof value !== 'object' || Array.isArray(value) || containsPrivateRoot(value)) return json(400, { error:'Atualização inválida.' })
-        await reference.update(value as Record<string, unknown>)
+        if (!path && Object.prototype.hasOwnProperty.call(value, 'tarefas')) {
+          const patch = value as Record<string, unknown>
+          await reference.transaction(current => {
+            const root = current && typeof current === 'object' ? current as Record<string, unknown> : {}
+            const expected = Object.fromEntries(Object.keys(patch).map(key => [key, key.split('/').reduce<unknown>((item, part) => item && typeof item === 'object' ? (item as Record<string, unknown>)[part] : null, root) ?? null]))
+            return conditionalPatch(root, expected, { ...patch, tarefas:preserveArchivedTasks(root['tarefas'], patch['tarefas']) })
+          })
+        } else await reference.update(value as Record<string, unknown>)
       }
     }
     return json(200, { ok:true })

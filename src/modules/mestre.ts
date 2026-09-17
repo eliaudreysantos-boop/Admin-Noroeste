@@ -26,8 +26,6 @@ import {
   tarefasRef,
   limpezaRef,
   escalaRef,
-  programacaoRef,
-  secretarioRef,
   servicoCampoRef,
 } from '../firebase'
 import { renderMenuCards, type ItemMenu } from '../ui/menu-cards'
@@ -44,8 +42,6 @@ import {
   stableUserMasterId,
 } from './mestre-domain'
 import { navigateTo } from '../router'
-import { previewPdf } from '../ui/pdf-preview'
-import { duplicateReportGroups, type SecretaryReport } from './secretario-domain'
 
 // ─── Estado do módulo ────────────────────────────────────────────────────────
 
@@ -59,7 +55,6 @@ let rootLoading = false
 let rootLoadError = ''
 let restoreCandidate: Record<string, unknown> | null = null
 let restoreFileName = ''
-let previewedAgendaPdfKey = ''
 let baseLoadPromise: Promise<boolean> | null = null
 
 type AdminTab = 'indice' | 'pessoas' | 'usuarios' | 'config' | 'vinculos' | 'dados'
@@ -119,8 +114,8 @@ function sexLabel(sex: Sex | null): string {
 
 function appsList(apps: Usuario['apps']): string {
   const labels: Record<string, string> = {
-    mestre:'Admin', tarefas:'Tarefas', limpeza:'Limpeza', oradores:'Oradores', escala:'Escala TPL',
-    programacao:'Programação', secretario:'Secretário', servicoCampo:'Serviço de Campo',
+    mestre:'Admin', tarefas:'Tarefas', limpeza:'Limpeza', escala:'Escala TPL',
+    servicoCampo:'Serviço de Campo',
   }
   return (Object.keys(apps) as Array<keyof typeof apps>)
     .filter(k => k !== 'individual' && apps[k]).map(k => labels[k]).join(', ') || '—'
@@ -232,8 +227,8 @@ function renderContent(): void {
 async function loadPublicRoot(): Promise<Record<string, unknown>> {
   const entries = await Promise.all([
     ['master', masterRef], ['usuarios', usuariosRef], ['tarefas', tarefasRef],
-    ['limpeza', limpezaRef], ['escala', escalaRef], ['programacao', programacaoRef],
-    ['secretario', secretarioRef], ['servicoCampo', servicoCampoRef],
+    ['limpeza', limpezaRef], ['escala', escalaRef],
+    ['servicoCampo', servicoCampoRef],
     ['agendaConfig', agendaConfigRef], ['agendaDocuments', agendaDocumentsRef],
   ].map(async ([key, reference]) => {
     const snapshot = await get(reference as typeof rootRef)
@@ -242,8 +237,8 @@ async function loadPublicRoot(): Promise<Record<string, unknown>> {
   const values = Object.fromEntries(entries)
   return {
     master:values['master'], usuarios:values['usuarios'], tarefas:values['tarefas'],
-    limpeza:values['limpeza'], escala:values['escala'], programacao:values['programacao'],
-    secretario:values['secretario'], servicoCampo:values['servicoCampo'],
+    limpeza:values['limpeza'], escala:values['escala'],
+    servicoCampo:values['servicoCampo'],
     agenda:{ config:values['agendaConfig'], documentos:values['agendaDocuments'] },
   }
 }
@@ -278,20 +273,11 @@ interface LinkReportItem {
 function linkCollections(data: Record<string, unknown>) {
   const tarefas = objectValue(data['tarefas'])
   const escala = objectValue(data['escala'])
-  const secretario = objectValue(data['secretario'])
-  const programacao = objectValue(data['programacao'])
   const servicoCampo = objectValue(data['servicoCampo'])
-  const discursos = objectValue(tarefas['discursos'])
 
   return {
     tarefas: records(tarefas['people']),
     escala: records(escala['participants']),
-    oradores: records(discursos['oradores']),
-    secretario: { ...records(secretario['pessoas']), ...records(secretario['publicadores']) },
-    programacao: {
-      ...records(programacao['people']),
-      ...records(programacao['pessoas']),
-    },
     servicoCampo: Object.fromEntries(
       Object.entries(objectValue(servicoCampo['leaders'])).map(([masterId, active]) => [masterId, { masterId, active }]),
     ),
@@ -340,8 +326,6 @@ function collectLinkIssues(data: Record<string, unknown>): LinkIssue[] {
   const issues = [
     ...collectDirectLinkIssues('Tarefas', collections.tarefas, item => item['active'] !== false),
     ...collectDirectLinkIssues('Escala', collections.escala, item => item['active'] !== false),
-    ...collectDirectLinkIssues('Secretário', collections.secretario),
-    ...collectDirectLinkIssues('Programação', collections.programacao),
     ...collectDirectLinkIssues('Serviço de Campo', collections.servicoCampo, item => item['active'] === true),
     ...collectDirectLinkIssues('Usuários', collections.usuarios, item => item['ativo'] === true),
   ]
@@ -360,35 +344,6 @@ function collectLinkIssues(data: Record<string, unknown>): LinkIssue[] {
       }
     })
   })
-
-  Object.entries(collections.oradores).forEach(([id, orador]) => {
-    if (orador['ativo'] === false || orador['tipo'] === 'visitante') return
-    const directMaster = typeof orador['masterId'] === 'string' ? orador['masterId'] : ''
-    if (directMaster) {
-      if (!pessoas[directMaster]) issues.push({ module: 'Oradores', id, kind: 'orfao', detail: `masterId inexistente: ${directMaster}` })
-      return
-    }
-    const pessoaId = typeof orador['pessoaId'] === 'string' ? orador['pessoaId'] : ''
-    if (!pessoaId) {
-      issues.push({ module: 'Oradores', id, kind: 'sem_vinculo', detail: 'Orador local sem pessoaId' })
-      return
-    }
-    const tarefaPessoa = collections.tarefas[pessoaId]
-    if (!tarefaPessoa) {
-      issues.push({ module: 'Oradores', id, kind: 'orfao', detail: `pessoaId inexistente em Tarefas: ${pessoaId}` })
-      return
-    }
-    const masterId = typeof tarefaPessoa['masterId'] === 'string' ? tarefaPessoa['masterId'] : ''
-    if (!masterId || !pessoas[masterId]) {
-      issues.push({ module: 'Oradores', id, kind: masterId ? 'orfao' : 'sem_vinculo', detail: masterId ? `masterId indireto inexistente: ${masterId}` : `Pessoa ${pessoaId} sem masterId` })
-    }
-  })
-
-  const secretario = objectValue(data['secretario']), relatorios = records(secretario['relatorios']) as unknown as Record<string, SecretaryReport>
-  duplicateReportGroups(relatorios).forEach(group => group.ids.forEach(id => issues.push({
-    module:'Relatórios', id, kind:'duplicado',
-    detail:`${group.masterId} possui mais de um relatório em ${group.competencia}: ${group.ids.join(', ')}`,
-  })))
 
   return issues.sort((a, b) => a.module.localeCompare(b.module, 'pt-BR') || a.id.localeCompare(b.id))
 }
@@ -609,8 +564,6 @@ async function restoreBackup(): Promise<void> {
       tarefas:restoreCandidate['tarefas'] ?? null,
       limpeza:restoreCandidate['limpeza'] ?? null,
       escala:restoreCandidate['escala'] ?? null,
-      programacao:restoreCandidate['programacao'] ?? null,
-      secretario:restoreCandidate['secretario'] ?? null,
       servicoCampo:restoreCandidate['servicoCampo'] ?? null,
       'agenda/config':agenda['config'] ?? null,
       'agenda/documentos':agenda['documentos'] ?? null,
@@ -903,16 +856,13 @@ function findMasterReferences(data: Record<string, unknown>, mid: string): strin
   const collections = linkCollections(data)
   const found = new Set<string>()
   const labels: Record<string, string> = {
-    tarefas: 'Tarefas', escala: 'Escala TPL', oradores: 'Oradores',
-    secretario: 'Secretário', programacao: 'Programação', servicoCampo: 'Serviço de Campo',
+    tarefas: 'Tarefas', escala: 'Escala TPL',
+    servicoCampo: 'Serviço de Campo',
   }
   Object.entries(collections).forEach(([module, collection]) => {
     Object.values(collection).forEach(item => {
       if (item['masterId'] === mid) found.add(labels[module] ?? module)
-      if (module === 'oradores') {
-        const pessoaId = typeof item['pessoaId'] === 'string' ? item['pessoaId'] : ''
-        if (pessoaId && collections.tarefas[pessoaId]?.['masterId'] === mid) found.add('Oradores')
-      }
+
     })
   })
   Object.values(records(data['usuarios'])).forEach(user => {
@@ -932,12 +882,9 @@ function findMasterReferences(data: Record<string, unknown>, mid: string): strin
   })
   masterIdReferencePaths(data, mid).forEach(path => {
     if (path.startsWith('usuarios/')) found.add('Usuários')
-    else if (path.startsWith('tarefas/discursos/oradores/')) found.add('Oradores')
     else if (path.startsWith('tarefas/')) found.add('Tarefas')
     else if (path.startsWith('limpeza/')) found.add('Limpeza')
     else if (path.startsWith('escala/')) found.add('Escala TPL')
-    else if (path.startsWith('programacao/')) found.add('Programação')
-    else if (path.startsWith('secretario/')) found.add('Secretário')
     else if (path.startsWith('servicoCampo/')) found.add('Serviço de Campo')
     else if (path.startsWith('agenda/')) found.add('Minha Agenda')
     else if (path.startsWith('master/config/limpeza/')) found.add('Grupos de limpeza')
@@ -1005,7 +952,6 @@ function openUsuarioModal(uid: string | null): void {
   const identityLocked = Boolean(u?.masterId && pessoas[u.masterId])
   const apps = u?.apps ?? {
     mestre:false, tarefas:false, limpeza:false, escala:false,
-    oradores:false, programacao:false, secretario:false,
     servicoCampo:false,
   }
   const overlay = document.createElement('div')
@@ -1039,10 +985,7 @@ function openUsuarioModal(uid: string | null): void {
         <div id="uAdminPermission">${appCheck('mestre', 'Admin', apps.mestre)}</div>
         ${appCheck('tarefas',     'Tarefas',      apps.tarefas)}
         ${appCheck('limpeza',     'Limpeza',      apps.limpeza ?? false)}
-        ${appCheck('oradores',    'Oradores',     apps.oradores ?? false)}
         ${appCheck('escala',      'Escala TPL',   apps.escala)}
-        ${appCheck('programacao', 'Programação',  apps.programacao)}
-        ${appCheck('secretario',  'Secretário',   apps.secretario)}
         ${appCheck('servicoCampo','Serviço de Campo', apps.servicoCampo ?? false)}
       </div>
       <div style="display:flex;gap:8px;margin-top:8px">
@@ -1074,8 +1017,8 @@ async function saveUsuario(uid: string | null, overlay: HTMLElement): Promise<vo
 
   const selectedApps = {
     mestre: checkApp('mestre'), tarefas: checkApp('tarefas'), limpeza: checkApp('limpeza'),
-    oradores: checkApp('oradores'), escala: checkApp('escala'), programacao: checkApp('programacao'),
-    secretario: checkApp('secretario'), servicoCampo:checkApp('servicoCampo'), individual:true,
+    escala: checkApp('escala'),
+    servicoCampo:checkApp('servicoCampo'), individual:true,
   }
   const apps = selectedApps
   const usuario: Usuario = {
@@ -1083,7 +1026,6 @@ async function saveUsuario(uid: string | null, overlay: HTMLElement): Promise<vo
     nome, senha, ativo, masterId,
     apps,
   }
-  if (!['secretario', 'publicador', 'assistencia'].includes(String(usuario.secretarioPapel ?? ''))) delete usuario.secretarioPapel
   const finalUid = uid ?? masterId
   const proposedUsuarios: RawUsuarios = { ...usuarios, [finalUid]: usuario }
   if (!hasActiveAdmin(proposedUsuarios)) {
@@ -1184,9 +1126,6 @@ function moduleForLinkIssue(module: LinkIssue['module']): ModuleName | null {
   const modules: Record<string, ModuleName> = {
     Tarefas: 'tarefas',
     Escala: 'escala',
-    Secretário: 'secretario',
-    Programação: 'programacao',
-    Oradores: 'oradores',
     'Serviço de Campo': 'servicoCampo',
   }
   return modules[module] ?? null
@@ -1210,8 +1149,6 @@ function resolveAgendaConfigIssue(): void {
 
 const AGENDA_REMINDER_MODULES: Array<{ id: AgendaReminderModule; label: string; defaults: string[] }> = [
   { id: 'tarefas', label: 'Tarefas', defaults: ['P7D', 'P1D'] },
-  { id: 'oradores', label: 'Oradores', defaults: ['P7D', 'P1D'] },
-  { id: 'programacao', label: 'Vida e Ministério', defaults: ['P7D', 'P1D'] },
   { id: 'limpeza', label: 'Limpeza', defaults: ['P1D'] },
   { id: 'escala', label: 'Escala TPL', defaults: ['P1D'] },
   { id: 'servicoCampo', label: 'Serviço de Campo', defaults: ['P1D'] },
@@ -1262,20 +1199,17 @@ function renderConfigAgenda(): void {
     <button id="btnSalvarAgendaConfig" class="btn btn-primary btn-full" style="margin-top:16px">Salvar configurações da Agenda</button>
     <div class="form-panel admin-agenda-documents">
       <h3 style="margin-top:0">PDFs do Quadro</h3>
-      <p class="form-help">A prévia é obrigatória antes da publicação. O arquivo ficará em Minha Agenda, junto dos PDFs gerados pelos módulos.</p>
       <div class="module-form-grid">
         <label class="form-field"><span>Arquivo PDF</span><input id="agendaPdfFile" type="file" accept="application/pdf,.pdf"></label>
         <label class="form-field"><span>Nome exibido</span><input id="agendaPdfName" maxlength="100" placeholder="Usar nome do arquivo"></label>
         <label class="form-field"><span>Período</span><input id="agendaPdfPeriod" type="month" value="${new Date().toISOString().slice(0, 7)}"></label>
       </div>
-      <div class="service-actions"><button id="previewAgendaPdf" class="btn btn-ghost" type="button">Prévia PDF</button><button id="uploadAgendaPdf" class="btn btn-primary" type="button">Publicar no Quadro</button></div>
-      <div class="module-option-list" style="margin-top:12px">${manualDocuments.map(item => `<div class="secretary-row"><div><strong>${escapeHtml(item.nome)}</strong><small>${escapeHtml(item.periodo)} · ${escapeHtml(item.criadoEm.slice(0, 10).split('-').reverse().join('/'))}</small></div><a class="btn btn-ghost" href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer">Abrir</a><button class="btn btn-danger" type="button" data-delete-agenda-pdf="${escapeHtml(item.id)}" title="Remover PDF">✕</button></div>`).join('') || '<p class="empty-state">Nenhum PDF enviado manualmente.</p>'}</div>
+      <div class="service-actions"><button id="uploadAgendaPdf" class="btn btn-primary" type="button">Publicar no Quadro</button></div>
+      <div class="module-option-list" style="margin-top:12px">${manualDocuments.map(item => `<div class="module-list-row"><div><strong>${escapeHtml(item.nome)}</strong><small>${escapeHtml(item.periodo)} · ${escapeHtml(item.criadoEm.slice(0, 10).split('-').reverse().join('/'))}</small></div><a class="btn btn-ghost" href="${escapeHtml(item.url)}" download="${escapeHtml(item.nome)}">Baixar PDF</a><button class="btn btn-danger" type="button" data-delete-agenda-pdf="${escapeHtml(item.id)}" title="Remover PDF">✕</button></div>`).join('') || '<p class="empty-state">Nenhum PDF enviado manualmente.</p>'}</div>
     </div>`
 
   document.getElementById('btnSalvarAgendaConfig')?.addEventListener('click', () => void saveConfigAgenda())
-  document.getElementById('previewAgendaPdf')?.addEventListener('click', () => void previewSelectedAgendaPdf())
   document.getElementById('uploadAgendaPdf')?.addEventListener('click', () => void publishSelectedAgendaPdf())
-  document.getElementById('agendaPdfFile')?.addEventListener('change', () => { previewedAgendaPdfKey = '' })
   document.querySelectorAll<HTMLButtonElement>('[data-delete-agenda-pdf]').forEach(button => button.addEventListener('click', () => void deleteAgendaPdf(button.dataset.deleteAgendaPdf!)))
 }
 
@@ -1286,15 +1220,9 @@ function selectedAgendaPdf(): File | null {
   return file
 }
 
-async function previewSelectedAgendaPdf(): Promise<void> {
-  const file = selectedAgendaPdf(); if (!file) return
-  previewedAgendaPdfKey = `${file.name}|${file.size}|${file.lastModified}`
-  previewPdf(new Uint8Array(await file.arrayBuffer()), file.name, 'Prévia do PDF para o Quadro')
-}
 
 async function publishSelectedAgendaPdf(): Promise<void> {
   const file = selectedAgendaPdf(); if (!file) return
-  if (previewedAgendaPdfKey !== `${file.name}|${file.size}|${file.lastModified}`) { toast('Abra a prévia deste PDF antes de publicar'); return }
   const period = (document.getElementById('agendaPdfPeriod') as HTMLInputElement).value
   const name = (document.getElementById('agendaPdfName') as HTMLInputElement).value.trim() || file.name
   if (!/^\d{4}-\d{2}$/.test(period) || !name) { toast('Informe o período e o nome do PDF'); return }

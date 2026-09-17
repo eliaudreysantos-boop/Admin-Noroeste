@@ -1,7 +1,7 @@
 import { localSlots, type EscalaLocal, type EscalaParticipant, type EscalaTables } from './escala-domain.ts'
 import { dayLabel, monthLabel, printRowsForLocal } from './escala-output.ts'
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf-lib/cjs/index.js'
-import { previewPdf } from '../ui/pdf-preview.ts'
+import { downloadPdf } from '../ui/pdf-download.ts'
 import { A4_LANDSCAPE, PDF_INK, PDF_LINE, drawPublicPdfHeader } from '../ui/public-pdf-layout.ts'
 
 const esc = (value: unknown) => String(value ?? '').replace(/[&<>'"]/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[char]!)
@@ -133,8 +133,8 @@ export async function createScaleSchedulePdf(input: ScalePrintInput): Promise<Sc
   return { bytes:Uint8Array.from(await pdf.save()), pages:pdf.getPageCount(), effectiveFontSize }
 }
 
-export async function previewScaleSchedulePdf(input: ScalePrintInput): Promise<ScalePdfResult> {
+export async function downloadScaleSchedulePdf(input: ScalePrintInput): Promise<ScalePdfResult> {
   const result = await createScaleSchedulePdf(input)
-  previewPdf(result.bytes, `escala-tpl-${input.month}.pdf`, 'Prévia da Escala TPL')
+  downloadPdf(result.bytes, `escala-tpl-${input.month}.pdf`)
   return result
 }

@@ -8,15 +8,16 @@ try {
   await page.route('**/.netlify/functions/**', route => route.fulfill({ json: {} }))
   await page.goto(process.env.APP_TEST_URL || 'http://localhost:5180/')
   for (const kind of ['servico-campo', 'limpeza']) {
+    const downloadPromise = page.waitForEvent('download')
     const result = await page.evaluate(async kind => {
       try {
         if (kind === 'servico-campo') {
-          const { previewFieldServicePdf } = await import('/src/modules/servico-campo-documents.ts')
+          const { downloadFieldServicePdf } = await import('/src/modules/servico-campo-documents.ts')
           const { generateFieldServicePeriod } = await import('/src/modules/servico-campo-domain.ts')
           const templates = Object.fromEntries(Array.from({ length:7 }, (_, dow) => [String(dow), { id:String(dow), dow, time:'08:30', location:'Salao', leaderIds:['m'], active:true, sortOrder:dow }]))
           const initial = generateFieldServicePeriod({ month:'2026-09', templates, leaderIds:['m'] })
           const completed = generateFieldServicePeriod({ month:'2026-09', templates, leaderIds:['m'], existing:initial })
-          await previewFieldServicePdf({ month: '2026-09', congregation: 'Teste', people: { m: { name: 'Pessoa Teste' } }, assignments: Object.values(completed.assignments) })
+          await downloadFieldServicePdf({ month: '2026-09', congregation: 'Teste', people: { m: { name: 'Pessoa Teste' } }, assignments: Object.values(completed.assignments) })
         } else {
           const { downloadCleaningPdf } = await import('/src/modules/limpeza-documents.ts')
           const { generateCleaningPeriod } = await import('/src/modules/limpeza-domain.ts')
@@ -28,6 +29,9 @@ try {
     }, kind)
     console.log(kind, result)
     assert.equal(result.ok, true, result.error)
-    await page.locator('[data-pdf-close]').click()
+    const download = await downloadPromise
+    assert.match(download.suggestedFilename(), /\.pdf$/)
+    assert.equal(await download.failure(), null)
+    assert.equal(await page.locator('iframe, .pdf-preview-modal').count(), 0)
   }
 } finally { await browser.close() }

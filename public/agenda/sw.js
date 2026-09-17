@@ -1,4 +1,4 @@
-const CACHE = 'noroeste-agenda-v4'
+const CACHE = 'noroeste-agenda-v5'
 const SHELL = ['/agenda/', '/agenda/manifest.json', '/icon-192.png', '/icon-512.png']
 
 const cacheableAsset = path => path.startsWith('/assets/') || SHELL.includes(path)

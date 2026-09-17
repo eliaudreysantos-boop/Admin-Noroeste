@@ -52,7 +52,7 @@ function installationId(): string {
 function clearIdentityCache(): void {
   for (let index = localStorage.length - 1; index >= 0; index -= 1) {
     const key = localStorage.key(index)
-    const identityData = key?.startsWith('noroeste_agenda_offline_v2:') || key?.startsWith('noroeste_relatorio_rascunho_v1:') || (key?.startsWith('noroeste_agenda_ui_v1:') && key.endsWith(':standalone'))
+    const identityData = key?.startsWith('noroeste_agenda_offline_v3:') || (key?.startsWith('noroeste_agenda_ui_v1:') && key.endsWith(':standalone'))
     if (key && identityData) localStorage.removeItem(key)
   }
   localStorage.removeItem('noroeste_agenda_subscriptions_v2')
@@ -70,7 +70,7 @@ function openAgenda(masterId: string): void {
     senha: '',
     ativo: true,
     masterId,
-    apps: { mestre:false, tarefas:false, escala:false, programacao:false, secretario:false, individual:true },
+    apps: { mestre:false, tarefas:false, escala:false, individual:true },
   }
   mountAgenda({ uid:`agenda-${masterId}`, usuario })
 }
@@ -123,7 +123,7 @@ function openIdentityUnlock(): void {
   }
   const overlay = document.createElement('div')
   overlay.className = 'modal-overlay'
-  overlay.innerHTML = `<form class="modal" id="agendaUnlockForm"><h2>Desbloquear pessoa</h2><p class="form-help">Informe a senha de um Admin para voltar à seleção de pessoa.</p><label class="form-field"><span>Senha Admin</span><input id="agendaAdminPassword" class="form-input" type="password" autocomplete="current-password" required></label><p id="agendaUnlockError" class="login-error" role="alert"></p><div class="secretary-actions"><button id="agendaUnlockCancel" class="btn btn-ghost" type="button">Cancelar</button><button id="agendaUnlockConfirm" class="btn btn-primary" type="submit">Desbloquear</button></div></form>`
+  overlay.innerHTML = `<form class="modal" id="agendaUnlockForm"><h2>Desbloquear pessoa</h2><p class="form-help">Informe a senha de um Admin para voltar à seleção de pessoa.</p><label class="form-field"><span>Senha Admin</span><input id="agendaAdminPassword" class="form-input" type="password" autocomplete="current-password" required></label><p id="agendaUnlockError" class="login-error" role="alert"></p><div class="module-row-actions"><button id="agendaUnlockCancel" class="btn btn-ghost" type="button">Cancelar</button><button id="agendaUnlockConfirm" class="btn btn-primary" type="submit">Desbloquear</button></div></form>`
   document.body.appendChild(overlay)
   const form = document.getElementById('agendaUnlockForm') as HTMLFormElement
   const password = document.getElementById('agendaAdminPassword') as HTMLInputElement

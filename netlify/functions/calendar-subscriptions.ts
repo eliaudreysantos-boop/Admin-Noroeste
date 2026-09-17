@@ -2,7 +2,7 @@ import type { AgendaSubscription } from '../../src/types.ts'
 import { privateSubscriptionStore, type SubscriptionStore } from '../lib/subscription-store.ts'
 import { appSession, deviceSession, validCsrf } from '../lib/secure-session.ts'
 
-const SOURCES = new Set(['tarefas', 'limpeza', 'escala', 'oradores', 'programacao', 'servicoCampo'])
+const SOURCES = new Set(['tarefas', 'limpeza', 'escala', 'servicoCampo'])
 const json = (status: number, value: unknown, headers: Record<string, string> = {}): Response => new Response(JSON.stringify(value), {
   status,
   headers:{ 'content-type':'application/json; charset=utf-8', 'cache-control':'no-store', ...headers },

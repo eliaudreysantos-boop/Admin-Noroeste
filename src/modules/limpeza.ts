@@ -1,3 +1,5 @@
+import { lockPublicationUi } from '../ui/publication-busy'
+import { downloadPdf } from '../ui/pdf-download'
 import type {
   AppContext,
   ConfigLimpeza,
@@ -17,20 +19,16 @@ import {
   configLimpezaRef,
   limpezaPeriodosRef,
   limpezaRef,
-  secretarioGruposRef,
-  secretarioPublicadoresRef,
 } from '../firebase'
 import { renderMenuCards, type ItemMenu } from '../ui/menu-cards'
 import { moduleBackButton } from '../ui/module-header'
 import {
   assertCleaningPeriodEditable,
   generateCleaningPeriod,
-  integratedCleaningMembers,
   monthLabel,
   periodBounds,
   type CleaningPeriodMode,
 } from './limpeza-domain'
-import { PublicationPreviewGate } from './pdf-publication-preview'
 import { apiJson } from '../secure-api.ts'
 import { mountModuleMessageSettings } from './module-message-settings'
 
@@ -38,6 +36,7 @@ type LimpezaTab = 'indice' | 'escala' | 'grupos' | 'config' | 'pdf'
 
 let pessoas: RawPessoas = {}
 let limpeza: Partial<ConfigLimpeza> = {}
+let changingPublication = false
 let activeTab: LimpezaTab = 'grupos'
 let limpezaChanges = new Map<string, number | null>()
 let periodos: Record<string, LimpezaPeriodoGerado> = {}
@@ -46,16 +45,8 @@ let periodAnchor = todayStr()
 let selectedPeriodId = ''
 let congregationName = 'Noroeste'
 let reunioes: Partial<ConfigReunioes> = {}
-interface GrupoServico { id?: string; nome?: string; ativo?: boolean; superintendenteMasterId?: string }
-interface PublicadorServico { masterId?: string; grupoId?: string; ativo?: boolean }
-let gruposServico: Record<string, GrupoServico> = {}
-let publicadoresServico: Record<string, PublicadorServico> = {}
-const cleaningPdfPreview = new PublicationPreviewGate()
 const CLEANING_PERIOD_MODE_KEY = 'noroeste_limpeza_period_mode'
 
-function cleaningPdfPreviewInput(period: LimpezaPeriodoGerado, fontSize: number): unknown {
-  return { period, fontSize }
-}
 
 function failureMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message.trim() ? error.message : fallback
@@ -102,57 +93,7 @@ function activePeople(): [string, MasterPessoa][] {
 }
 
 function groupCount(): number {
-  if (usingServiceGroups()) return serviceGroupEntries().length
   return Math.max(1, Math.min(12, Number(limpeza.grupos ?? 4)))
-}
-
-function usingServiceGroups(): boolean {
-  return limpeza.aproveitarGruposServicoCampo === true
-}
-
-function serviceGroupEntries(): [string, GrupoServico][] {
-  return Object.entries(gruposServico)
-    .filter(([, group]) => group.ativo !== false)
-    .sort((a, b) => String(a[1].nome ?? a[0]).localeCompare(String(b[1].nome ?? b[0]), 'pt-BR') || a[0].localeCompare(b[0]))
-}
-
-function serviceMembers(groupId: string): [string, MasterPessoa][] {
-  const ids = new Set(Object.values(publicadoresServico).filter(item => item.ativo !== false && item.grupoId === groupId).map(item => item.masterId))
-  return activePeople().filter(([mid]) => ids.has(mid))
-}
-
-function serviceGroupConfig(groupId: string): ConfigLimpezaGrupo {
-  const own: Partial<ConfigLimpezaGrupo> = limpeza.gruposServicoConfig?.[groupId] ?? {}
-  const members = serviceMembers(groupId).map(([mid]) => mid)
-  const candidate = own.superintendenteMid ?? gruposServico[groupId]?.superintendenteMasterId ?? ''
-  const legacySelected = toStringArray(own.ajudantesMid)
-  const excluded = own.ajudantesExcluidosMid ?? (own.membrosDaOrigem !== true && legacySelected.length ? members.filter(mid => !legacySelected.includes(mid)) : [])
-  return { ...own, superintendenteMid: members.includes(candidate) ? candidate : '', ajudantesMid: integratedCleaningMembers(members, excluded) }
-}
-
-async function loadServiceGroups(): Promise<void> {
-  const [gruposSnap, publicadoresSnap] = await Promise.all([
-    get(secretarioGruposRef),
-    get(secretarioPublicadoresRef),
-  ])
-  gruposServico = gruposSnap.exists() ? gruposSnap.val() as Record<string, GrupoServico> : {}
-  publicadoresServico = publicadoresSnap.exists() ? publicadoresSnap.val() as Record<string, PublicadorServico> : {}
-}
-
-function effectiveGenerationData(): { config: ConfigLimpeza; people: RawPessoas } {
-  if (!usingServiceGroups()) return { config: limpeza as ConfigLimpeza, people: pessoas }
-  const groups = serviceGroupEntries()
-  const groupPosition = new Map(groups.map(([id], index) => [id, index + 1]))
-  const people = Object.fromEntries(Object.entries(pessoas).map(([mid, person]) => [mid, { ...person, limpeza: { grupo: 0 } }])) as RawPessoas
-  Object.values(publicadoresServico).forEach(publisher => {
-    const position = publisher.ativo === false ? undefined : groupPosition.get(publisher.grupoId ?? '')
-    if (position && publisher.masterId && people[publisher.masterId]?.active) people[publisher.masterId] = { ...people[publisher.masterId], limpeza: { grupo: position } }
-  })
-  const gruposConfig = Object.fromEntries(groups.map(([id, group], index) => {
-    const own = serviceGroupConfig(id)
-    return [String(index + 1), { ...own, nome: group.nome?.trim() || `Grupo ${index + 1}` }]
-  })) as Record<string, ConfigLimpezaGrupo>
-  return { config: { ...(limpeza as ConfigLimpeza), grupos: groups.length, gruposConfig }, people }
 }
 
 function candidateOptions(selectedMid = '', candidates = activePeople()): string {
@@ -215,11 +156,6 @@ async function loadAll(): Promise<void> {
     periodMode = savedMode === 'month' || savedMode === 'bimester'
       ? savedMode
       : limpeza.periodMode === 'month' ? 'month' : 'bimester'
-    gruposServico = {}
-    publicadoresServico = {}
-    if (limpeza.aproveitarGruposServicoCampo === true) {
-      await loadServiceGroups()
-    }
     const ids = Object.keys(periodos).sort()
     selectedPeriodId = ids[ids.length - 1] ?? ''
   } catch {
@@ -308,7 +244,7 @@ function renderEscala(): void {
 async function saveGeneratedPeriod(): Promise<void> {
   const button = document.getElementById('btnGerarEscalaLimpeza') as HTMLButtonElement | null
   try {
-    const effective = effectiveGenerationData()
+    const effective = ({ config:limpeza as ConfigLimpeza, people:pessoas })
     if (!limpeza.ativa || !limpeza.inicioRotacao || !effective.config.grupos || !reunioes.meiaDeSemana || !reunioes.fimDeSemana) {
       throw new Error('Complete a configuração da rotação e dos dias de reunião antes de gerar.')
     }
@@ -329,7 +265,6 @@ async function saveGeneratedPeriod(): Promise<void> {
     }
     periodos[generated.id] = generated
     selectedPeriodId = generated.id
-    cleaningPdfPreview.clear()
     toast(`Escala gerada com ${generated.semanas.length} semanas`)
     renderEscala()
   } catch (error) {
@@ -343,21 +278,6 @@ function renderGrupos(): void {
   const content = document.getElementById('limpezaContent')
   if (!content) return
   limpezaChanges.clear()
-
-  if (usingServiceGroups()) {
-    const groups = serviceGroupEntries()
-    content.innerHTML = `
-      ${renderSectionTitle('Grupos de limpeza', '')}
-      <div class="notice">Os grupos e seus membros são administrados no Secretário. Aqui eles são somente leitura.</div>
-      <div class="module-option-list">${groups.map(([id, group], index) => {
-        const members = Object.values(publicadoresServico)
-          .filter(publisher => publisher.ativo !== false && publisher.grupoId === id && publisher.masterId && pessoas[publisher.masterId]?.active)
-          .map(publisher => pessoas[publisher.masterId!].name)
-          .sort((a, b) => a.localeCompare(b, 'pt-BR'))
-        return `<div class="module-menu-btn" style="cursor:default"><div class="mod-icon">${index + 1}</div><div><div class="mod-label">${escapeHtml(group.nome ?? `Grupo ${index + 1}`)}</div><div class="mod-desc">${members.length ? escapeHtml(members.join(', ')) : 'Nenhum membro ativo'}</div></div></div>`
-      }).join('') || '<p class="empty-state">Nenhum grupo ativo cadastrado no Secretário.</p>'}</div>`
-    return
-  }
 
   const ativos = activePeople()
   content.innerHTML = `
@@ -431,7 +351,6 @@ function updateLimpezaCounters(ativos: [string, MasterPessoa][]): void {
 }
 
 async function saveGrupos(ativos: [string, MasterPessoa][]): Promise<void> {
-  if (usingServiceGroups()) { toast('Os grupos são administrados no Secretário'); return }
   if (limpezaChanges.size === 0) { toast('Nenhuma alteração'); return }
 
   setLoading('btnSalvarLimpezaGrupos', true, 'Salvar Grupos')
@@ -454,31 +373,22 @@ async function saveGrupos(ativos: [string, MasterPessoa][]): Promise<void> {
   }
 }
 
-function renderConfig(reuseOverride?: boolean): void {
+function renderConfig(): void {
   const content = document.getElementById('limpezaContent')
   if (!content) return
 
   const ativa = limpeza.ativa ?? false
-  const reuseServiceGroups = reuseOverride ?? usingServiceGroups()
-  const serviceGroups = serviceGroupEntries()
-  const grupos = reuseServiceGroups
-    ? serviceGroups.length
-    : Math.max(1, Math.min(12, Number(limpeza.grupos ?? 4)))
+  const grupos = groupCount()
   const inicioRotacao = limpeza.inicioRotacao ?? ''
 
   const grupoCards = Array.from({ length: grupos }, (_, i) => {
     const gid = String(i + 1)
-    const sourceId = reuseServiceGroups ? (serviceGroups[i]?.[0] ?? gid) : gid
-    const item: Partial<ConfigLimpezaGrupo> = reuseServiceGroups
-      ? serviceGroupConfig(sourceId)
-      : limpeza.gruposConfig?.[sourceId] ?? {}
-    const serviceName = reuseServiceGroups ? gruposServico[sourceId]?.nome ?? `Grupo ${gid}` : ''
-    const nome = reuseServiceGroups ? serviceName : item.nome ?? ''
+    const sourceId = gid
+    const item: Partial<ConfigLimpezaGrupo> = limpeza.gruposConfig?.[sourceId] ?? {}
+    const nome = item.nome ?? ''
     const superintendenteMid = item.superintendenteMid ?? ''
     const ajudantesMid = toStringArray(item.ajudantesMid as string[] | Record<string, string> | undefined)
-    const groupPeople = reuseServiceGroups
-      ? serviceMembers(sourceId)
-      : activePeople().filter(([, person]) => person.limpeza?.grupo === Number(gid))
+    const groupPeople = activePeople().filter(([, person]) => person.limpeza?.grupo === Number(gid))
 
     return `
       <div data-cleaning-group="${escapeHtml(sourceId)}" style="background:var(--surface);border:1px solid var(--border);border-radius:8px;
@@ -486,7 +396,7 @@ function renderConfig(reuseOverride?: boolean): void {
         <div style="font-size:.9rem;font-weight:700;color:var(--blue-deep);margin-bottom:10px">
           ${escapeHtml(nome || `Grupo ${gid}`)}
         </div>
-        <div class="form-group" ${reuseServiceGroups ? 'hidden' : ''}>
+        <div class="form-group">
           <label class="form-label">Nome do grupo</label>
           <input id="gNome_${escapeHtml(sourceId)}" class="form-input" maxlength="40" value="${escapeHtml(nome)}" placeholder="Ex.: Salão do Reino">
         </div>
@@ -518,15 +428,8 @@ function renderConfig(reuseOverride?: boolean): void {
         <span class="form-label" style="margin:0">Rotação ativa</span>
       </label>
     </div>
-    <div class="form-group">
-      <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
-        <input type="checkbox" id="lUsarGruposServico" ${reuseServiceGroups ? 'checked' : ''}>
-        <span class="form-label" style="margin:0">Aproveitar grupos de serviço de campo</span>
-      </label>
-      <p class="form-help">Marcado, nomes e membros vêm do Secretário e não podem ser alterados na Limpeza.</p>
-    </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-      <div class="form-group" ${reuseServiceGroups ? 'hidden' : ''}>
+      <div class="form-group" >
         <label class="form-label">Número de grupos</label>
         <select id="lGrupos" class="form-select">
           ${[2,3,4,5,6].map(n => `<option value="${n}" ${grupos === n ? 'selected' : ''}>${n} grupos</option>`).join('')}
@@ -544,13 +447,6 @@ function renderConfig(reuseOverride?: boolean): void {
       <button id="btnSalvarLimpezaConfig" class="btn btn-primary btn-full">Salvar Configuração</button>
     </div><div id="cleaningMessageSettings"></div>`
 
-  document.getElementById('lUsarGruposServico')!.addEventListener('change', event => {
-    const checked = (event.target as HTMLInputElement).checked
-    if (!checked || Object.keys(gruposServico).length) { renderConfig(checked); return }
-    void loadServiceGroups()
-      .then(() => renderConfig(true))
-      .catch(error => { toast(failureMessage(error, 'Não foi possível carregar os grupos do Secretário')); renderConfig(false) })
-  })
   document.getElementById('btnSalvarLimpezaConfig')!
     .addEventListener('click', () => void saveConfig())
   void mountModuleMessageSettings('cleaningMessageSettings', 'limpeza', toast)
@@ -561,33 +457,29 @@ async function saveConfig(): Promise<void> {
   if (button.disabled) return
   const checked = (id: string) => (document.getElementById(id) as HTMLInputElement).checked
   const value = (id: string) => (document.getElementById(id) as HTMLInputElement).value.trim()
-  const reuseServiceGroups = checked('lUsarGruposServico')
-  const serviceGroups = serviceGroupEntries()
-  const grupos = reuseServiceGroups ? serviceGroups.length : Number((document.getElementById('lGrupos') as HTMLSelectElement).value)
+  const grupos = Number((document.getElementById('lGrupos') as HTMLSelectElement).value)
   const editedConfigs: Record<string, ConfigLimpezaGrupo> = {}
 
   for (let i = 1; i <= grupos; i++) {
-    const gid = reuseServiceGroups ? (serviceGroups[i - 1]?.[0] ?? String(i)) : String(i)
+    const gid = String(i)
     const ajudantesMid = Array.from(
       document.querySelectorAll<HTMLInputElement>('[data-group-helper]:checked')
     ).filter(cb => cb.dataset['groupHelper'] === gid).map(cb => cb.value)
 
     editedConfigs[gid] = {
-      nome: reuseServiceGroups ? '' : value(`gNome_${gid}`),
+      nome: value(`gNome_${gid}`),
       superintendenteMid: value(`gSuper_${gid}`),
       ajudantesMid,
-      ...(reuseServiceGroups ? { membrosDaOrigem:true, ajudantesExcluidosMid: serviceMembers(gid).map(([mid]) => mid).filter(mid => !ajudantesMid.includes(mid)) } : {}),
     }
   }
 
   const nextConfig: ConfigLimpeza = {
     ativa: checked('lAtiva'),
-    aproveitarGruposServicoCampo: reuseServiceGroups,
+
     periodMode,
-    grupos: reuseServiceGroups ? Number(limpeza.grupos ?? 4) : grupos,
+    grupos,
     inicioRotacao: value('lInicio'),
-    gruposConfig: reuseServiceGroups ? limpeza.gruposConfig ?? {} : editedConfigs,
-    gruposServicoConfig: reuseServiceGroups ? editedConfigs : limpeza.gruposServicoConfig ?? {},
+    gruposConfig: editedConfigs,
   }
 
   const patch: Record<string, unknown> = {}, expected: Record<string, unknown> = {}
@@ -595,8 +487,8 @@ async function saveConfig(): Promise<void> {
     if (JSON.stringify(before ?? null) === JSON.stringify(after ?? null)) return
     patch[path] = after ?? null; expected[path] = before ?? null
   }
-  for (const key of ['ativa', 'aproveitarGruposServicoCampo', 'periodMode', 'grupos', 'inicioRotacao'] as const) changed(key, limpeza[key], nextConfig[key])
-  const collection = reuseServiceGroups ? 'gruposServicoConfig' : 'gruposConfig'
+  for (const key of ['ativa', 'periodMode', 'grupos', 'inicioRotacao'] as const) changed(key, limpeza[key], nextConfig[key])
+  const collection = 'gruposConfig'
   for (const [gid, config] of Object.entries(editedConfigs)) {
     for (const [field, after] of Object.entries(config)) changed(`${collection}/${gid}/${field}`, (limpeza[collection]?.[gid] as unknown as Record<string, unknown> | undefined)?.[field], after)
   }
@@ -624,11 +516,8 @@ function renderPdf(): void {
     <div class="form-panel">
       <label class="form-field"><span>Escala gerada</span><select id="pdfLimpezaPeriodo" class="form-select" ${Object.keys(periodos).length ? '' : 'disabled'}>${generatedPeriodOptions() || '<option>Nenhuma escala gerada</option>'}</select></label>
       <label class="form-field"><span>Fonte base: <strong id="pdfLimpezaFonteValor">${fontSize} pt</strong></span><input id="pdfLimpezaFonte" type="range" min="8" max="22" value="${fontSize}"></label>
-      <div id="pdfLimpezaPreview" style="background:#fff;border:1px solid var(--border);padding:14px;margin:12px 0;min-height:180px">
-        ${period ? `<div style="text-align:center;font-weight:800;font-size:1.1rem;margin-bottom:10px">LIMPEZA DO SALÃO</div>${renderPeriodRows(period)}` : '<p style="text-align:center;color:var(--ink-3)">Nenhuma escala gerada.</p>'}
-      </div>
-      <button id="btnGerarPdfLimpeza" class="btn btn-primary btn-full" type="button" ${period ? '' : 'disabled'}>Abrir previa do PDF</button>
-      ${period ? `<button id="btnPublicarPdfLimpeza" class="btn btn-ghost btn-full" style="margin-top:8px" type="button">${period.publicado ? 'Reabrir período' : 'Publicar período'}</button>` : ''}
+      <button id="btnGerarPdfLimpeza" class="btn btn-primary btn-full" type="button" ${period ? '' : 'disabled'}>${period?.publicado ? 'Baixar PDF' : 'Baixar PDF e publicar período'}</button>
+      ${period?.publicado ? `<button id="btnPublicarPdfLimpeza" class="btn btn-ghost btn-full" style="margin-top:8px" type="button">Reabrir período</button>` : ''}
     </div>`
   document.getElementById('pdfLimpezaPeriodo')?.addEventListener('change', event => {
     selectedPeriodId = (event.target as HTMLSelectElement).value
@@ -644,9 +533,12 @@ function renderPdf(): void {
   document.getElementById('btnPublicarPdfLimpeza')?.addEventListener('click', () => void toggleCleaningPublication())
 }
 
-async function toggleCleaningPublication(): Promise<void> {
+async function toggleCleaningPublication(download = false): Promise<void> {
+  if (changingPublication) return
   const period = generatedPeriod()
   if (!period) return
+  changingPublication = true
+  const releaseUi = lockPublicationUi()
   try {
     const { createCleaningPdf } = await import('./limpeza-documents')
     const { publishAgendaModulePdf, unpublishAgendaModulePdf } = await import('./agenda-documents')
@@ -666,7 +558,7 @@ async function toggleCleaningPublication(): Promise<void> {
       period.publicado = false; delete period.publicadoEm
       toast('Período reaberto e retirado do Quadro')
     } else {
-      if (!cleaningPdfPreview.matches(cleaningPdfPreviewInput(period, fontSize))) { toast('Abra a prévia atual do PDF antes de publicar'); return }
+
       const result = await createCleaningPdf(period, { requestedFontSize:fontSize })
       await publishAgendaModulePdf(result.bytes, metadata)
       const publishedAt = new Date().toISOString()
@@ -677,27 +569,31 @@ async function toggleCleaningPublication(): Promise<void> {
         catch { console.warn('Não foi possível desfazer a publicação incompleta de Limpeza') }
         throw error
       }
+      if (download) downloadPdf(result.bytes, `limpeza-${period.id}.pdf`)
       period.publicado = true; period.publicadoEm = publishedAt
       toast('Período publicado no Quadro')
     }
     renderPdf()
   } catch (error) { toast(failureMessage(error, 'Não foi possível alterar a publicação')) }
+  finally { changingPublication = false; releaseUi() }
 }
 
 async function exportCleaningPdf(): Promise<void> {
+  if (changingPublication) return
   const period = generatedPeriod()
-  if (!period) { toast('Gere a escala antes de abrir a previa'); return }
+  if (!period) { toast('Gere a escala antes de baixar o PDF'); return }
+  if (!period.publicado) { await toggleCleaningPublication(true); return }
   const button = document.getElementById('btnGerarPdfLimpeza') as HTMLButtonElement | null
   const fontSize = Number((document.getElementById('pdfLimpezaFonte') as HTMLInputElement).value)
   try {
     if (button) { button.disabled = true; button.textContent = 'Preparando PDF...' }
     const { downloadCleaningPdf } = await import('./limpeza-documents')
     const result = await downloadCleaningPdf(period, { requestedFontSize: fontSize })
-    cleaningPdfPreview.mark(cleaningPdfPreviewInput(period, fontSize))
-    toast(result.effectiveFontSize < fontSize ? `Previa ajustada para ${result.effectiveFontSize} pt sem quebrar texto` : 'Previa do PDF aberta')
+
+    toast(result.effectiveFontSize < fontSize ? `PDF ajustado para ${result.effectiveFontSize} pt sem quebrar texto` : 'Download do PDF iniciado')
   } catch (error) {
     toast(failureMessage(error, 'Erro ao gerar o PDF'))
   } finally {
-    if (button) { button.disabled = false; button.textContent = 'Abrir previa do PDF' }
+    if (button) { button.disabled = false; button.textContent = 'Baixar PDF' }
   }
 }

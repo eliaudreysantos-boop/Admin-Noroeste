@@ -85,25 +85,10 @@ export interface TaskEvent {
   impactoTarefas?: { bloqueiaReuniao?: boolean; tiposReuniao?: string[] }
 }
 
-export interface TaskSpeaker {
-  pessoaId?: string
-  masterId?: string
-  tipo?: string
-}
-
-export interface TaskTalk {
-  data?: string
-  tipo?: string
-  oradorId?: string
-  oradorSecundarioId?: string
-}
-
 export interface TaskDomainContext {
   people: Record<string, TaskPerson>
   periods: Record<string, TaskPeriod>
   events: Record<string, TaskEvent>
-  speakers: Record<string, TaskSpeaker>
-  talks: Record<string, TaskTalk>
 }
 
 export interface TaskPlanning {
@@ -225,22 +210,6 @@ export function meetingIsBlocked(context: Pick<TaskDomainContext, 'events'>, mee
   return Object.values(context.events).some(event => eventBlocksMeeting(event, meeting))
 }
 
-function speakerPersonId(speaker: TaskSpeaker | undefined, people: Record<string, TaskPerson>): string | null {
-  if (!speaker || speaker.tipo === 'visitante') return null
-  if (speaker.pessoaId && people[speaker.pessoaId]) return speaker.pessoaId
-  if (!speaker.masterId) return null
-  return Object.entries(people).find(([, person]) => person.masterId === speaker.masterId)?.[0] ?? null
-}
-
-export function hasTalkConflict(personId: string, date: string | undefined, context: TaskDomainContext): boolean {
-  if (!date) return false
-  return Object.values(context.talks).some(talk => {
-    if (talk.data !== date || !['discurso_local', 'discurso_visitante', 'saida_orador'].includes(String(talk.tipo))) return false
-    return [talk.oradorId, talk.oradorSecundarioId]
-      .some(id => id && speakerPersonId(context.speakers[id], context.people) === personId)
-  })
-}
-
 function assignmentsWithout(meeting: TaskMeeting, ignoredRole?: TaskRole): Partial<Record<TaskRole, string>> {
   const result: Partial<Record<TaskRole, string>> = {}
   TASK_ROLES.forEach(role => {
@@ -277,7 +246,6 @@ export function eligibility(
   if (isFolga(person, meeting.date)) return { eligible: false, reason: 'Folga nesta data' }
   if (isUnavailable(person, meeting.date)) return { eligible: false, reason: 'Indisponível nesta data' }
   if (meetingIsBlocked(context, meeting)) return { eligible: false, reason: 'Evento bloqueia a reunião' }
-  if (hasTalkConflict(personId, meeting.date, context)) return { eligible: false, reason: 'Discurso na mesma data' }
   if ((role === 'mic1' || role === 'mic2') && person.jovem === true) {
     const other = role === 'mic1' ? 'mic2' : 'mic1'
     const otherId = assignments[other]

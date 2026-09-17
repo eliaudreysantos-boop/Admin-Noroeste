@@ -7,21 +7,13 @@ export type Role =
   | 'batizado'
   | 'publicador'
 
-export type SecretarioPapel =
-  | 'secretario'
-  | 'publicador'
-  | 'assistencia'
-
 export type Sex = 'M' | 'F'
 
 export type ModuleName =
   | 'mestre'
   | 'tarefas'
   | 'limpeza'
-  | 'oradores'
   | 'escala'
-  | 'programacao'
-  | 'secretario'
   | 'servicoCampo'
   | 'individual'
 
@@ -36,9 +28,6 @@ export type TipoDesignacao =
   | 'limpeza-ajudante'
   | 'limpeza-grupo'
   | 'escala-campo'
-  | 'discurso-local'
-  | 'discurso-saida'
-  | 'programacao-parte'
 
 // ─── Master ────────────────────────────────────────────────────────────────
 
@@ -84,8 +73,6 @@ export interface ConfigLimpezaGrupo {
   nome?:              string
   superintendenteMid: string
   ajudantesMid:       string[]
-  ajudantesExcluidosMid?: string[]
-  membrosDaOrigem?: boolean
 }
 
 export interface LimpezaSemanaGerada {
@@ -113,12 +100,10 @@ export interface LimpezaPeriodoGerado {
 
 export interface ConfigLimpeza {
   ativa:                 boolean
-  aproveitarGruposServicoCampo?: boolean
   periodMode?:           'month' | 'bimester'
   grupos:                number       // qtd de grupos
   inicioRotacao:         string       // 'YYYY-MM-DD'
   gruposConfig:          Record<string, ConfigLimpezaGrupo>
-  gruposServicoConfig?:  Record<string, ConfigLimpezaGrupo>
 }
 
 export interface ConfigDesignacao {
@@ -138,8 +123,6 @@ export type AgendaReminderModule =
   | 'tarefas'
   | 'limpeza'
   | 'escala'
-  | 'oradores'
-  | 'programacao'
   | 'servicoCampo'
   | 'quadro'
 
@@ -157,8 +140,6 @@ export type AgendaPublicDocumentModule =
   | 'tarefas'
   | 'limpeza'
   | 'escala'
-  | 'oradores'
-  | 'programacao'
   | 'servicoCampo'
   | 'admin'
 
@@ -193,10 +174,7 @@ export interface AppPermissions {
   mestre:      boolean
   tarefas:     boolean
   limpeza?:    boolean
-  oradores?:   boolean
   escala:      boolean
-  programacao: boolean
-  secretario:  boolean
   servicoCampo?: boolean
   individual?: boolean
 }
@@ -206,7 +184,6 @@ export interface Usuario {
   senha:            string       // plain text por enquanto
   ativo:            boolean
   apps:             AppPermissions
-  secretarioPapel?: SecretarioPapel
   masterId?:        string       // campo legado da antiga Minha Agenda interna
 }
 
@@ -226,10 +203,7 @@ export interface RawRoot {
   usuarios?:    RawUsuarios
   tarefas?:     Record<string, unknown>
   limpeza?:     Record<string, unknown>
-  oradores?:    Record<string, unknown>
   escala?:      Record<string, unknown>
-  programacao?: Record<string, unknown>
-  secretario?:  Record<string, unknown>
   servicoCampo?: Record<string, unknown>
   agenda?:      Record<string, unknown>
 }

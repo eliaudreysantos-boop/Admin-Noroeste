@@ -30,18 +30,6 @@ const root = {
   servicoCampo:{ periods:{ '2026-09':{ month:'2026-09', published:true, assignments:{ s1:{ id:'s1', templateId:'t1', date:'2026-09-17', time:'16:00', location:'Salão do Reino', label:'Saída de campo', leaderId:'m1' } } } } },
 }
 
-test('Vida e Ministerio usa horario central e omite semanas sem reuniao na Agenda e Quadro', () => {
-  const data = structuredClone(root)
-  data.master.config = { reunioes: { meiaDeSemana: { horario: '19:00' } } }
-  delete data.programacao.settings.meetingTime
-  assert.equal(collectAgendaEvents(data, 'm1').find(event => event.source === 'programacao').time, '19:00')
-  for (const type of ['assembleia', 'celebracao']) {
-    data.programacao.programs.w.type = type
-    assert.equal(collectAgendaEvents(data, 'm1').some(event => event.source === 'programacao'), false)
-    assert.equal(collectAnnouncementEvents(data).some(event => event.source === 'programacao'), false)
-  }
-})
-
 test('cache de identidades remove telefone e grupo de limpeza', () => {
   const people = sanitizeAgendaPeople({ m1:{ name:'Ana', whatsapp:'5585999999999', active:true, sex:'F', role:'publicador', limpeza:{ grupo:3 } } })
   assert.deepEqual(people.m1, { name:'Ana', whatsapp:'', active:true, sex:'F', role:'publicador', limpeza:{ grupo:null } })
@@ -56,18 +44,18 @@ test('lista de pessoas ausente ou malformada vira coleção vazia', () => {
 
 test('agrega apenas atribuicoes do masterId solicitado', () => {
   const events = collectAgendaEvents(root, 'm1')
-  assert.deepEqual(events.map(event => event.source), ['tarefas', 'limpeza', 'escala', 'oradores', 'limpeza', 'programacao', 'servicoCampo'])
+  assert.deepEqual(events.map(event => event.source), ['tarefas', 'limpeza', 'escala', 'limpeza', 'servicoCampo'])
   assert.equal(events.some(event => event.title === 'Microfone 1'), false)
   assert.equal(events.find(event => event.source === 'tarefas')?.status, 'futuro')
   assert.equal(events.find(event => event.source === 'escala')?.title, 'Escala TPL')
   assert.match(events.find(event => event.source === 'escala')?.detail ?? '', /Carrinho/)
 })
 
-test('respeita permissao por fonte e limita observacao aprovada', () => {
+test('respeita permissao por fonte e ignora modulos removidos', () => {
   const copy = structuredClone(root); copy.tarefas.discursos.programacao.p1.observacoes = 'x'.repeat(300)
   const events = collectAgendaEvents(copy, 'm1', { escala:false })
   assert.equal(events.some(event => event.source === 'escala'), false)
-  assert.equal(events.find(event => event.source === 'oradores').note.length, 250)
+  assert.equal(events.some(event => ['oradores', 'programacao'].includes(event.source)), false)
 })
 
 test('Serviço de Campo só publica dirigente de mês fechado para o Quadro', () => {
@@ -145,25 +133,33 @@ test('sem vinculo canonico nao retorna dados por nome', () => {
   assert.deepEqual(collectAgendaEvents(root, 'nome parecido'), [])
 })
 
-test('vida e ministério mostra horário, sala, ajudante e substituto na agenda pessoal', () => {
-  const copy = structuredClone(root)
-  copy.programacao.programs.w.parts = [
-    { id:'a', title:'Iniciando conversas', section:'ministerio', assignedPersonId:'outra', assistantPersonId:'m1', reference:'lmd lição 1' },
-    { id:'b', title:'Leitura da Bíblia', assignedPersonId:'outra', substitutePersonId:'m1' },
-  ]
-  const events = collectAgendaEvents(copy, 'm1').filter(event => event.source === 'programacao')
-  assert.deepEqual(events.map(event => event.title), ['Ajudante - Iniciando conversas', 'Substituto - Leitura da Bíblia'])
-  assert.equal(events[0].time, '19:30')
-  assert.equal(events[0].location, 'Salão principal')
-  assert.equal(events[0].note, 'lmd lição 1')
-  assert.equal(events[1].status, 'alterado')
-})
-
 test('quadro de anúncios agrupa designações por pessoa e por origem', () => {
   const announcements = collectAnnouncementEvents(root)
-  assert.equal(announcements.some(item => item.source === 'programacao' && item.people.includes('Ana')), true)
+  assert.equal(announcements.some(item => item.source === 'programacao'), false)
   assert.equal(announcements.some(item => item.source === 'tarefas' && item.people.includes('Ana')), true)
   assert.equal(announcements.some(item => item.source === 'tarefas' && item.people.includes('Bruno')), true)
+})
+
+test('reuniao de hoje permanece no texto ate o fim do dia civil', () => {
+  const data = structuredClone(root)
+  data.tarefas.scale.periods['2026-09'].meetings.a.date = '2026-09-15'
+  data.limpeza.periodos.p.semanas[0].dataMeioSemana = '2026-09-15'
+  const events = collectAnnouncementEvents(data)
+  const today = boardMeetingDates(events, '2026-09-15').find(item => item.date === '2026-09-15')
+  assert.ok(today)
+  const message = boardMeetingMessage(boardMeetingEvents(events, today), today)
+  assert.match(message, /^TAREFAS/m)
+  assert.match(message, /^LIMPEZA/m)
+  assert.equal(boardMeetingDates(events, '2026-09-16').some(item => item.date === '2026-09-15'), false)
+})
+
+test('calendario pessoal exporta os quatro modulos incluindo as duas limpezas', () => {
+  const events = collectAgendaEvents(root, 'm1')
+  assert.deepEqual([...new Set(events.map(event => event.source))].sort(), ['escala', 'limpeza', 'servicoCampo', 'tarefas'])
+  const ics = agendaToIcs(events, '2026-09-15T23:59:00-03:00')
+  assert.equal((ics.match(/BEGIN:VEVENT/g) || []).length, events.length)
+  assert.equal((ics.match(/SUMMARY:Limpeza/g) || []).length, 2)
+  assert.match(ics, /SUMMARY:Leitor/)
 })
 
 test('dados das reuniões selecionam datas futuras e módulos conforme o tipo', () => {
@@ -179,17 +175,17 @@ test('dados das reuniões selecionam datas futuras e módulos conforme o tipo', 
     ['2026-09-16', 'midweek'],
   ])
   const weekend = boardMeetingEvents(events, dates[1])
-  assert.equal(weekend.some(item => item.source === 'oradores' && item.title === 'Discurso em outra congregação'), true)
+  assert.equal(weekend.some(item => item.source === 'oradores'), false)
   assert.equal(weekend.some(item => item.source === 'tarefas'), true)
   assert.equal(weekend.some(item => item.source === 'limpeza'), true)
   assert.equal(weekend.some(item => item.source === 'programacao'), false)
   const midweek = boardMeetingEvents(events, dates[2])
-  assert.equal(midweek.some(item => item.source === 'programacao'), true)
+  assert.equal(midweek.some(item => item.source === 'programacao'), false)
   assert.equal(midweek.some(item => item.source === 'tarefas'), true)
   assert.equal(midweek.some(item => item.source === 'limpeza'), true)
   assert.equal(midweek.some(item => item.source === 'oradores'), false)
   const weekendMessage = boardMeetingMessage(weekend, dates[1])
-  assert.match(weekendMessage, /^ORADORES/m)
+  assert.doesNotMatch(weekendMessage, /^ORADORES/m)
   assert.match(weekendMessage, /^TAREFAS/m)
   assert.match(weekendMessage, /^LIMPEZA/m)
   assert.match(boardCleaningMessage(weekend), /^LIMPEZA/m)
@@ -197,25 +193,7 @@ test('dados das reuniões selecionam datas futuras e módulos conforme o tipo', 
   assert.doesNotMatch(boardMeetingWhatsappMessage(weekend, dates[1]), /LIMPEZA/)
   const midweekMessage = boardMeetingMessage(midweek, dates[2])
   assert.match(midweekMessage, /^TAREFAS/m)
-  assert.match(midweekMessage, /^VIDA E MINISTÉRIO/m)
-})
-
-test('quadro inclui discursos visitantes sem vínculo com o cadastro central', () => {
-  const copy = structuredClone(root)
-  copy.tarefas.discursos.oradores.visitante = { nome:'Carlos Visitante', tipo:'visitante' }
-  copy.tarefas.discursos.programacao.visitante = { data:'2026-09-20', tipo:'discurso_visitante', oradorId:'visitante', temaTitulo:'Esperança', congregacaoOrigemNome:'Centro' }
-  const event = collectAnnouncementEvents(copy).find(item => item.id === 'oradores:visitante')
-  assert.equal(event?.people[0], 'Carlos Visitante')
-  assert.equal(event?.location, 'Centro')
-  assert.equal(event?.note, undefined)
-})
-
-test('quadro não publica orador local órfão apenas pelo nome', () => {
-  const copy = structuredClone(root)
-  copy.tarefas.people.taskOrphan = { name:'Gabriel', masterId:'m-inexistente' }
-  copy.tarefas.discursos.oradores.orphan = { nome:'Gabriel', tipo:'local', pessoaId:'taskOrphan', masterId:'m-inexistente' }
-  copy.tarefas.discursos.programacao.orphan = { data:'2026-09-20', tipo:'discurso_local', oradorId:'orphan', temaTitulo:'Tema órfão' }
-  assert.equal(collectAnnouncementEvents(copy).some(item => item.id === 'oradores:orphan'), false)
+  assert.doesNotMatch(midweekMessage, /^VIDA E MINISTÉRIO/m)
 })
 
 test('compartilhamento do quadro usa somente dados públicos', () => {

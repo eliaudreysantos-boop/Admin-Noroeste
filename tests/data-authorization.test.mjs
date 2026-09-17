@@ -12,10 +12,10 @@ test('sessão comum acessa somente os módulos autorizados', () => {
   assert.equal(canAccessData('master/pessoas', apps({ tarefas:true }), true), false)
 })
 
-test('Limpeza lê somente os dados auxiliares necessários do Secretário', () => {
+test('Limpeza nao consulta o modulo retirado', () => {
   const cleaning = apps({ limpeza:true })
-  assert.equal(canAccessData('secretario/grupos', cleaning, false), true)
-  assert.equal(canAccessData('secretario/publicadores', cleaning, false), true)
+  assert.equal(canAccessData('secretario/grupos', cleaning, false), false)
+  assert.equal(canAccessData('secretario/publicadores', cleaning, false), false)
   assert.equal(canAccessData('secretario/relatorios', cleaning, false), false)
   assert.equal(canAccessData('tarefas/planning', cleaning, false), true)
 })
@@ -27,13 +27,13 @@ test('cada módulo altera somente as próprias mensagens da Agenda', () => {
   assert.equal(canAccessData('agenda/config/icsReminders/tarefas', tasks, true), false)
 })
 
-test('Oradores acessa somente sua área compartilhada dentro de Tarefas', () => {
+test('permissao antiga de Oradores nao concede acesso', () => {
   const speakers = apps({ oradores:true })
-  assert.equal(canAccessData('tarefas/discursos', speakers, true), true)
-  assert.equal(canAccessData('tarefas/events', speakers, true), true)
-  assert.equal(canAccessData('tarefas/scale/periods', speakers, false), true)
+  assert.equal(canAccessData('tarefas/discursos', speakers, true), false)
+  assert.equal(canAccessData('tarefas/events', speakers, true), false)
+  assert.equal(canAccessData('tarefas/scale/periods', speakers, false), false)
   assert.equal(canAccessData('tarefas/scale/periods', speakers, true), false)
-  assert.equal(canAccessData('tarefas/planning/oradoresPublicacoes', speakers, true), true)
+  assert.equal(canAccessData('tarefas/planning/oradoresPublicacoes', speakers, true), false)
   assert.equal(canAccessData('tarefas/planning/engineRules', speakers, true), false)
 })
 

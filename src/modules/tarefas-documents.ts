@@ -1,7 +1,7 @@
 import { TASK_ROLES, TASK_ROLE_LABELS, assignmentForRole, personName, roleApplies, type TaskMeeting, type TaskPerson } from './tarefas-domain.ts'
 import { formatTaskDate, paginateItems, rowsPerPrintPage } from './tarefas-output.ts'
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf-lib/cjs/index.js'
-import { previewPdf } from '../ui/pdf-preview.ts'
+import { downloadPdf } from '../ui/pdf-download.ts'
 import { A4_PORTRAIT, PDF_INK, PDF_LINE, drawPublicPdfHeader } from '../ui/public-pdf-layout.ts'
 
 const MIN_PT = 8, MAX_PT = 22
@@ -136,8 +136,8 @@ export async function createTaskSchedulePdf(meetings: TaskMeeting[], congregatio
   return { bytes:Uint8Array.from(await pdf.save()), pages:pdf.getPageCount(), effectiveFontSize }
 }
 
-export async function previewTaskSchedulePdf(meetings: TaskMeeting[], congregation: string, people: Record<string, TaskPerson>, preferredFontPt: number, periodId: string): Promise<TaskPdfResult> {
+export async function downloadTaskSchedulePdf(meetings: TaskMeeting[], congregation: string, people: Record<string, TaskPerson>, preferredFontPt: number, periodId: string): Promise<TaskPdfResult> {
   const result = await createTaskSchedulePdf(meetings, congregation, people, preferredFontPt)
-  previewPdf(result.bytes, `tarefas-${periodId}.pdf`, 'Prévia da escala de tarefas')
+  downloadPdf(result.bytes, `tarefas-${periodId}.pdf`)
   return result
 }

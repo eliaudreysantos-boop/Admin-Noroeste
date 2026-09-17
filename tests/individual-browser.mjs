@@ -48,19 +48,22 @@ try {
       if (endpoint === 'auth-users') return route.fulfill({ json:{} })
       if (route.request().method() !== 'GET') return route.fulfill({ json:{ ok:true } })
       const paths = JSON.parse(url.searchParams.get('paths') || '[]')
+      assert.equal(paths.some(path => /^(secretario|programacao|oradores)(\/|$)|^tarefas\/discursos/.test(path)), false)
       return route.fulfill({ json:{ results:paths.map(path => ({ value:sources[path] ?? {} })) } })
     })
-    await page.goto('http://127.0.0.1:5176/')
+    await page.goto(process.env.APP_TEST_URL || 'http://127.0.0.1:5176/')
+    assert.equal(await page.locator('[data-menu-card="secretario"], [data-menu-card="oradores"], [data-menu-card="programacao"]').count(), 0)
     await page.locator('[data-menu-card="individual"]').click()
     await page.getByRole('tab', { name:'Pessoal', exact:true }).waitFor()
+    assert.equal(await page.getByRole('tab', { name:'Relatório', exact:true }).count(), 0)
     assert.match(await page.locator('.agenda-next').innerText(), /próximo compromisso/i)
-    for (const screen of ['Pessoal', 'Geral', 'Relatório', 'Quadro']) {
+    for (const screen of ['Pessoal', 'Geral', 'Quadro']) {
       await page.getByRole('tab', { name:screen, exact:true }).click()
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, screen)
     }
     await page.getByRole('tab', { name:'Quadro', exact:true }).click()
     await page.getByText('PDFs dos módulos', { exact:true }).click()
-    assert.equal(await page.getByText('Baixar PDF', { exact:true }).count(), 5)
+    assert.equal(await page.getByText('Baixar PDF', { exact:true }).count(), 4)
     await page.reload()
     await page.locator('[data-menu-card="individual"]').click()
     assert.equal(await page.getByRole('tab', { name:'Quadro', exact:true }).getAttribute('aria-selected'), 'true')
@@ -69,7 +72,7 @@ try {
     await page.locator('#btnBack').click()
     await page.locator('#btnSair').waitFor({ state:'visible' })
     assert.deepEqual(errors, [])
-    console.log(JSON.stringify({ viewport, screens:4, pdfButtons:5, persistence:true, overflow:false, errors:0 }))
+    console.log(JSON.stringify({ viewport, screens:3, pdfButtons:4, persistence:true, overflow:false, errors:0 }))
     await context.close()
   }
 } finally {

@@ -12,8 +12,9 @@ test('payload público da Agenda remove caminhos internos e URLs inseguras', () 
   assert.deepEqual(publicAgendaConfig({ quadroWhatsAppLink:'javascript:alert(1)', moduleWhatsApp:{ tarefas:{ groupLink:'https://chat.whatsapp.com/example', meetingText:'Olá' } } }), { moduleWhatsApp:{ tarefas:{ groupLink:'https://chat.whatsapp.com/example', meetingText:'Olá' } } })
 })
 
-test('evento público conserva referência de Vida e Ministério, mas não observação de Oradores', () => {
+test('evento publico ignora fontes retiradas e preserva fontes ativas', () => {
   const base = { id:'evento', date:'2026-09-20', title:'Designação', detail:'Reunião', status:'futuro', note:'Observação interna' }
-  assert.equal(publicAgendaEvent({ ...base, source:'oradores' })?.note, undefined)
-  assert.equal(publicAgendaEvent({ ...base, source:'programacao' })?.note, 'Observação interna')
+  assert.equal(publicAgendaEvent({ ...base, source:'oradores' }), null)
+  assert.equal(publicAgendaEvent({ ...base, source:'programacao' }), null)
+  assert.equal(publicAgendaEvent({ ...base, source:'tarefas' })?.source, 'tarefas')
 })

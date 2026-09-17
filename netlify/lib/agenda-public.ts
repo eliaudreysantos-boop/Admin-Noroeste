@@ -1,10 +1,10 @@
 import type { AgendaConfig, AgendaPublicDocument, AgendaReminderModule } from '../../src/types.ts'
 import type { AgendaEvent, AgendaSource, AgendaStatus, AnnouncementEvent } from '../../src/modules/individual-domain.ts'
 
-const SOURCES = new Set<AgendaSource>(['tarefas', 'limpeza', 'escala', 'oradores', 'programacao', 'servicoCampo'])
+const SOURCES = new Set<AgendaSource>(['tarefas', 'limpeza', 'escala', 'servicoCampo'])
 const STATUSES = new Set<AgendaStatus>(['futuro', 'confirmacao-pendente', 'alterado', 'realizado'])
 const REMINDER_MODULES = new Set<AgendaReminderModule>([...SOURCES, 'quadro'])
-const DOCUMENT_MODULES = new Set(['tarefas', 'limpeza', 'escala', 'oradores', 'servicoCampo', 'admin'])
+const DOCUMENT_MODULES = new Set(['tarefas', 'limpeza', 'escala', 'servicoCampo', 'admin'])
 const reminderPattern = /^P(?:\d+D)?(?:T\d+[HM])?$/
 
 const text = (value: unknown, maximum: number): string => typeof value === 'string' ? value.trim().slice(0, maximum) : ''
@@ -23,7 +23,6 @@ export function publicAgendaEvent(value: AgendaEvent): AgendaEvent | null {
     id, source:value.source, date:value.date, title, detail, status:value.status,
     ...(value.time && /^([01]\d|2[0-3]):[0-5]\d$/.test(value.time) ? { time:value.time } : {}),
     ...(value.location ? { location:text(value.location, 300) } : {}),
-    ...(value.source === 'programacao' && value.note ? { note:text(value.note, 250) } : {}),
   }
 }
 

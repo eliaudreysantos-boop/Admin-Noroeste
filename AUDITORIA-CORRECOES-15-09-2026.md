@@ -1,5 +1,32 @@
 # Auditoria de correcoes - 15/09/2026
 
+## Atualizacao de escopo - 17/09/2026
+
+- Revisao local da retirada de Vida e Ministerio, Oradores e Secretario concluida
+  no aplicativo ativo: menus, permissoes, carregadores, Agenda, ICS e documentos.
+- Minha Agenda conserva Pessoal, Geral e Quadro; Relatorio foi retirado.
+- Limpeza usa grupos proprios, sem consultas ou integracao com Secretario.
+- PDFs usam download direto: periodo aberto oferece `Baixar PDF e publicar periodo`;
+  periodo publicado oferece apenas `Baixar PDF`. Reabrir permanece separado.
+  O download inicial so comeca apos publicar o PDF e salvar o bloqueio do periodo.
+  Cliques duplicados sao ignorados durante a publicacao. Testes simulam falhas de
+  upload e gravacao, desfazimento da publicacao e downloads sem republicacao.
+- Build e `npm run test:all` passaram. Sete scripts de navegador passaram:
+  individual, calendar-layout, save-failures, auditoria-transversal, agenda-pwa,
+  corrections e shared-pdf. Dados simulados; sem acesso ao Firebase real.
+- Verificado em desktop e celular: menus, ausencia de Relatorio, preferencias,
+  downloads, publicacao/reabertura simuladas e reinicio offline do PWA.
+- Todos os documentos Markdown historicos foram mantidos. Referencias anteriores
+  aos tres modulos registram o escopo antigo, nao requisitos vigentes.
+- Firebase fica por ULTIMO: revisao dos dados e scripts legados, proposta de
+  exclusao e eventual execucao dependem da etapa final e da aprovacao do usuario.
+  Nenhum dado real, PDF remoto ou backup foi apagado. Dados locais antigos de
+  relatorios nao sao mais usados nem apagados automaticamente.
+- Sem commit, push ou deploy nesta revisao. Homologacao no celular real,
+  assinaturas Google/Android/Apple e verificacao do perfil Eliaudrey continuam
+  pendentes; testes locais nao substituem essas confirmacoes.
+
+
 Este documento registra as falhas citadas e confirmadas para a proxima rodada
 de correcoes do Admin SPA. Ele nao substitui `PENDENCIAS-FINAIS-ADMIN-SPA.md`;
 serve como resumo operacional da auditoria manual atual.
@@ -425,3 +452,47 @@ aparelhos reais.
   build, 51 testes de Minha Agenda e roteiro PWA no Edge desktop/celular.
 - A confirmacao do deploy e os testes HTTP posteriores serao registrados no
   resultado da tarefa; aparelhos reais e calendarios externos seguem pendentes.
+
+## Confirmacoes adiadas e proxima etapa - 16/09/2026
+
+- Deploy confirmado: commit `fa0902d`, deploy `6aaaf7e5197a8e00080a4f88`
+  pronto no Netlify de testes. GitHub original preservado.
+- Por orientacao do Admin, ficam PENDENTES as confirmacoes do perfil Eliaudrey:
+  reuniao de hoje no card de texto, Tarefas e Limpeza publicadas/vinculadas e
+  diferenca entre eventos da aba Pessoal e do Google Calendar. Causa nao
+  confirmada; nao declarar esses relatos corrigidos.
+- Tres testes locais adicionais passaram: dia atual mantido no texto, seis
+  modulos no calendario pessoal e Limpeza/Tarefas presentes no feed pessoal.
+  A suite de Minha Agenda tem 54 testes aprovados; dados ficticios nao comprovam
+  o estado atual do perfil real.
+- Homologacao ICS e aparelhos reais continua pendente. A proxima frente local
+  e o ciclo de armazenamento dos PDFs: envio, substituicao, download, remocao
+  e recuperacao de falhas, sem escrita em Firebase ou Netlify Blobs reais.
+
+## Ciclo de armazenamento dos PDFs - 16/09/2026
+
+- Function `storage-file` ganhou entrada testavel com armazenamento e sessao
+  injetaveis; o handler publicado conserva os servicos reais como padrao.
+- Corrigido tratamento de falha ao inicializar Netlify Blobs: responde HTTP
+  503 com mensagem controlada em vez de deixar a excecao escapar do handler.
+- Ciclo local aprovado para Tarefas, Limpeza, Oradores, Escala TPL e Servico de
+  Campo: upload, download com bytes identicos, substituicao no mesmo endereco
+  sem duplicar o arquivo, remocao e HTTP 404 posterior.
+- PDFs invalidos ou maiores que 4 MB preservam o arquivo existente. Dois
+  documentos administrativos permanecem independentes do PDF de modulo.
+- Falhas simuladas de gravacao/remocao retornam 503, preservam a versao
+  anterior no armazenamento simulado e permitem nova tentativa.
+- `npm run test:mestre`: 44 testes aprovados, incluindo 13 de armazenamento.
+  Build aprovado, com aviso conhecido de chunks, e `git diff --check` limpo.
+- Limite da evidencia: armazenamento em memoria e PDFs reais sinteticos;
+  nao substitui upload/download em Netlify Blobs publicado nem auditoria
+  visual dos cinco layouts. Sem alteracao de dados reais, commit ou deploy.
+
+## Homologacao publicada dos PDFs adiada pelo Admin
+
+- O Admin solicitou deixar esta etapa pendente para realiza-la depois.
+- Permanecem pendentes no Netlify de testes: ciclo de envio, download,
+  substituicao e remocao de PDF temporario; conferencia dos cinco downloads
+  na Minha Agenda e separacao dos documentos do Admin.
+- A correcao de armazenamento permanece local. Este adiamento nao executa
+  commit, push, deploy nem operacoes em documentos oficiais ou temporarios.
