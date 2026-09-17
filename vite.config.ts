@@ -18,6 +18,10 @@ export default defineConfig({
     port: 5173,
     open: true,
     proxy: {
+      '/.netlify/functions/': {
+        target: 'https://noroeste-testes.netlify.app',
+        changeOrigin: true,
+      },
       '/api/import-jw-program': {
         target: 'https://southamerica-east1-reunioes-6c437.cloudfunctions.net',
         changeOrigin: true,

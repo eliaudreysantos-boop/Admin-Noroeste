@@ -23,11 +23,13 @@ test('impressao usa as datas e horarios gravados mesmo depois de alterar o local
   assert.equal(result.pages, 1)
 })
 
-test('muitos horarios e nomes extensos paginam sem sair dos limites da A4', async () => {
-  const slots = Array.from({ length:20 }, (_, i) => `${String(i).padStart(2,'0')}:00`)
-  const rows = Object.fromEntries(Array.from({ length:30 }, (_, i) => [`2026-09-${String(i+1).padStart(2,'0')}`, { dow:i%7, slots:Object.fromEntries(slots.map(time => [time,{ p1:'a', p2:'b' }])) }]))
-  const result = await createScaleSchedulePdf({ month:'2026-09', locals:{ l1:{ slots, daysActive:[0,1,2,3,4,5,6] } }, tables:{ l1:{ '2026-09':{ slots,rows } } }, participants:{ a:{ name:'Pessoa de exemplo com sobrenome bastante extenso para verificacao' }, b:{ name:'Segunda pessoa com nome completo para verificacao da impressao' } }, exclusions:[], requestedFontPt:18 })
-  assert.ok(result.pages >= 8)
+test('quatro escalas com sete horarios e 17 datas ocupam quatro folhas A4', async () => {
+  const slots = ['06:00','08:00','10:00','12:00','14:00','16:00','18:00']
+  const rows = Object.fromEntries(Array.from({ length:17 }, (_, i) => [`2026-09-${String(i+1).padStart(2,'0')}`, { slots:{ '08:00':{ p1:'a', p2:'b' }, '18:00':{ p1:'b', p2:'a' } } }]))
+  const locals = Object.fromEntries(['l1','l2','l3','l4'].map(id => [id, { name:id, active:true, slots }]))
+  const tables = Object.fromEntries(Object.keys(locals).map(id => [id, { '2026-09':{ slots, rows } }]))
+  const result = await createScaleSchedulePdf({ month:'2026-09', locals, tables, participants:{ a:{ name:'Pessoa com sobrenome bastante extenso' }, b:{ name:'Segunda pessoa com nome completo' } }, exclusions:[], requestedFontPt:18 })
+  assert.equal(result.pages, 4)
   const pdf = await PDFDocument.load(result.bytes)
   for (const page of pdf.getPages()) {
     assert.deepEqual(page.getSize(), { width:841.89, height:595.28 })
@@ -38,10 +40,16 @@ test('muitos horarios e nomes extensos paginam sem sair dos limites da A4', asyn
       const operators = new TextDecoder().decode(decodePDFRawStream(stream).decode())
       for (const match of operators.matchAll(/1 0 0 1 ([\d.-]+) ([\d.-]+) Tm/g)) {
         assert.ok(Number(match[1]) >= 30 && Number(match[1]) <= 812)
-        assert.ok(Number(match[2]) >= 20 && Number(match[2]) <= 560)
+        assert.ok(Number(match[2]) >= 30 && Number(match[2]) <= 566)
         count++
       }
     }
     assert.ok(count > 0)
   }
+})
+
+test('conteudo impossivel de acomodar nao e cortado nem cria folhas extras', async () => {
+  const slots = Array.from({ length:20 }, (_, i) => `${String(i).padStart(2,'0')}:00`)
+  const rows = Object.fromEntries(Array.from({ length:30 }, (_, i) => [`2026-09-${String(i+1).padStart(2,'0')}`, { slots:Object.fromEntries(slots.map(time => [time,{ p1:'a', p2:'b' }])) }]))
+  await assert.rejects(createScaleSchedulePdf({ month:'2026-09', locals:{ l1:{ slots } }, tables:{ l1:{ '2026-09':{ slots, rows } } }, participants:{ a:{ name:'Nome muito extenso '.repeat(20) }, b:{ name:'Outro nome extenso '.repeat(20) } }, exclusions:[], requestedFontPt:12 }), /não cabe em uma folha/)
 })

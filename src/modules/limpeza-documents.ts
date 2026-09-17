@@ -48,7 +48,7 @@ function drawTableHeader(page: PDFPage, bold: PDFFont, y: number): number {
   })
   y -= 12
   page.drawLine({ start:{ x:MARGIN, y }, end:{ x:A4_PORTRAIT[0] - MARGIN, y }, thickness:.5, color:PDF_LINE })
-  return y - 13
+  return y
 }
 
 export async function createCleaningPdf(period: LimpezaPeriodoGerado, options: CleaningPdfOptions): Promise<CleaningPdfResult> {
@@ -67,15 +67,16 @@ export async function createCleaningPdf(period: LimpezaPeriodoGerado, options: C
 
   if (!period.semanas.length) page.drawText('Nenhuma semana programada.', { x:MARGIN, y, size:effective, font:regular, color:PDF_INK })
   for (const week of period.semanas) {
-    const cells = preparedRow(week, regular, effective)
+    const cells = preparedRow(week, bold, effective)
     const lineCount = Math.max(...cells.map(cell => cell.length))
-    const height = lineCount * 12 + 14
+    const lineHeight = effective + 4
+    const height = lineCount * lineHeight + 18
     if (y - height < MARGIN) addPage()
     cells.forEach((cell, column) => cell.forEach((line, index) => {
-      page.drawText(line, { x:COLUMNS[column], y:y - index * 12, size:effective, font:column < 2 ? bold : regular, color:PDF_INK })
+      page.drawText(line, { x:COLUMNS[column], y:y - 9 - effective - index * lineHeight, size:effective, font:column < 2 ? bold : regular, color:PDF_INK })
     }))
     y -= height
-    page.drawLine({ start:{ x:MARGIN, y:y + 7 }, end:{ x:A4_PORTRAIT[0] - MARGIN, y:y + 7 }, thickness:.35, color:PDF_LINE })
+    page.drawLine({ start:{ x:MARGIN, y }, end:{ x:A4_PORTRAIT[0] - MARGIN, y }, thickness:.35, color:PDF_LINE })
   }
   return { bytes:Uint8Array.from(await pdf.save()), effectiveFontSize:effective, pages:pdf.getPageCount() }
 }

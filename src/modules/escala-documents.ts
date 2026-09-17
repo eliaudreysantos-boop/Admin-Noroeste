@@ -65,15 +65,15 @@ function nameLines(font: PDFFont, name: string, size: number, width: number): st
 }
 
 function cellLines(names: string[], font: PDFFont, fontSize: number, slotCount: number): string[] {
-  return names.slice(0, 2).flatMap(name => nameLines(font, name, fontSize - 1, 720 / Math.max(1, slotCount) - 7))
+  return names.slice(0, 2).flatMap(name => nameLines(font, name, fontSize, 720 / Math.max(1, slotCount) - 8))
 }
 
 function rowHeight(row: ReturnType<typeof printRowsForLocal>[number], font: PDFFont, fontSize: number, slotCount: number): number {
-  return Math.max(29, ...row.cells.map(names => cellLines(names, font, fontSize, slotCount).length * 11 + 8))
+  return Math.max(fontSize + 7, ...row.cells.map(names => cellLines(names, font, fontSize, slotCount).length * (fontSize + 1) + 6))
 }
 
 function drawScaleHeader(page: PDFPage, regular: PDFFont, bold: PDFFont, local: string, month: string): number {
-  return drawPublicPdfHeader(page, bold, regular, { title:'Escala TPL', congregation:fit(bold, local, 10, 650), period:monthLabel(month), margin:30 })
+  return drawPublicPdfHeader(page, bold, regular, { title:'Escala TPL', congregation:fit(bold, local, 10, 650), period:monthLabel(month), margin:30, compact:true })
 }
 
 function drawScaleTable(page: PDFPage, regular: PDFFont, bold: PDFFont, slots: string[], rows: ReturnType<typeof printRowsForLocal>, y: number, fontSize: number): void {
@@ -90,11 +90,11 @@ function drawScaleTable(page: PDFPage, regular: PDFFont, bold: PDFFont, slots: s
     const height = rowHeight(row, regular, fontSize, slots.length)
     cursor -= height
     page.drawRectangle({ x, y:cursor, width, height, borderColor:rgb(.48, .5, .5), borderWidth:.45, color:rgb(1, 1, 1) })
-    page.drawText(fit(bold, dayLabel(row.date), fontSize - .5, dayWidth - 8), { x:x + 4, y:cursor + 10, size:fontSize - .5, font:bold })
+    page.drawText(fit(bold, dayLabel(row.date), fontSize - .5, dayWidth - 8), { x:x + 4, y:cursor + (height - fontSize) / 2, size:fontSize - .5, font:bold })
     row.cells.forEach((names, index) => {
       const cellX = x + dayWidth + index * slotWidth
       page.drawLine({ start:{ x:cellX, y:cursor }, end:{ x:cellX, y:cursor + height }, thickness:.35, color:rgb(.58, .6, .6) })
-      cellLines(names, regular, fontSize, slots.length).forEach((name, line) => page.drawText(name, { x:cellX + 3.5, y:cursor + height - 10 - line * 11, size:fontSize - 1, font:regular }))
+      cellLines(names, regular, fontSize, slots.length).forEach((name, line) => page.drawText(name, { x:cellX + 3.5, y:cursor + height - 3 - fontSize - line * (fontSize + 1), size:fontSize, font:regular }))
     })
   })
 }
@@ -106,28 +106,22 @@ export async function createScaleSchedulePdf(input: ScalePrintInput): Promise<Sc
   const allowed = input.localIds ? new Set(input.localIds) : null
   const selectedLocals = Object.entries(input.locals).filter(([id, local]) => (!allowed || allowed.has(id)) && (local.active !== false || Boolean(input.tables[id]?.[input.month]))).sort((a, b) => Number(a[1].sortOrder ?? 0) - Number(b[1].sortOrder ?? 0))
   const requested = Number.isFinite(input.requestedFontPt) ? input.requestedFontPt : 12
-  const effectiveFontSize = Math.min(9, Math.max(6, Math.round(requested * .62)))
+  let effectiveFontSize = Math.min(11, Math.max(7, requested))
   for (const [localId, local] of selectedLocals) {
-    const slots = input.tables[localId]?.[input.month]?.slots ?? localSlots(local)
+    const allSlots = input.tables[localId]?.[input.month]?.slots ?? localSlots(local)
     const allRows = printRowsForLocal(localId, input.month, local, input.tables, input.participants, input.exclusions)
-    const columnChunks = slots.length ? Array.from({ length:Math.ceil(slots.length / 6) }, (_, index) => ({ start:index * 6, slots:slots.slice(index * 6, (index + 1) * 6) })) : [{ start:0, slots:[] }]
-    for (const columns of columnChunks) {
-      const chunks: typeof allRows[] = [[]]
-      let height = 0
-      for (const row of allRows) {
-        const prepared = { ...row, cells:row.cells.slice(columns.start, columns.start + 6) }
-        const required = rowHeight(prepared, regular, effectiveFontSize, columns.slots.length)
-        if (height + required > 400 && chunks[chunks.length - 1].length) { chunks.push([]); height = 0 }
-        chunks[chunks.length - 1].push(prepared)
-        height += required
-      }
-      chunks.forEach(rows => {
-      const page = pdf.addPage(A4_LANDSCAPE)
-      const label = `${String(local.name ?? localId)}${columnChunks.length > 1 ? ` - ${columns.slots[0]} a ${columns.slots[columns.slots.length - 1]}` : ''}`
-      const y = drawScaleHeader(page, regular, bold, label, input.month)
-      drawScaleTable(page, regular, bold, columns.slots, rows, y, effectiveFontSize)
-    })
-    }
+    const occupied = allSlots.map((_, index) => index).filter(index => allRows.some(row => row.cells[index]?.length))
+    const columns = occupied.length ? occupied : allSlots.map((_, index) => index)
+    const slots = columns.map(index => allSlots[index])
+    const rows = allRows.map(row => ({ ...row, cells:columns.map(index => row.cells[index]) }))
+    const page = pdf.addPage(A4_LANDSCAPE)
+    const y = drawScaleHeader(page, regular, bold, String(local.name ?? localId), input.month)
+    let fontSize = Math.min(11, Math.max(7, requested))
+    const height = () => rows.reduce((sum, row) => sum + rowHeight(row, regular, fontSize, slots.length), 22)
+    while (height() > y - 30 && fontSize > 6) fontSize = Math.max(6, fontSize - .25)
+    if (height() > y - 30) throw new Error(`A escala ${local.name ?? localId} não cabe em uma folha A4 com nomes legíveis. Reduza os horários ou o período.`)
+    effectiveFontSize = Math.min(effectiveFontSize, fontSize)
+    drawScaleTable(page, regular, bold, slots, rows, y, fontSize)
   }
   if (!selectedLocals.length) pdf.addPage(A4_LANDSCAPE).drawText('Nenhum local disponível.', { x:30, y:540, size:11, font:regular })
   return { bytes:Uint8Array.from(await pdf.save()), pages:pdf.getPageCount(), effectiveFontSize }

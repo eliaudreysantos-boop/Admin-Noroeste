@@ -11,9 +11,17 @@ export function drawPublicPdfHeader(page: PDFPage, bold: PDFFont, regular: PDFFo
   congregation: string
   period?: string
   margin?: number
+  compact?: boolean
 }): number {
   const { width, height } = page.getSize()
   const margin = options.margin ?? 42
+  if (options.compact) {
+    page.drawText(options.title.toLocaleUpperCase('pt-BR'), { x:margin, y:height - 30, size:16, font:bold, color:PDF_INK })
+    page.drawText(options.congregation.toLocaleUpperCase('pt-BR'), { x:margin, y:height - 45, size:9, font:regular, color:PDF_MUTED })
+    page.drawLine({ start:{ x:margin, y:height - 53 }, end:{ x:width - margin, y:height - 53 }, thickness:.6, color:PDF_LINE })
+    if (options.period) page.drawText(options.period.toLocaleUpperCase('pt-BR'), { x:margin, y:height - 69, size:10, font:bold, color:PDF_INK })
+    return height - 84
+  }
   page.drawText(options.title.toLocaleUpperCase('pt-BR'), { x:margin, y:height - 54, size:18, font:bold, color:PDF_INK })
   page.drawText((options.congregation || 'Congregacao').toLocaleUpperCase('pt-BR'), { x:margin, y:height - 72, size:9, font:regular, color:PDF_MUTED })
   page.drawLine({ start:{ x:margin, y:height - 82 }, end:{ x:width - margin, y:height - 82 }, thickness:1, color:PDF_MUTED })

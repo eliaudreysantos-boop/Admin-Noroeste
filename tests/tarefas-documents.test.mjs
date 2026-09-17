@@ -9,8 +9,21 @@ test('mes com cinco reunioes de cada tipo cabe em uma folha com nomes completos'
   const meetings = Array.from({ length:10 }, (_, index) => ({ date:`2026-10-${String(index + 1).padStart(2, '0')}`, type:index % 2 ? 'weekend' : 'midweek', assignments:Object.fromEntries(TASK_ROLES.map(role => [role, 'p'])) }))
   const result = await createTaskSchedulePdf(meetings, 'Noroeste', people, 14)
   assert.equal(result.pages, 1)
-  const long = await createTaskSchedulePdf(meetings, 'Noroeste', { p:{ name:'Nome muito extenso '.repeat(20) } }, 14)
-  assert.ok(long.pages > 1)
+  await assert.rejects(createTaskSchedulePdf(meetings, 'Noroeste', { p:{ name:'Nome muito extenso '.repeat(20) } }, 14), /não cabe em uma folha/)
+})
+
+test('bimestre com 19 reunioes permanece em uma folha e nao modifica designacoes', async () => {
+  const people = { p:{ name:'Pessoa de Nome Completo Para Conferencia' } }
+  const meetings = Array.from({ length:19 }, (_, index) => ({
+    date:`2026-${index < 10 ? '09' : '10'}-${String(index % 10 + 1).padStart(2, '0')}`,
+    type:index % 2 ? 'weekend' : 'midweek',
+    assignments:Object.fromEntries(TASK_ROLES.map(role => [role, 'p'])),
+  }))
+  const original = structuredClone(meetings)
+  const result = await createTaskSchedulePdf(meetings, 'Noroeste', people, 14)
+  assert.equal(result.pages, 1)
+  assert.ok(result.effectiveFontSize >= 6)
+  assert.deepEqual(meetings, original)
 })
 
 test('Tarefas gera PDF real em A4 retrato com linhas de escala', async () => {

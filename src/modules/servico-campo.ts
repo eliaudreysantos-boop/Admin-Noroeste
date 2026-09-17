@@ -47,7 +47,7 @@ const monthLabel = (month: string): string => new Intl.DateTimeFormat('pt-BR', {
 
 function toast(message: string): void { const element = document.getElementById('toast'); if (!element) return; element.textContent = message; element.classList.add('show'); setTimeout(() => element.classList.remove('show'), 2800) }
 function root(): HTMLElement { return document.getElementById('servicoCampoRoot')! }
-function sectionTitle(title: string): string { return `<div class="module-section-title">${moduleBackButton()}<h2>${esc(title)}</h2></div>` }
+function sectionTitle(title: string): string { return `<div class="module-section-title">${screen === 'configuracao' ? moduleBackButton() : ''}<h2>${esc(title)}</h2></div>` }
 
 export default function mount(appContext: AppContext): void {
   void appContext

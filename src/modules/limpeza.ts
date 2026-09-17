@@ -19,7 +19,6 @@ import {
   limpezaPeriodosRef,
   limpezaRef,
 } from '../firebase'
-import { moduleBackButton } from '../ui/module-header'
 import {
   assertCleaningPeriodEditable,
   generateCleaningPeriod,
@@ -104,7 +103,6 @@ function candidateOptions(selectedMid = '', candidates = activePeople()): string
 function renderSectionTitle(title: string, desc: string): string {
   return `
     <div style="margin-bottom:14px">
-      ${moduleBackButton()}
       <h2 style="font-size:1.05rem;color:var(--blue-deep);margin-bottom:2px">${title}</h2>
       ${desc ? `<p style="font-size:.8rem;color:var(--ink-3)">${desc}</p>` : ''}
     </div>`
