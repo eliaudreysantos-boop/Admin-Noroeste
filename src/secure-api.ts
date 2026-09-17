@@ -25,10 +25,30 @@ export async function apiJson<T>(name: string, init: RequestInit = {}): Promise<
   const headers = new Headers(init.headers)
   if (init.body && !headers.has('content-type')) headers.set('content-type', 'application/json')
   if (init.method && init.method !== 'GET' && csrfToken) headers.set('x-noroeste-csrf', csrfToken)
-  const response = await fetch(`/.netlify/functions/${name}`, { ...init, headers, credentials:'include' })
-  const value = await response.json().catch(() => ({})) as Record<string, unknown>
-  if (!response.ok) throw new ApiError(String(value['error'] ?? 'Operacao indisponivel.'), response.status)
-  return value as T
+  const controller = new AbortController()
+  const abort = (): void => controller.abort(init.signal?.reason)
+  if (init.signal?.aborted) abort()
+  else init.signal?.addEventListener('abort', abort, { once:true })
+  // Limite apenas leituras: uma escrita lenta pode ter sido aplicada no servidor.
+  let timedOut = false
+  const timer = (!init.method || init.method.toUpperCase() === 'GET')
+    ? setTimeout(() => { timedOut = true; controller.abort() }, 15_000)
+    : undefined
+  try {
+    const response = await fetch(`/.netlify/functions/${name}`, { ...init, signal:controller.signal, headers, credentials:'include' })
+    const value = await response.json().catch(error => {
+      if (controller.signal.aborted) throw error
+      return {}
+    }) as Record<string, unknown>
+    if (!response.ok) throw new ApiError(String(value['error'] ?? 'Operacao indisponivel.'), response.status)
+    return value as T
+  } catch (error) {
+    if (timedOut) throw new ApiError('A conexão demorou demais. Tente novamente.', 408)
+    throw error
+  } finally {
+    clearTimeout(timer)
+    init.signal?.removeEventListener('abort', abort)
+  }
 }
 
 export function bytesToBase64(bytes: Uint8Array): string {

@@ -1,5 +1,4 @@
 import { lockPublicationUi } from '../ui/publication-busy'
-import { downloadPdf } from '../ui/pdf-download'
 import type {
   AppContext,
   ConfigLimpeza,
@@ -20,7 +19,6 @@ import {
   limpezaPeriodosRef,
   limpezaRef,
 } from '../firebase'
-import { renderMenuCards, type ItemMenu } from '../ui/menu-cards'
 import { moduleBackButton } from '../ui/module-header'
 import {
   assertCleaningPeriodEditable,
@@ -32,12 +30,11 @@ import {
 import { apiJson } from '../secure-api.ts'
 import { mountModuleMessageSettings } from './module-message-settings'
 
-type LimpezaTab = 'indice' | 'escala' | 'grupos' | 'config' | 'pdf'
-
 let pessoas: RawPessoas = {}
 let limpeza: Partial<ConfigLimpeza> = {}
 let changingPublication = false
-let activeTab: LimpezaTab = 'grupos'
+let downloadingPdf = false
+let configDirty = false
 let limpezaChanges = new Map<string, number | null>()
 let periodos: Record<string, LimpezaPeriodoGerado> = {}
 let periodMode: CleaningPeriodMode = 'bimester'
@@ -114,8 +111,8 @@ function renderSectionTitle(title: string, desc: string): string {
 }
 
 export default function mount(_ctx: AppContext): void {
-  activeTab = 'indice'
   limpezaChanges = new Map()
+  configDirty = false
 
   const root = document.getElementById('appContent')
   if (!root) return
@@ -160,33 +157,32 @@ async function loadAll(): Promise<void> {
     selectedPeriodId = ids[ids.length - 1] ?? ''
   } catch {
     toast('Erro ao carregar dados de limpeza')
+    if (content?.isConnected) {
+      content.innerHTML = '<p class="empty-state">Não foi possível carregar a Limpeza.</p><button id="retryCleaning" class="btn btn-primary">Tentar novamente</button>'
+      document.getElementById('retryCleaning')?.addEventListener('click', () => void loadAll())
+    }
+    return
   }
 
+  if (!content?.isConnected) return
   renderContent()
 }
 
 function renderContent(): void {
-  if (activeTab === 'indice') {
-    renderIndex()
-    return
-  }
-  if (activeTab === 'escala') renderEscala()
-  else if (activeTab === 'grupos') renderGrupos()
-  else if (activeTab === 'config') renderConfig()
-  else renderPdf()
-}
-
-function renderIndex(): void {
   const content = document.getElementById('limpezaContent')
   if (!content) return
-  content.innerHTML = `<div style="margin-bottom:14px"><h2 style="font-size:1.05rem;color:var(--blue-deep);margin-bottom:2px">Limpeza</h2></div><div id="limpezaMenu"></div>`
-  const items: ItemMenu[] = [
-    { id: 'escala', titulo: 'Gerar escala', subtitulo: 'Calcule e salve a rotação mensal ou bimestral', icone: '▦', corFundo: '#B83E18' },
-    { id: 'grupos', titulo: 'Grupos', subtitulo: 'Distribua as pessoas pelos grupos de limpeza', icone: '♧', corFundo: '#006EB6' },
-    { id: 'pdf', titulo: 'PDF', subtitulo: 'Baixe a escala já gerada em arquivo separado', icone: '▤', corFundo: '#7E3AF2' },
-    { id: 'config', titulo: 'Configuração', subtitulo: 'Rotação, grupos, responsáveis e mensagens', icone: '⚙', corFundo: '#003F72' },
-  ]
-  renderMenuCards(content.querySelector<HTMLElement>('#limpezaMenu')!, items, id => { activeTab = id as LimpezaTab; renderContent() })
+  content.innerHTML = `${renderSectionTitle('Limpeza', '')}
+    <div id="cleaningPdf"></div>
+    <div id="cleaningSchedule"></div>
+    <details><summary>Gerar escala</summary><div id="cleaningGenerate"></div></details>
+    <details><summary>Grupos e participantes</summary><div id="cleaningGroups"></div></details>
+    <details><summary>Rotação e responsáveis</summary><div id="cleaningConfig"></div></details>
+    <div id="cleaningMessageSettings"></div>`
+  renderEscala()
+  renderPdf()
+  renderGrupos()
+  renderConfig()
+  void mountModuleMessageSettings('cleaningMessageSettings', 'limpeza', toast)
 }
 
 function formatGeneratedDate(value: string): string {
@@ -215,20 +211,14 @@ function renderPeriodRows(period: LimpezaPeriodoGerado): string {
 }
 
 function renderEscala(): void {
-  const content = document.getElementById('limpezaContent')
+  const content = document.getElementById('cleaningGenerate')
   if (!content) return
-  const currentId = periodBounds(`${periodAnchor.slice(0, 7)}-01`, periodMode).id
-  const preview = periodos[currentId]
   content.innerHTML = `
-    ${renderSectionTitle('Gerar escala', '')}
     <div class="module-form-grid">
       <div class="form-group"><label class="form-label">Período</label><select id="limpezaPeriodMode" class="form-select"><option value="month" ${periodMode === 'month' ? 'selected' : ''}>Mensal</option><option value="bimester" ${periodMode === 'bimester' ? 'selected' : ''}>Bimestral</option></select></div>
       <div class="form-group"><label class="form-label">Mês inicial</label><input id="limpezaPeriodAnchor" class="form-input" type="month" value="${periodAnchor.slice(0, 7)}"></div>
     </div>
-    <button id="btnGerarEscalaLimpeza" class="btn btn-primary btn-full" type="button">Gerar escala</button>
-    <div style="margin-top:14px;background:var(--surface);border:1px solid var(--border);border-radius:8px;overflow:hidden">
-      ${preview ? renderPeriodRows(preview) : '<p style="padding:18px;text-align:center;color:var(--ink-3);font-size:.82rem">Gere este período para revisar as datas e os grupos.</p>'}
-    </div>`
+    <button id="btnGerarEscalaLimpeza" class="btn btn-primary btn-full" type="button">Gerar escala</button>`
   document.getElementById('limpezaPeriodMode')?.addEventListener('change', event => {
     periodMode = (event.target as HTMLSelectElement).value as CleaningPeriodMode
     localStorage.setItem(CLEANING_PERIOD_MODE_KEY, periodMode)
@@ -267,27 +257,30 @@ async function saveGeneratedPeriod(): Promise<void> {
     selectedPeriodId = generated.id
     toast(`Escala gerada com ${generated.semanas.length} semanas`)
     renderEscala()
+    renderPdf()
   } catch (error) {
     toast(error instanceof Error ? error.message : 'Erro ao gerar a escala')
   } finally {
     button?.removeAttribute('disabled')
+    if (button) button.textContent = 'Gerar escala'
   }
 }
 
 function renderGrupos(): void {
-  const content = document.getElementById('limpezaContent')
+  const content = document.getElementById('cleaningGroups')
   if (!content) return
   limpezaChanges.clear()
 
   const ativos = activePeople()
   content.innerHTML = `
-    ${renderSectionTitle('Grupos de limpeza', '')}
     <div id="limpezaCounters" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px"></div>
     <div style="font-size:.78rem;color:var(--ink-3);margin-bottom:8px">
       ${ativos.length} pessoa${ativos.length !== 1 ? 's' : ''} ativa${ativos.length !== 1 ? 's' : ''}
     </div>
     <div id="limpezaList">
-      ${ativos.map(([mid, p]) => `
+      ${[...Array.from({ length: groupCount() }, (_, i) => i + 1), null].map(group => {
+        const members = ativos.filter(([, person]) => (person.limpeza?.grupo ?? null) === group || (group === null && Number(person.limpeza?.grupo) > groupCount()))
+        return `<details><summary>${group === null ? 'Sem grupo' : `Grupo ${group}`} · ${members.length} participantes</summary>${members.map(([mid, p]) => `
         <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;
           padding:9px 12px;margin-bottom:5px;display:flex;align-items:center;gap:10px">
           <span style="flex:1;font-size:.88rem;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
@@ -301,7 +294,8 @@ function renderGrupos(): void {
                 Grupo ${g}
               </option>`).join('')}
           </select>
-        </div>`).join('')}
+        </div>`).join('')}</details>`
+      }).join('')}
     </div>
     <div style="position:sticky;bottom:8px;margin-top:14px">
       <button id="btnSalvarLimpezaGrupos" class="btn btn-primary btn-full">
@@ -321,7 +315,7 @@ function renderGrupos(): void {
   })
 
   document.getElementById('btnSalvarLimpezaGrupos')!
-    .addEventListener('click', () => void saveGrupos(ativos))
+    .addEventListener('click', () => void saveGrupos())
 }
 
 function updateLimpezaCounters(ativos: [string, MasterPessoa][]): void {
@@ -350,7 +344,7 @@ function updateLimpezaCounters(ativos: [string, MasterPessoa][]): void {
     </span>`
 }
 
-async function saveGrupos(ativos: [string, MasterPessoa][]): Promise<void> {
+async function saveGrupos(): Promise<void> {
   if (limpezaChanges.size === 0) { toast('Nenhuma alteração'); return }
 
   setLoading('btnSalvarLimpezaGrupos', true, 'Salvar Grupos')
@@ -365,7 +359,8 @@ async function saveGrupos(ativos: [string, MasterPessoa][]): Promise<void> {
     const n = limpezaChanges.size
     toast(`${n} alteraç${n === 1 ? 'ão salva' : 'ões salvas'} ✓`)
     limpezaChanges.clear()
-    updateLimpezaCounters(ativos)
+    renderGrupos()
+    if (!configDirty) renderConfig()
   } catch {
     toast('Erro ao salvar grupos')
   } finally {
@@ -374,7 +369,7 @@ async function saveGrupos(ativos: [string, MasterPessoa][]): Promise<void> {
 }
 
 function renderConfig(): void {
-  const content = document.getElementById('limpezaContent')
+  const content = document.getElementById('cleaningConfig')
   if (!content) return
 
   const ativa = limpeza.ativa ?? false
@@ -391,11 +386,11 @@ function renderConfig(): void {
     const groupPeople = activePeople().filter(([, person]) => person.limpeza?.grupo === Number(gid))
 
     return `
-      <div data-cleaning-group="${escapeHtml(sourceId)}" style="background:var(--surface);border:1px solid var(--border);border-radius:8px;
+      <details data-cleaning-group="${escapeHtml(sourceId)}" style="background:var(--surface);border-bottom:1px solid var(--border);
         padding:12px;margin-bottom:10px">
-        <div style="font-size:.9rem;font-weight:700;color:var(--blue-deep);margin-bottom:10px">
+        <summary style="font-size:.9rem;font-weight:700;color:var(--blue-deep);margin-bottom:10px">
           ${escapeHtml(nome || `Grupo ${gid}`)}
-        </div>
+        </summary>
         <div class="form-group">
           <label class="form-label">Nome do grupo</label>
           <input id="gNome_${escapeHtml(sourceId)}" class="form-input" maxlength="40" value="${escapeHtml(nome)}" placeholder="Ex.: Salão do Reino">
@@ -417,11 +412,10 @@ function renderConfig(): void {
               </label>`).join('')}
           </div>
         </div>
-      </div>`
+      </details>`
   }).join('')
 
   content.innerHTML = `
-    ${renderSectionTitle('Configuração da limpeza', '')}
     <div class="form-group">
       <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
         <input type="checkbox" id="lAtiva" ${ativa ? 'checked' : ''}>
@@ -432,7 +426,7 @@ function renderConfig(): void {
       <div class="form-group" >
         <label class="form-label">Número de grupos</label>
         <select id="lGrupos" class="form-select">
-          ${[2,3,4,5,6].map(n => `<option value="${n}" ${grupos === n ? 'selected' : ''}>${n} grupos</option>`).join('')}
+          ${Array.from({ length:12 }, (_, i) => i + 1).map(n => `<option value="${n}" ${grupos === n ? 'selected' : ''}>${n} grupos</option>`).join('')}
         </select>
       </div>
       <div class="form-group">
@@ -445,18 +439,18 @@ function renderConfig(): void {
     ${grupoCards}
     <div style="position:sticky;bottom:8px;margin-top:4px">
       <button id="btnSalvarLimpezaConfig" class="btn btn-primary btn-full">Salvar Configuração</button>
-    </div><div id="cleaningMessageSettings"></div>`
+    </div>`
 
   document.getElementById('btnSalvarLimpezaConfig')!
     .addEventListener('click', () => void saveConfig())
-  void mountModuleMessageSettings('cleaningMessageSettings', 'limpeza', toast)
+  content.oninput = () => { configDirty = true }
 }
 
 async function saveConfig(): Promise<void> {
   const button = document.getElementById('btnSalvarLimpezaConfig') as HTMLButtonElement
   if (button.disabled) return
   const checked = (id: string) => (document.getElementById(id) as HTMLInputElement).checked
-  const value = (id: string) => (document.getElementById(id) as HTMLInputElement).value.trim()
+  const value = (id: string) => (document.getElementById(id) as HTMLInputElement | null)?.value.trim() ?? ''
   const grupos = Number((document.getElementById('lGrupos') as HTMLSelectElement).value)
   const editedConfigs: Record<string, ConfigLimpezaGrupo> = {}
 
@@ -497,8 +491,9 @@ async function saveConfig(): Promise<void> {
   try {
     await compareAndUpdate(configLimpezaRef, expected, patch)
     limpeza = nextConfig
+    configDirty = false
     toast('Configuração salva ✓')
-    if (button.isConnected) renderConfig()
+    if (button.isConnected) { renderConfig(); if (!limpezaChanges.size) renderGrupos() }
   } catch (error) {
     toast(failureMessage(error, 'Erro ao salvar configuração'))
   } finally {
@@ -507,18 +502,20 @@ async function saveConfig(): Promise<void> {
 }
 
 function renderPdf(): void {
-  const content = document.getElementById('limpezaContent')
+  const content = document.getElementById('cleaningPdf')
   if (!content) return
   const period = generatedPeriod()
   const fontSize = Number(localStorage.getItem('noroeste_limpeza_pdf_font') ?? 15)
   content.innerHTML = `
-    ${renderSectionTitle('PDF separado', '')}
     <div class="form-panel">
       <label class="form-field"><span>Escala gerada</span><select id="pdfLimpezaPeriodo" class="form-select" ${Object.keys(periodos).length ? '' : 'disabled'}>${generatedPeriodOptions() || '<option>Nenhuma escala gerada</option>'}</select></label>
-      <label class="form-field"><span>Fonte base: <strong id="pdfLimpezaFonteValor">${fontSize} pt</strong></span><input id="pdfLimpezaFonte" type="range" min="8" max="22" value="${fontSize}"></label>
-      <button id="btnGerarPdfLimpeza" class="btn btn-primary btn-full" type="button" ${period ? '' : 'disabled'}>${period?.publicado ? 'Baixar PDF' : 'Baixar PDF e publicar período'}</button>
-      ${period?.publicado ? `<button id="btnPublicarPdfLimpeza" class="btn btn-ghost btn-full" style="margin-top:8px" type="button">Reabrir período</button>` : ''}
+      <details><summary>Ajustar PDF</summary><label class="form-field"><span>Fonte base: <strong id="pdfLimpezaFonteValor">${fontSize} pt</strong></span><input id="pdfLimpezaFonte" type="range" min="8" max="22" value="${fontSize}"></label></details>
+      <p>${period?.publicado ? 'Publicado' : 'Rascunho'}</p>
+      <button id="btnGerarPdfLimpeza" class="btn btn-primary btn-full" type="button" ${period ? '' : 'disabled'}>Baixar PDF</button>
+      <button id="btnPublicarPdfLimpeza" class="btn btn-ghost btn-full" style="margin-top:8px" type="button" ${period ? '' : 'disabled'}>${period?.publicado ? 'Reabrir período' : 'Publicar no Quadro'}</button>
     </div>`
+  const schedule = document.getElementById('cleaningSchedule')
+  if (schedule) schedule.innerHTML = period ? renderPeriodRows(period) : '<p class="empty-state">Nenhuma escala gerada.</p>'
   document.getElementById('pdfLimpezaPeriodo')?.addEventListener('change', event => {
     selectedPeriodId = (event.target as HTMLSelectElement).value
     renderPdf()
@@ -533,7 +530,7 @@ function renderPdf(): void {
   document.getElementById('btnPublicarPdfLimpeza')?.addEventListener('click', () => void toggleCleaningPublication())
 }
 
-async function toggleCleaningPublication(download = false): Promise<void> {
+async function toggleCleaningPublication(): Promise<void> {
   if (changingPublication) return
   const period = generatedPeriod()
   if (!period) return
@@ -569,7 +566,6 @@ async function toggleCleaningPublication(download = false): Promise<void> {
         catch { console.warn('Não foi possível desfazer a publicação incompleta de Limpeza') }
         throw error
       }
-      if (download) downloadPdf(result.bytes, `limpeza-${period.id}.pdf`)
       period.publicado = true; period.publicadoEm = publishedAt
       toast('Período publicado no Quadro')
     }
@@ -579,12 +575,12 @@ async function toggleCleaningPublication(download = false): Promise<void> {
 }
 
 async function exportCleaningPdf(): Promise<void> {
-  if (changingPublication) return
+  if (changingPublication || downloadingPdf) return
   const period = generatedPeriod()
   if (!period) { toast('Gere a escala antes de baixar o PDF'); return }
-  if (!period.publicado) { await toggleCleaningPublication(true); return }
   const button = document.getElementById('btnGerarPdfLimpeza') as HTMLButtonElement | null
   const fontSize = Number((document.getElementById('pdfLimpezaFonte') as HTMLInputElement).value)
+  downloadingPdf = true
   try {
     if (button) { button.disabled = true; button.textContent = 'Preparando PDF...' }
     const { downloadCleaningPdf } = await import('./limpeza-documents')
@@ -594,6 +590,7 @@ async function exportCleaningPdf(): Promise<void> {
   } catch (error) {
     toast(failureMessage(error, 'Erro ao gerar o PDF'))
   } finally {
+    downloadingPdf = false
     if (button) { button.disabled = false; button.textContent = 'Baixar PDF' }
   }
 }

@@ -1,6 +1,6 @@
 import { createRequire } from 'node:module'
 import assert from 'node:assert/strict'
-import { readFile, mkdir } from 'node:fs/promises'
+import { mkdir } from 'node:fs/promises'
 
 const require = createRequire(process.env.PLAYWRIGHT_PACKAGE_JSON || new URL('../package.json', import.meta.url))
 const { chromium } = require('playwright')
@@ -48,7 +48,7 @@ const cases = [
 ]
 await mkdir('.netlify', { recursive:true })
 try {
-  for (const width of [1280, 390]) for (const [module, tab, buttonId, reopen, periodPath] of cases) {
+  for (const width of [1280, 390]) for (const [module, tab, buttonId, , periodPath] of cases) {
     const context = await browser.newContext({ viewport:{ width, height:900 }, serviceWorkers:'block' })
     const page = await context.newPage(), writes = [], errors = [], downloads = []
     let failure = 'upload'
@@ -71,40 +71,55 @@ try {
     })
     await page.goto(process.env.APP_TEST_URL || 'http://localhost:5180/')
     await page.locator('[data-menu-card="'+module+'"]').click()
-    await page.locator('[data-menu-card="'+tab+'"]').click()
+    if (module === 'tarefas' || module === 'escala') await page.locator('[data-menu-card="'+tab+'"]').click()
     if (module === 'tarefas') await page.getByText('Refazer uma função ou ajustar a impressão', { exact:true }).click()
     const button = page.locator(buttonId)
     await button.waitFor()
-    for (const mode of ['upload','period']) {
-      failure = mode
+    {
+      const publish = page.locator(({ limpeza:'#btnPublicarPdfLimpeza', servicoCampo:'#servicePublish', tarefas:'#btnToggleTaskLock', escala:'#sPublish' })[module])
+      const draft = page.waitForEvent('download')
       await button.click()
-      await page.waitForFunction(() => !document.getElementById('appShell').inert)
-      assert.equal(downloads.length, 0, module+' should not download after '+mode+' failure')
-      assert.equal(await page.locator(reopen).count(), 0)
-      assert.equal(await button.innerText(), 'Baixar PDF e publicar período')
+      const draftFile = await draft
+      assert.equal(await draftFile.failure(), null)
+      await draftFile.saveAs('.netlify/draft-'+module+'-'+width+'.pdf')
+      assert.equal(writes.length, 0, 'draft download does not write or upload')
+      for (const mode of ['upload', 'period']) {
+        failure = mode
+        await publish.click()
+        await page.waitForFunction(() => !document.getElementById('appShell').inert)
+        assert.equal(downloads.length, 1, 'publishing does not download')
+        assert.equal(await publish.innerText(), 'Publicar no Quadro')
+      }
+      assert.ok(writes.some(item => item.path === 'agenda/documentos' && Object.values(item.body.value).includes(null)), 'failed period write rolls back publication')
+      failure = ''
+      const before = writes.length
+      await publish.evaluate(button => { button.click(); button.click() })
+      await page.getByRole('button', { name:({ limpeza:'Reabrir período', servicoCampo:'Reabrir mês', tarefas:'Reabrir escala', escala:'Despublicar' })[module], exact:true }).waitFor()
+      assert.equal(writes.slice(before).filter(item => item.endpoint === 'storage-file' && item.method === 'POST').length, 1)
+      assert.equal(downloads.length, 1)
+      const publishedWrites = writes.length
+      const download = page.waitForEvent('download')
+      await button.click()
+      assert.equal(await (await download).failure(), null)
+      assert.equal(writes.length, publishedWrites)
+      if (module === 'servicoCampo') {
+        await page.locator('#serviceConfig').click()
+        assert.equal(await page.locator('#serviceTemplateForm').isVisible(), false)
+        await page.locator('.service-template summary').first().click()
+        await page.locator('[data-edit-service-template]').click()
+        assert.equal(await page.locator('#serviceTemplateForm').isVisible(), true)
+      } else if (module === 'limpeza') {
+        await page.getByText('Grupos e participantes', { exact:true }).click()
+        assert.equal(await page.locator('.limpeza-sel').first().isVisible(), false)
+        await page.locator('#cleaningGroups summary').first().click()
+        assert.equal(await page.locator('.limpeza-sel').first().isVisible(), true)
+      }
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false)
+      await page.screenshot({ path:'.netlify/separate-download-'+module+'-'+width+'.png', fullPage:true })
+      assert.deepEqual(errors, [])
+      console.log(JSON.stringify({ module, width, separateDownload:true, rollback:true, doubleClick:true, expandable:true }))
+      await context.close()
+      continue
     }
-    assert.ok(writes.some(item => item.path === 'agenda/documentos' && Object.values(item.body.value).includes(null)), 'rollback removes publication metadata')
-    failure = ''
-    const before = writes.length
-    const downloadPromise = page.waitForEvent('download')
-    await page.evaluate(id => { const button = document.querySelector(id); button.click(); button.click() }, buttonId)
-    const download = await downloadPromise
-    assert.equal(await download.failure(), null)
-    await page.locator(reopen).waitFor()
-    const uploads = writes.slice(before).filter(item => item.endpoint === 'storage-file' && item.method === 'POST')
-    assert.equal(uploads.length, 1, 'double click publishes once')
-    assert.deepEqual(await readFile(await download.path()), Buffer.from(uploads[0].body.base64, 'base64'), 'download equals published PDF')
-    if (module === 'tarefas') await page.getByText('Refazer uma função ou ajustar a impressão', { exact:true }).click()
-    assert.equal(await button.innerText(), 'Baixar PDF')
-    const publishedWrites = writes.length
-    const second = page.waitForEvent('download')
-    await button.click()
-    assert.equal(await (await second).failure(), null)
-    assert.equal(writes.length, publishedWrites, 'published period only downloads')
-    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false)
-    await page.screenshot({ path:'.netlify/publish-download-'+module+'-'+width+'.png', fullPage:true, animations:'disabled' })
-    assert.deepEqual(errors, [])
-    console.log(JSON.stringify({ module, width, uploadFailure:true, rollback:true, doubleClick:true, exactBytes:true, noRepublish:true }))
-    await context.close()
   }
 } finally { await browser.close() }

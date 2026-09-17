@@ -1,5 +1,4 @@
 import { lockPublicationUi } from '../ui/publication-busy'
-import { downloadPdf } from '../ui/pdf-download'
 import type { AppContext, RawPessoas } from '../types'
 import { apiJson } from '../secure-api.ts'
 import { child, compareAndUpdate, escalaRef, get, pessoasRef, update } from '../firebase'
@@ -15,7 +14,7 @@ import {
 import {
   confirmationMessage, dayLabel, monthLabel,
 } from './escala-output'
-import { createScaleSchedulePdf, downloadScaleSchedulePdf } from './escala-documents'
+import type { createScaleSchedulePdf } from './escala-documents'
 import { publishAgendaModulePdf, unpublishAgendaModulePdf } from './agenda-documents'
 import { mountModuleMessageSettings } from './module-message-settings'
 
@@ -44,6 +43,7 @@ let publishedMonth = '', selectedMonth = monthNow(), selectedLocalId = '', selec
 let publishedMonths: Record<string, boolean> = {}
 let tab: Tab = 'indice'
 let pendingParticipantId = ''
+let downloadingPdf = false
 let changingPublication = false
 let loadPromise: Promise<boolean> | null = null
 const monthLocked = (month = selectedMonth) => isPublishedMonth(month, publishedMonth, publishedMonths)
@@ -118,8 +118,16 @@ async function load(): Promise<boolean> {
   return true
 }
 async function go(next: Tab): Promise<void> {
-  root().innerHTML = `${moduleBackButton()}<p class="empty-state">Carregando dados...</p>`
-  if (!await ensureLoaded()) { root().innerHTML = `${moduleBackButton()}<p class="empty-state">Não foi possível carregar a Escala TPL. Volte aos módulos e tente novamente.</p>`; return }
+  const host = root()
+  host.innerHTML = `${moduleBackButton()}<p class="empty-state">Carregando dados...</p>`
+  const loaded = await ensureLoaded()
+  if (!host.isConnected) return
+  if (!loaded) {
+    loadPromise = null
+    host.innerHTML = `${moduleBackButton()}<p class="empty-state">Não foi possível carregar a Escala TPL.</p><button id="retryScale" class="btn btn-primary">Tentar novamente</button>`
+    document.getElementById('retryScale')?.addEventListener('click', () => void go(next))
+    return
+  }
   tab = next; render()
 }
 function render(): void {
@@ -360,10 +368,11 @@ function renderScale(): void {
   const dates = table ? Object.keys(table.rows ?? {}).sort() : activeDates(selectedMonth, local.daysActive ?? [], exclusions[selectedMonth] ?? [])
   const slots = table?.slots ?? localSlots(local)
   const activeRules = Object.values(normalizeEscalaGenerationRules(settings.engineRules)).filter(Boolean).length
-  root().innerHTML = `${periodControls()}${published ? '<div class="notice warning">Este mês está publicado e bloqueado para edição.</div>' : ''}<div class="scale-actions"><button id="sGenerateAll" class="btn btn-primary" ${published ? 'disabled' : ''}>${hasData(selectedMonth) ? 'Completar mês' : 'Gerar mês'} · ${activeRules} regras</button><button id="sPdf" class="btn btn-ghost" ${hasData(selectedMonth) ? '' : 'disabled'}>${published ? 'Baixar PDF' : 'Baixar PDF e publicar período'}</button>${published ? '<button id="sUnpublish" class="btn btn-ghost">Despublicar</button>' : `${hasData(selectedMonth) ? '<button id="sDelete" class="btn btn-danger">Apagar mês</button>' : ''}`}</div><div class="scale-days">${dates.map(date => `<section class="scale-day"><h3>${esc(dayLabel(date))}</h3>${slots.map(time => slotHtml(date, time, table)).join('')}</section>`).join('') || '<p class="empty-state">Este local não tem dias ativos neste mês.</p>'}</div>`
+  root().innerHTML = `${periodControls()}${published ? '<div class="notice warning">Este mês está publicado e bloqueado para edição.</div>' : ''}<div class="scale-actions"><button id="sGenerateAll" class="btn btn-primary" ${published ? 'disabled' : ''}>${hasData(selectedMonth) ? 'Completar mês' : 'Gerar mês'} · ${activeRules} regras</button><button id="sPdf" class="btn btn-ghost" ${hasData(selectedMonth) ? '' : 'disabled'}>Baixar PDF</button>${!published ? `<button id="sPublish" class="btn btn-ghost" ${hasData(selectedMonth) ? '' : 'disabled'}>Publicar no Quadro</button>` : ''}${published ? '<button id="sUnpublish" class="btn btn-ghost">Despublicar</button>' : `${hasData(selectedMonth) ? '<button id="sDelete" class="btn btn-danger">Apagar mês</button>' : ''}`}</div><div class="scale-days">${dates.map(date => `<section class="scale-day"><h3>${esc(dayLabel(date))}</h3>${slots.map(time => slotHtml(date, time, table)).join('')}</section>`).join('') || '<p class="empty-state">Este local não tem dias ativos neste mês.</p>'}</div>`
   bindPeriod(renderScale)
   document.getElementById('sGenerateAll')!.addEventListener('click', () => void generate())
-  document.getElementById('sPdf')!.addEventListener('click', printPdf)
+  document.getElementById('sPdf')!.addEventListener('click', () => void printPdf())
+  document.getElementById('sPublish')?.addEventListener('click', () => void publish())
   document.getElementById('sUnpublish')?.addEventListener('click', () => void unpublish())
   document.getElementById('sDelete')?.addEventListener('click', () => void deleteMonth())
   document.querySelectorAll<HTMLButtonElement>('[data-slot]').forEach(button => button.addEventListener('click', () => pairModal(button.dataset['date']!, button.dataset['time']!)))
@@ -422,6 +431,7 @@ async function publish(): Promise<void> {
   changingPublication = true
   const releaseUi = lockPublicationUi()
   try {
+    const { createScaleSchedulePdf } = await import('./escala-documents')
     const result = await createScaleSchedulePdf(pdfInput)
     const lastDay = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate()
     await publishAgendaModulePdf(result.bytes, { modulo:'escala', periodo:month, inicio:`${month}-01`, fim:`${month}-${lastDay}`, origemPeriodoId:month, nome:`escala-tpl-${month}.pdf` })
@@ -431,7 +441,6 @@ async function publish(): Promise<void> {
       catch { toast('Publicação incompleta. Reabra o módulo e confira o PDF no Quadro.'); return }
       throw error
     }
-    downloadPdf(result.bytes, `escala-tpl-${month}.pdf`)
     publishedMonth = month; publishedMonths[month] = true; historicalSnapshots[month] = snapshot; toast('Mês publicado e bloqueado'); renderScale()
   } catch { toast('Não foi possível publicar') }
   finally { changingPublication = false; releaseUi() }
@@ -598,11 +607,16 @@ async function saveConfig(): Promise<void> {
   try { await update(escalaRef, { settings: nextSettings, greetings: nextGreetings }); settings = nextSettings; greetings = nextGreetings; toast('Configurações salvas') } catch { toast('Não foi possível salvar') }
 }
 
-function printPdf(): void {
-  if (changingPublication) return
-  if (!monthLocked()) { void publish(); return }
-  const input = scalePdfInput()
-  void downloadScaleSchedulePdf(input)
-    .then(() => { toast('Download do PDF iniciado') })
-    .catch(() => toast('Não foi possível gerar o PDF'))
+async function printPdf(): Promise<void> {
+  if (changingPublication || downloadingPdf || !hasData(selectedMonth)) return
+  const input = structuredClone(scalePdfInput())
+  downloadingPdf = true
+  const button = document.getElementById('sPdf') as HTMLButtonElement | null
+  if (button) { button.disabled = true; button.textContent = 'Preparando PDF...' }
+  try {
+    const { downloadScaleSchedulePdf } = await import('./escala-documents')
+    await downloadScaleSchedulePdf(input)
+    toast('Download do PDF iniciado')
+  } catch { toast('Não foi possível gerar o PDF') }
+  finally { downloadingPdf = false; if (button) { button.disabled = false; button.textContent = 'Baixar PDF' } }
 }

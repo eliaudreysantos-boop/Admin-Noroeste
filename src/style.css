@@ -1176,6 +1176,18 @@ textarea.form-input {
 .text-muted    { color: var(--ink-3); }
 .mt-8          { margin-top: 8px; }
 .mt-16         { margin-top: 16px; }
+#limpezaRoot details,
+#servicoCampoRoot details { margin: 12px 0; border-bottom: 1px solid var(--border); }
+#limpezaRoot summary,
+#servicoCampoRoot summary { padding: 12px 0; cursor: pointer; font-size: .88rem; font-weight: 600; overflow-wrap: anywhere; }
+#limpezaRoot summary:focus-visible,
+#servicoCampoRoot summary:focus-visible { outline: 2px solid var(--blue-deep); outline-offset: 3px; }
+#cleaningPdf .form-panel { border: 0; padding: 0; background: transparent; }
+#cleaningSchedule { margin: 16px 0; }
+.service-template summary small { display: block; margin-top: 6px; color: var(--ink-3); font-weight: 400; }
+#servicoCampoRoot [hidden] { display: none !important; }
+#cleaningGenerate, #cleaningGroups, #cleaningConfig { padding: 4px 0 12px; }
+#servicoCampoRoot > details > .form-panel { border: 0; background: transparent; padding: 0; }
 .coordinator-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
 .coordinator-card { border:1px solid var(--border); border-radius:8px; background:var(--surface); overflow:hidden; }
 .coordinator-card summary { display:grid; grid-template-columns:42px 1fr auto; gap:10px; align-items:center; padding:12px; cursor:pointer; list-style:none; }

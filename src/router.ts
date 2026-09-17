@@ -24,6 +24,7 @@ const MODULES_ORDER: ModuleName[] = [
 async function loadModule(
   name: ModuleName,
   ctx:  AppContext,
+  current: () => boolean,
 ): Promise<void> {
   const loaders: Record<ModuleName, () => Promise<{ default: (ctx: AppContext) => void }>> = {
     mestre:      () => import('./modules/mestre'),
@@ -34,7 +35,7 @@ async function loadModule(
     individual:  () => import('./modules/individual'),
   }
   const mod = await loaders[name]()
-  mod.default(ctx)
+  if (current()) mod.default(ctx)
 }
 
 // ─── Módulo activo ──────────────────────────────────────────────────────────
@@ -42,6 +43,7 @@ async function loadModule(
 let _ctx: AppContext | null = null
 let _accessList: ModuleName[] = []
 let _currentModule: ModuleName | null = null
+let navigationId = 0
 
 function animateRoute(content: HTMLElement): void {
   content.classList.remove('screen-enter')
@@ -58,12 +60,19 @@ function emitRouteState(): void {
 export async function navigateTo(modulo: ModuleName): Promise<void> {
   if (!_ctx) return
   if (!_accessList.includes(modulo)) return
+  const requestId = ++navigationId
   _currentModule = modulo
   emitRouteState()
   const content = document.getElementById('appContent')!
   content.innerHTML = '<p style="padding:24px;color:var(--ink-3)">Carregando…</p>'
-  await loadModule(modulo, _ctx)
-  animateRoute(content)
+  try {
+    await loadModule(modulo, _ctx, () => requestId === navigationId)
+    if (requestId === navigationId) animateRoute(content)
+  } catch {
+    if (requestId !== navigationId) return
+    content.innerHTML = '<p class="empty-state">Não foi possível abrir o módulo.</p><button id="retryModule" class="btn btn-primary">Tentar novamente</button>'
+    document.getElementById('retryModule')?.addEventListener('click', () => void navigateTo(modulo))
+  }
 }
 
 export function navigateBack(): void {
@@ -116,6 +125,7 @@ function hasAccess(apps: AppPermissions, m: ModuleName): boolean {
 }
 
 function renderMenu(list: ModuleName[]): void {
+  navigationId++
   _currentModule = null
   emitRouteState()
   const content = document.getElementById('appContent')!

@@ -1,5 +1,4 @@
 import { lockPublicationUi } from '../ui/publication-busy'
-import { downloadPdf } from '../ui/pdf-download'
 import type { AppContext } from '../types'
 import {
   get,
@@ -39,7 +38,6 @@ import {
   type TaskRole,
 } from './tarefas-domain'
 import { formatTaskDate } from './tarefas-output'
-import { createTaskSchedulePdf, downloadTaskSchedulePdf } from './tarefas-documents'
 import { publishAgendaModulePdf, unpublishAgendaModulePdf } from './agenda-documents'
 import { mountModuleMessageSettings } from './module-message-settings'
 
@@ -94,6 +92,7 @@ let participantSearch = ''
 let participantMeetingRule = ''
 let participantRoleFilter = ''
 let pendingTarget: PendingTarget | null = null
+let downloadingPdf = false
 let changingPublication = false
 let loadPromise: Promise<boolean> | null = null
 
@@ -250,7 +249,14 @@ async function openTarefasTab(next: TarefasTab): Promise<void> {
   const content = document.getElementById('tarefasContent')
   if (!content) return
   content.innerHTML = `${sectionTitle('Tarefas', '')}<p class="empty-state">Carregando dados...</p>`
-  if (!await ensureLoaded()) { content.innerHTML = `${sectionTitle('Tarefas', '')}<p class="empty-state">Não foi possível carregar os dados. Volte ao módulo e tente novamente.</p>`; return }
+  const loaded = await ensureLoaded()
+  if (!content.isConnected) return
+  if (!loaded) {
+    loadPromise = null
+    content.innerHTML = `${sectionTitle('Tarefas', '')}<p class="empty-state">Não foi possível carregar os dados.</p><button id="retryTasks" class="btn btn-primary">Tentar novamente</button>`
+    document.getElementById('retryTasks')?.addEventListener('click', () => void openTarefasTab(next))
+    return
+  }
   activeTab = next
   renderContent()
 }
@@ -304,8 +310,8 @@ function renderEscala(): void {
       </div>
       <div class="scale-actions" style="margin-top:8px">
         <button id="btnGenerateScale" class="btn btn-primary" type="button" ${locked ? 'disabled' : ''}>Gerar escala · ${activeRules} regras</button>
-        <button id="btnTarefasPdf" class="btn btn-ghost" type="button">${locked ? 'Baixar PDF' : 'Baixar PDF e publicar período'}</button>
-        ${locked ? '<button id="btnToggleTaskLock" class="btn btn-ghost" type="button">Reabrir escala</button>' : ''}
+        <button id="btnTarefasPdf" class="btn btn-ghost" type="button">Baixar PDF</button>
+        <button id="btnToggleTaskLock" class="btn btn-ghost" type="button" ${allPeriodMeetings.length ? '' : 'disabled'}>${locked ? 'Reabrir escala' : 'Publicar no Quadro'}</button>
         <button id="btnClearTaskScale" class="btn btn-danger" type="button" ${locked || !allPeriodMeetings.length ? 'disabled' : ''}>Limpar escala</button>
       </div>
       <details style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border)">
@@ -391,11 +397,10 @@ function renderEscala(): void {
   }
 }
 
-async function toggleTaskLock(periodId: string, download = false): Promise<void> {
+async function toggleTaskLock(periodId: string): Promise<void> {
   if (changingPublication) return
   changingPublication = true
   const releaseUi = lockPublicationUi()
-  let pdfBytes: Uint8Array | undefined
   const locked = periods[periodId]?.locked === true
   try {
     const period = periods[periodId]
@@ -406,8 +411,8 @@ async function toggleTaskLock(periodId: string, download = false): Promise<void>
 
       const first = meetings[0]?.date ?? `${periodId}-01`
       const last = meetings[meetings.length - 1]?.date ?? first
+      const { createTaskSchedulePdf } = await import('./tarefas-documents')
       const result = await createTaskSchedulePdf(meetings, congregationName, pessoas, font)
-      pdfBytes = result.bytes
       await publishAgendaModulePdf(result.bytes, { modulo:'tarefas', periodo:periodId, inicio:first, fim:last, origemPeriodoId:periodId, nome:`tarefas-${periodId}.pdf` })
       try {
         await update(tarefasScaleRef, { [`${periodId}/locked`]:true })
@@ -422,7 +427,6 @@ async function toggleTaskLock(periodId: string, download = false): Promise<void>
     }
     periods[periodId] ??= {}
     periods[periodId].locked = !locked
-    if (download && pdfBytes) downloadPdf(pdfBytes, `tarefas-${periodId}.pdf`)
     toast(locked ? 'Escala reaberta para edição' : 'Escala publicada no Minha Agenda')
     renderEscala()
   } catch { toast('Não foi possível alterar a publicação. Confira o período e tente novamente.') }
@@ -940,14 +944,17 @@ function emptyState(text: string): string {
 }
 
 async function gerarPdfTarefas(preferredFontPt: number): Promise<void> {
-  if (changingPublication) return
+  if (changingPublication || downloadingPdf) return
   const periodId = periodKeyForDate(`${selectedPeriodMonth}-01`, selectedPeriodMode)
   const meetings = Object.values(periods[periodId]?.meetings ?? {}).filter(meeting => canonicalMeetingType(meeting.type)).sort((a, b) => String(a.date ?? '').localeCompare(String(b.date ?? '')))
   if (meetings.length === 0) {
     toast('Nenhuma reunião para gerar PDF')
     return
   }
-  if (!periods[periodId]?.locked) { await toggleTaskLock(periodId, true); return }
-  try { await downloadTaskSchedulePdf(meetings, congregationName, pessoas, preferredFontPt, periodId); toast('Download do PDF iniciado') }
+  downloadingPdf = true
+  const button = document.getElementById('btnTarefasPdf') as HTMLButtonElement | null
+  if (button) { button.disabled = true; button.textContent = 'Preparando PDF...' }
+  try { const { downloadTaskSchedulePdf } = await import('./tarefas-documents'); await downloadTaskSchedulePdf(meetings, congregationName, pessoas, preferredFontPt, periodId); toast('Download do PDF iniciado') }
   catch { toast('Não foi possível gerar o PDF') }
+  finally { downloadingPdf = false; if (button) { button.disabled = false; button.textContent = 'Baixar PDF' } }
 }

@@ -1,8 +1,6 @@
 import { lockPublicationUi } from '../ui/publication-busy'
-import { downloadPdf } from '../ui/pdf-download'
 import type { AppContext, ConfigCongregacao, MasterPessoa, RawPessoas } from '../types'
 import { child, compareAndSet, configCongregacaoRef, get, pessoasRef, servicoCampoRef, update } from '../firebase'
-import { renderMenuCards, type ItemMenu } from '../ui/menu-cards'
 import { moduleBackButton, moduleTitle } from '../ui/module-header'
 import { generateFieldServicePeriod, validFieldServiceMonth, validFieldServiceTime, type FieldServiceAssignment, type FieldServicePeriod, type FieldServiceTemplate } from './servico-campo-domain'
 import { mountModuleMessageSettings } from './module-message-settings'
@@ -13,16 +11,17 @@ interface ServiceRoot {
   periods?: Record<string, FieldServicePeriod>
 }
 
-type Screen = 'indice' | 'programacao' | 'configuracao'
+type Screen = 'programacao' | 'configuracao'
 const DAYS = ['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado']
 const MONTH_KEY = 'noroeste_servico_campo_month'
-let screen: Screen = 'indice'
+let screen: Screen = 'programacao'
 let data: ServiceRoot = {}
 let people: RawPessoas = {}
 let congregation: ConfigCongregacao = { nome:'Noroeste', cidade:'', circuito:'', idioma:'pt-BR' }
 let selectedMonth = localStorage.getItem(MONTH_KEY) ?? new Date().toISOString().slice(0, 7)
 let editingTemplateId = ''
 let changingPublication = false
+let downloadingPdf = false
 let generatingPeriod = false
 let loadPromise: Promise<boolean> | null = null
 
@@ -52,10 +51,10 @@ function sectionTitle(title: string): string { return `<div class="module-sectio
 
 export default function mount(appContext: AppContext): void {
   void appContext
-  screen = 'indice'; editingTemplateId = ''; loadPromise = null; data = {}; people = {}
+  screen = 'programacao'; editingTemplateId = ''; loadPromise = null; data = {}; people = {}
   const host = document.getElementById('appContent'); if (!host) return
   host.innerHTML = '<div id="servicoCampoRoot"></div>'
-  render(); void ensureLoaded()
+  void openScreen('programacao')
 }
 
 function ensureLoaded(): Promise<boolean> {
@@ -74,24 +73,22 @@ async function load(): Promise<boolean> {
 }
 
 async function openScreen(next: Screen): Promise<void> {
-  root().innerHTML = `${moduleTitle('Serviço de Campo')}<p class="empty-state">Carregando dados...</p>`
-  if (!await ensureLoaded()) { root().innerHTML = `${moduleTitle('Serviço de Campo')}<p class="empty-state">Não foi possível carregar os dados. Volte ao módulo e tente novamente.</p>`; return }
+  const host = root()
+  host.innerHTML = `${moduleTitle('Serviço de Campo')}<p class="empty-state">Carregando dados...</p>`
+  const loaded = await ensureLoaded()
+  if (!host.isConnected) return
+  if (!loaded) {
+    loadPromise = null
+    host.innerHTML = `${moduleTitle('Serviço de Campo')}<p class="empty-state">Não foi possível carregar os dados.</p><button id="retryService" class="btn btn-primary">Tentar novamente</button>`
+    document.getElementById('retryService')?.addEventListener('click', () => void openScreen(next))
+    return
+  }
   screen = next; render()
 }
 
 function render(): void {
-  if (screen === 'indice') renderIndex()
-  else if (screen === 'configuracao') renderConfiguration()
+  if (screen === 'configuracao') renderConfiguration()
   else renderSchedule()
-}
-
-function renderIndex(): void {
-  root().innerHTML = `${moduleTitle('Serviço de Campo')}<div id="serviceMenu"></div>`
-  const items: ItemMenu[] = [
-    { id:'programacao', titulo:'Programação', subtitulo:'Gerar, revisar, publicar e imprimir', icone:'▦', corFundo:'#8A5A00' },
-    { id:'configuracao', titulo:'Configuração', subtitulo:'Saídas recorrentes e dirigentes', icone:'⚙', corFundo:'#1A6B3C' },
-  ]
-  renderMenuCards(root().querySelector<HTMLElement>('#serviceMenu')!, items, selected => { void openScreen(selected as Screen) })
 }
 
 function periodControl(): string {
@@ -116,8 +113,10 @@ function assignmentRow(assignment: FieldServiceAssignment, locked: boolean): str
 function renderSchedule(): void {
   const period = currentPeriod(), assignments = Object.values(period?.assignments ?? {}).sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time) || a.location.localeCompare(b.location, 'pt-BR')), locked = period?.published === true
   const eligible = new Set(leaderIds()), blank = assignments.filter(item => !item.leaderId || !eligible.has(item.leaderId)).length
-  root().innerHTML = `${sectionTitle('Programação de Serviço de Campo')}${periodControl()}${locked ? '<div class="notice">Este mês está publicado no Quadro e bloqueado para edição.</div>' : ''}<div class="service-summary"><div><strong>${assignments.length}</strong><span>Saídas</span></div><div><strong>${new Set(assignments.map(item => item.date)).size}</strong><span>Dias</span></div><div><strong>${blank}</strong><span>Sem dirigente</span></div><div><strong>${leaderIds().length}</strong><span>No rodízio</span></div></div><div class="service-actions"><button id="serviceGenerate" class="btn btn-primary" type="button" ${locked ? 'disabled' : ''}>${assignments.length ? 'Completar mês' : 'Gerar rodízio'}</button><button id="servicePdf" class="btn btn-ghost" type="button" ${assignments.length ? '' : 'disabled'}>${locked ? 'Baixar PDF' : 'Baixar PDF e publicar período'}</button>${locked ? '<button id="serviceReopen" class="btn btn-ghost" type="button">Reabrir mês</button>' : ''}</div>${locked ? '' : manualAssignmentForm()}<div class="service-assignment-list">${assignments.map(item => assignmentRow(item, locked)).join('') || '<p class="empty-state">Configure as saídas e gere o rodízio deste mês.</p>'}</div>`
+  root().innerHTML = `${sectionTitle('Programação de Serviço de Campo')}<button id="serviceConfig" class="btn btn-ghost" type="button">Configurações</button>${periodControl()}${locked ? '<div class="notice">Este mês está publicado no Quadro e bloqueado para edição.</div>' : ''}<div class="service-summary"><div><strong>${assignments.length}</strong><span>Saídas</span></div><div><strong>${new Set(assignments.map(item => item.date)).size}</strong><span>Dias</span></div><div><strong>${blank}</strong><span>Sem dirigente</span></div><div><strong>${leaderIds().length}</strong><span>No rodízio</span></div></div><div class="service-actions"><button id="serviceGenerate" class="btn btn-primary" type="button" ${locked ? 'disabled' : ''}>${assignments.length ? 'Completar mês' : 'Gerar rodízio'}</button><button id="servicePdf" class="btn btn-ghost" type="button" ${assignments.length ? '' : 'disabled'}>Baixar PDF</button>${!locked ? `<button id="servicePublish" class="btn btn-ghost" type="button" ${assignments.length ? '' : 'disabled'}>Publicar no Quadro</button>` : ''}${locked ? '<button id="serviceReopen" class="btn btn-ghost" type="button">Reabrir mês</button>' : ''}</div>${locked ? '' : manualAssignmentForm()}<div class="service-assignment-list">${assignments.map(item => assignmentRow(item, locked)).join('') || '<p class="empty-state">Configure as saídas e gere o rodízio deste mês.</p>'}</div>`
   bindPeriod()
+  document.getElementById('serviceConfig')?.addEventListener('click', () => void openScreen('configuracao'))
+  document.getElementById('servicePublish')?.addEventListener('click', () => void publishPeriod())
   document.getElementById('serviceGenerate')?.addEventListener('click', () => void generatePeriod())
   document.getElementById('servicePdf')?.addEventListener('click', () => void openPdf())
   document.getElementById('serviceReopen')?.addEventListener('click', () => void reopenPeriod())
@@ -181,7 +180,6 @@ async function publishPeriod(): Promise<void> {
     await publishAgendaModulePdf(bytes, { modulo:'servicoCampo', periodo:month, inicio:`${month}-01`, fim:`${month}-${lastDay}`, origemPeriodoId:month, nome:`servico-de-campo-${month}.pdf` })
     try { await update(servicoCampoRef, { [`periods/${month}/published`]:true, [`periods/${month}/publishedAt`]:publishedAt }) }
     catch (error) { try { await unpublishAgendaModulePdf('servicoCampo', month) } catch { toast('Publicação incompleta. Confira o PDF no Quadro.'); return } throw error }
-    downloadPdf(bytes, `servico-de-campo-${month}.pdf`)
     period.published = true; period.publishedAt = publishedAt; toast('Mês publicado na Minha Agenda e no Quadro'); render()
   } catch (error) { toast(failureMessage(error, 'Não foi possível publicar o mês')) }
   finally { changingPublication = false; releaseUi() }
@@ -202,20 +200,24 @@ async function reopenPeriod(): Promise<void> {
 }
 
 async function openPdf(): Promise<void> {
-  if (changingPublication) return
-  if (!currentPeriod()?.published) { await publishPeriod(); return }
+  if (changingPublication || downloadingPdf) return
   const assignments = Object.values(currentPeriod()?.assignments ?? {}); if (!assignments.length) return
   const input = fieldServicePdfInput(assignments)
+  downloadingPdf = true
+  const button = document.getElementById('servicePdf') as HTMLButtonElement | null
+  if (button) { button.disabled = true; button.textContent = 'Preparando PDF...' }
   try { const docs = await import('./servico-campo-documents'); await docs.downloadFieldServicePdf(input); toast('Download do PDF iniciado') } catch (error) { toast(failureMessage(error, 'Não foi possível gerar o PDF')) }
+  finally { downloadingPdf = false; if (button) { button.disabled = false; button.textContent = 'Baixar PDF' } }
 }
 
 function renderConfiguration(): void {
   const current = templates()[editingTemplateId]
-  const templateRows = Object.values(templates()).sort((a, b) => a.sortOrder - b.sortOrder || a.dow - b.dow || a.time.localeCompare(b.time)).map(item => `<div class="module-list-row"><div><strong>${item.date ? esc(dateLabel(item.date)) : DAYS[item.dow]} · ${esc(item.time)}</strong><small>${esc(item.location)} · ${esc(item.label)} · ${item.active ? 'Ativa' : 'Inativa'} · ${item.leaderIds?.length ? `${item.leaderIds.length} dirigente(s)` : 'rodízio pendente'}</small></div><button class="btn btn-ghost" data-edit-service-template="${esc(item.id)}">Editar</button><button class="btn btn-danger" data-delete-service-template="${esc(item.id)}" title="Remover saída">✕</button></div>`).join('')
+  const templateRows = Object.values(templates()).sort((a, b) => a.sortOrder - b.sortOrder || a.dow - b.dow || a.time.localeCompare(b.time)).map(item => `<details class="service-template"><summary><strong>${item.date ? esc(dateLabel(item.date)) : DAYS[item.dow]} · ${esc(item.time)}</strong><small>${esc(item.location)} · ${esc(item.label)} · ${item.active ? 'Ativa' : 'Inativa'} · ${item.leaderIds?.length ? `${item.leaderIds.length} dirigente(s)` : 'rodízio pendente'}</small></summary><div class="service-actions"><button class="btn btn-ghost" data-edit-service-template="${esc(item.id)}">Editar</button><button class="btn btn-danger" data-delete-service-template="${esc(item.id)}" title="Remover saída">✕</button></div></details>`).join('')
   const leaderRows = Object.entries(people).filter(([, person]) => person.active !== false && person.sex === 'M').sort((a, b) => a[1].name.localeCompare(b[1].name, 'pt-BR')).map(([masterId, person]) => `<label class="service-leader-option"><input type="checkbox" data-service-eligible="${esc(masterId)}" ${data.leaders?.[masterId] ? 'checked' : ''}><span><strong>${esc(person.name)}</strong><small>${esc(roleLabel(person))}</small></span></label>`).join('')
   const ownLeaderRows = leaderIds().map(masterId => `<label class="service-leader-option"><input name="templateLeader" type="checkbox" value="${esc(masterId)}" ${current?.leaderIds?.includes(masterId) ? 'checked' : ''}><span><strong>${esc(personName(masterId))}</strong><small>${esc(roleLabel(people[masterId]!))}</small></span></label>`).join('')
   root().innerHTML = `${sectionTitle('Configuração do Serviço de Campo')}
-    <form id="serviceTemplateForm" class="form-panel"><h3>${current ? 'Editar saída' : 'Nova saída'}</h3>
+    <button id="serviceSchedule" class="btn btn-ghost" type="button">Voltar à programação</button>
+    <details ${current ? 'open' : ''}><summary>${current ? 'Editar saída' : 'Nova saída'}</summary><form id="serviceTemplateForm" class="form-panel"><h3>${current ? 'Editar saída' : 'Nova saída'}</h3>
       <input name="templateId" type="hidden" value="${esc(current?.id)}">
       <div class="module-form-grid">
         <label class="form-field"><span>Programação</span><select name="mode"><option value="weekly" ${!current?.date ? 'selected' : ''}>Dia da semana</option><option value="date" ${current?.date ? 'selected' : ''}>Data específica</option></select></label>
@@ -227,12 +229,13 @@ function renderConfiguration(): void {
         <label class="form-field"><span>Ordem</span><input name="sortOrder" type="number" value="${current?.sortOrder ?? Object.keys(templates()).length}"></label>
         <label><input name="active" type="checkbox" ${current?.active !== false ? 'checked' : ''}> Saída ativa</label>
       </div>
-      <details open><summary>Dirigentes deste arranjo</summary><div class="service-leader-grid">${ownLeaderRows || '<p class="empty-state">Nenhum dirigente aprovado.</p>'}</div></details>
+      <details><summary>Dirigentes deste arranjo</summary><div class="service-leader-grid">${ownLeaderRows || '<p class="empty-state">Nenhum dirigente aprovado.</p>'}</div></details>
       <div class="service-actions"><button class="btn btn-primary" type="submit">Salvar saída</button>${current ? '<button id="cancelServiceTemplate" class="btn btn-ghost" type="button">Cancelar</button>' : ''}</div>
-    </form>
-    <div class="module-option-list">${templateRows || '<p class="empty-state">Nenhuma saída cadastrada.</p>'}</div>
-    <details class="form-panel"><summary>Dirigentes aprovados</summary><div class="service-leader-grid">${leaderRows || '<p class="empty-state">Nenhum irmão ativo disponível no cadastro Admin.</p>'}</div><button id="saveServiceLeaders" class="btn btn-primary" type="button">Salvar dirigentes</button></details>
+    </form></details>
+    <details open><summary>Saídas recorrentes · ${Object.keys(templates()).length}</summary><div class="module-option-list">${templateRows || '<p class="empty-state">Nenhuma saída cadastrada.</p>'}</div></details>
+    <details class="form-panel"><summary>Dirigentes aprovados · ${leaderIds().length}</summary><div class="service-leader-grid">${leaderRows || '<p class="empty-state">Nenhum irmão ativo disponível no cadastro Admin.</p>'}</div><button id="saveServiceLeaders" class="btn btn-primary" type="button">Salvar dirigentes</button></details>
     <div id="fieldServiceMessageSettings"></div>`
+  document.getElementById('serviceSchedule')?.addEventListener('click', () => void openScreen('programacao'))
   const form = document.getElementById('serviceTemplateForm') as HTMLFormElement
   const syncMode = (): void => {
     const byDate = (form.elements.namedItem('mode') as HTMLSelectElement).value === 'date'
