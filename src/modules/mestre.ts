@@ -29,6 +29,7 @@ import {
   servicoCampoRef,
 } from '../firebase'
 import { renderMenuCards, type ItemMenu } from '../ui/menu-cards'
+import { renderWorkspaceNav } from '../ui/workspace-nav'
 import { moduleBackButton } from '../ui/module-header'
 import { validateBackup } from './mestre-backup-domain'
 import {
@@ -151,12 +152,11 @@ export default function mount(_ctx: AppContext): void {
   const root = document.getElementById('appContent')!
   root.innerHTML = `
     <div id="mestreRoot">
-      <div id="mestreBack"></div>
+      <div id="mestreNav"></div><div id="mestreBack"></div>
       <div id="mestreContent"></div>
     </div>`
 
-  renderContent()
-  void ensureBaseLoaded()
+  void switchTab('pessoas')
 }
 
 // ─── Tabs ────────────────────────────────────────────────────────────────────
@@ -164,8 +164,12 @@ export default function mount(_ctx: AppContext): void {
 async function switchTab(t: typeof activeTab): Promise<void> {
   const content = document.getElementById('mestreContent')
   if (!content) return
+  activeTab = t
+  renderNavigation()
   content.innerHTML = `${moduleBackButton()}<p class="empty-state">Carregando dados...</p>`
-  if (!await ensureBaseLoaded()) { content.innerHTML = `${moduleBackButton()}<p class="empty-state">Não foi possível carregar os dados do Admin. Volte ao módulo e tente novamente.</p>`; return }
+  const loaded = await ensureBaseLoaded()
+  if (!content.isConnected || activeTab !== t) return
+  if (!loaded) { baseLoadPromise = null; content.innerHTML = '<p class="empty-state">Não foi possível carregar os dados do Admin.</p><button id="retryAdmin" class="btn btn-primary">Tentar novamente</button>'; document.getElementById('retryAdmin')?.addEventListener('click', () => void switchTab(t)); return }
   activeTab = t
   if ((t === 'vinculos' || t === 'dados') && !rootData) {
     void loadRootData()
@@ -213,6 +217,7 @@ async function loadAll(): Promise<boolean> {
 }
 
 function renderContent(): void {
+  renderNavigation()
   const back = document.getElementById('mestreBack')
   if (back) back.innerHTML = activeTab === 'indice' ? '' : moduleBackButton()
 
@@ -223,6 +228,15 @@ function renderContent(): void {
   else if (activeTab === 'vinculos') renderVinculos()
   else                               renderDados()
 
+}
+function renderNavigation(): void {
+  const host = document.getElementById('mestreNav')
+  if (host) renderWorkspaceNav(host, 'Admin', 'pessoas', activeTab, [
+    { id:'pessoas', label:'Pessoas' }, { id:'usuarios', label:'Acessos' },
+    { id:'config', label:'Administração', children:[
+      { id:'config', label:'Configurações' }, { id:'vinculos', label:'Vínculos' }, { id:'dados', label:'Backup' },
+    ] },
+  ], id => { void switchTab(id as typeof activeTab) })
 }
 async function loadPublicRoot(): Promise<Record<string, unknown>> {
   const entries = await Promise.all([

@@ -4,7 +4,7 @@ import { agendaConfigRef, agendaDocumentsRef, escalaParticipantsRef, escalaPubli
 import { apiJson } from '../secure-api.ts'
 import { moduleTitle } from '../ui/module-header'
 import { agendaMessage, agendaToIcs, boardCleaningMessage, boardMeetingDates, boardMeetingEvents, boardMeetingMessage, boardMeetingWhatsappMessage, collectAgendaEvents, collectAnnouncementEvents, upcomingAgendaEvents, type AgendaEvent, type AgendaSource, type AgendaStatus, type AnnouncementEvent } from './individual-domain'
-import type { AgendaConfig, AgendaPublicDocument, AgendaSubscription, MasterPessoa } from '../types'
+import type { AgendaConfig, AgendaPublicDocument, MasterPessoa } from '../types'
 import { agendaCacheNeedsSync, agendaUiStorageKey, defaultAgendaUiPreferences, parseAgendaUiPreferences, type AgendaScreen, type BoardPanel, type PersonalPanel } from './individual-preferences.ts'
 import { groupPublicDocuments, publicDocumentMonths, PUBLIC_PDF_MODULES, type PublicPdfModule } from './agenda-documents-domain.ts'
 
@@ -24,11 +24,8 @@ let subscriptionPersonId = ''
 let loadingAssignments = true
 let offlinePersonalEvents: AgendaEvent[] | null = null
 let offlineAnnouncementEvents: AnnouncementEvent[] | null = null
-let boardSubscriptionBusy = false
 
 const OFFLINE_CACHE_KEY = 'noroeste_agenda_offline_v3'
-const INSTALLATION_KEY = 'noroeste_agenda_installation_v1'
-const SUBSCRIPTIONS_KEY = 'noroeste_agenda_subscriptions_v2'
 const ADMIN_PERSON_KEY = 'noroeste_agenda_admin_person_v1'
 const DAILY_SYNC_MS = 24 * 60 * 60 * 1000
 
@@ -62,7 +59,6 @@ export default function mount(context: AppContext): void {
   loadingAssignments = true
   offlinePersonalEvents = null
   offlineAnnouncementEvents = null
-  boardSubscriptionBusy = false
   const root = document.getElementById('appContent')
   if (!root) return
   root.innerHTML = '<div id="individualRoot"><p class="empty-state">Carregando sua agenda...</p></div>'
@@ -212,20 +208,6 @@ function announcementEvents(): AnnouncementEvent[] { return offlineAnnouncementE
 function monthEvents(): AgendaEvent[] { return personalEvents().filter(event => event.date.startsWith(month)).filter(event => agendaSource === 'todas' || event.source === agendaSource).filter(event => agendaStatus === 'todos' || event.status === agendaStatus) }
 function agendaRoot(): Record<string, unknown> { return (data.agenda ?? {}) as Record<string, unknown> }
 function agendaConfig(): AgendaConfig { return (agendaRoot()['config'] ?? {}) as AgendaConfig }
-function installationId(): string {
-  const current = localStorage.getItem(INSTALLATION_KEY) ?? ''
-  if (/^[a-f0-9]{32,64}$/.test(current)) return current
-  const created = randomToken()
-  localStorage.setItem(INSTALLATION_KEY, created)
-  return created
-}
-function subscriptions(): Record<string, AgendaSubscription> {
-  try {
-    const value = JSON.parse(localStorage.getItem(SUBSCRIPTIONS_KEY) ?? '{}') as Record<string, AgendaSubscription>
-    return Object.fromEntries(Object.entries(value).filter(([token, item]) => /^[a-f0-9]{48}$/.test(token) && item.installationId === installationId()))
-  } catch { return {} }
-}
-function saveSubscriptions(values: Record<string, AgendaSubscription>): void { localStorage.setItem(SUBSCRIPTIONS_KEY, JSON.stringify(values)) }
 function documents(): AgendaPublicDocument[] { return Object.values((agendaRoot()['documentos'] ?? {}) as Record<string, AgendaPublicDocument>) }
 function people(): Record<string, MasterPessoa> { return data.master?.pessoas ?? {} }
 function ensureSelectedPerson(): void {
@@ -278,7 +260,7 @@ function render(): void {
     <div class="agenda-list">${eventRows(listEvents) || `<p class="empty-state">${uiPreferences.personal.view === 'upcoming' ? 'Nenhum outro compromisso futuro.' : 'Nenhuma designação corresponde aos filtros.'}</p>`}</div>
     <details class="form-panel agenda-board-card agenda-personal-panel" data-agenda-panel="calendar" ${uiPreferences.personal.openPanels.includes('calendar') ? 'open' : ''}><summary><strong>Calendário mensal</strong><span>${esc(month)}</span></summary><div class="agenda-board-body"><div class="agenda-toolbar"><button class="btn btn-ghost" id="agendaPrev" type="button" aria-label="Mês anterior">‹</button><label class="sr-only" for="agendaMonth">Mês do calendário pessoal</label><input class="form-input" id="agendaMonth" type="month" value="${month}"><button class="btn btn-ghost" id="agendaNext" type="button" aria-label="Próximo mês">›</button></div><div class="agenda-calendar"><div class="agenda-weekdays">${['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'].map(day => `<strong>${day}</strong>`).join('')}</div><div class="agenda-days">${calendar.map(day => day ? `<div class="agenda-day ${byDay.has(Number(day)) ? 'has-events' : ''}"><span>${day}</span>${(byDay.get(Number(day)) ?? []).slice(0, 3).map(event => `<i class="${event.source}" aria-hidden="true"></i>`).join('')}</div>` : '<div class="agenda-day empty"></div>').join('')}</div></div></div></details>
     <details class="form-panel agenda-board-card agenda-personal-panel" data-agenda-panel="filters" ${uiPreferences.personal.openPanels.includes('filters') ? 'open' : ''}><summary><strong>Filtros</strong><span>${agendaSource === 'todas' && agendaStatus === 'todos' ? 'Todos' : 'Ativos'}</span></summary><div class="agenda-board-body"><div class="module-form-grid agenda-filters"><label class="form-field"><span>Origem</span><select id="agendaSource"><option value="todas">Todas</option>${Object.entries(sourceLabels).map(([id, label]) => `<option value="${id}" ${agendaSource === id ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select></label><label class="form-field"><span>Status</span><select id="agendaStatus"><option value="todos">Todos</option><option value="futuro" ${agendaStatus === 'futuro' ? 'selected' : ''}>Futuro</option><option value="confirmacao-pendente" ${agendaStatus === 'confirmacao-pendente' ? 'selected' : ''}>Confirmação pendente</option><option value="alterado" ${agendaStatus === 'alterado' ? 'selected' : ''}>Alterado</option><option value="realizado" ${agendaStatus === 'realizado' ? 'selected' : ''}>Realizado</option></select></label></div></div></details>
-    ${personalSubscriptionPanel()}`
+    ${calendarExportPanel()}`
   bind()
 }
 
@@ -295,7 +277,6 @@ function bind(): void {
   document.getElementById('agendaIcsMonth')?.addEventListener('click', () => downloadIcs(monthEvents(), `minha-agenda-${month}.ics`, 'Nenhuma designação disponível neste mês.'))
   document.getElementById('agendaIcsUpcoming')?.addEventListener('click', () => downloadIcs(upcomingAgendaEvents(personalEvents(), fortalezaDate()), 'minha-agenda-proximos-compromissos.ics', 'Nenhum compromisso futuro disponível.'))
   document.getElementById('agendaShare')?.addEventListener('click', openShare)
-  bindPersonalSubscription()
   bindPersistentPanels()
 }
 
@@ -328,64 +309,8 @@ function renderGeneralAgenda(root: HTMLElement): void {
   document.querySelectorAll<HTMLButtonElement>('[data-general-date]').forEach(button => button.addEventListener('click', () => { generalSelectedDate = button.dataset['generalDate'] ?? generalSelectedDate; persistUiPreferences(); render() }))
 }
 
-function feedUrl(token: string): string {
-  return `${window.location.origin}/.netlify/functions/calendar?token=${encodeURIComponent(token)}`
-}
-
-function webcalUrl(token: string): string {
-  return feedUrl(token).replace(/^https?:/, 'webcal:')
-}
-
-async function copySubscriptionLink(token: string): Promise<void> {
-  const url = feedUrl(token)
-  try {
-    await navigator.clipboard.writeText(url)
-    alert('Link copiado. No Google Agenda, adicione por URL usando o navegador de um computador.')
-  } catch {
-    window.prompt('Copie o link da assinatura:', url)
-  }
-}
-
-function personalSubscriptionPanel(): string {
-  const current = Object.values(subscriptions()).find(item => item.tipo === 'pessoal' && item.masterId === subscriptionPersonId && item.ativo)
-  return `<details class="form-panel agenda-board-card agenda-personal-panel" data-agenda-panel="sharing" ${uiPreferences.personal.openPanels.includes('sharing') ? 'open' : ''}><summary><strong>Calendário e compartilhamento</strong><span>${current ? 'Assinatura ativa' : 'Opções'}</span></summary><div class="agenda-board-body"><div class="agenda-actions agenda-sharing-actions"><button class="btn btn-primary" id="agendaIcsMonth" type="button">Baixar mês</button><button class="btn btn-ghost" id="agendaIcsUpcoming" type="button">Baixar próximos</button><button class="btn btn-ghost" id="agendaShare" type="button">Compartilhar</button></div>${current ? `<div class="notice">Link de calendário ativo.</div><div class="agenda-actions"><button class="btn btn-primary" id="copyPersonalSubscription" type="button">Copiar link</button><a class="btn btn-ghost" href="${esc(webcalUrl(current.token))}">Assinar no iPhone / Apple</a><a class="btn btn-ghost" href="https://calendar.google.com/calendar/u/0/r/settings/addbyurl" target="_blank" rel="noopener noreferrer">Google Agenda</a><button class="btn btn-danger" id="revokePersonalSubscription" type="button">Revogar</button></div>` : '<button class="btn btn-primary" id="createPersonalSubscription" type="button">Gerar link de assinatura</button>'}<p class="form-help">Google Agenda: copie o link e adicione por URL no navegador de um computador. No iPhone, use a assinatura Apple. Downloads são arquivos pontuais.</p></div></details>`
-}
-
-function randomToken(): string {
-  const bytes = new Uint8Array(24); crypto.getRandomValues(bytes)
-  return Array.from(bytes).map(byte => byte.toString(16).padStart(2, '0')).join('')
-}
-
-async function createSubscription(item: Omit<AgendaSubscription, 'token' | 'ativo' | 'criadoEm'>): Promise<void> {
-  const record = await apiJson<AgendaSubscription>('calendar-subscriptions', {
-    method:'POST',
-    body:JSON.stringify({ ...item, installationId:installationId() }),
-  })
-  const current = subscriptions(); current[record.token] = record; saveSubscriptions(current)
-}
-
-async function revokeSubscription(token: string): Promise<void> {
-  await apiJson('calendar-subscriptions', {
-    method:'DELETE',
-    body:JSON.stringify({ token, installationId:installationId() }),
-  })
-  const current = subscriptions(); delete current[token]; saveSubscriptions(current)
-}
-
-async function updateBoardSubscription(token: string, modulos: AgendaSource[]): Promise<AgendaSubscription> {
-  const record = await apiJson<AgendaSubscription>('calendar-subscriptions', {
-    method:'PATCH',
-    body:JSON.stringify({ token, installationId:installationId(), modulos }),
-  })
-  const current = subscriptions(); current[token] = record; saveSubscriptions(current)
-  return record
-}
-
-function bindPersonalSubscription(): void {
-  document.getElementById('createPersonalSubscription')?.addEventListener('click', async () => { try { await createSubscription({ tipo:'pessoal', masterId:subscriptionPersonId }); render() } catch { alert('Não foi possível gerar o link de assinatura.') } })
-  const current = Object.values(subscriptions()).find(item => item.tipo === 'pessoal' && item.masterId === subscriptionPersonId && item.ativo)
-  document.getElementById('copyPersonalSubscription')?.addEventListener('click', async () => { if (current) await copySubscriptionLink(current.token) })
-  document.getElementById('revokePersonalSubscription')?.addEventListener('click', async () => { if (!current || !confirm('Revogar este link de assinatura?')) return; try { await revokeSubscription(current.token); render() } catch { alert('Não foi possível revogar o link.') } })
+function calendarExportPanel(): string {
+  return `<details class="form-panel agenda-board-card agenda-personal-panel" data-agenda-panel="sharing" ${uiPreferences.personal.openPanels.includes('sharing') ? 'open' : ''}><summary><strong>Calendário e compartilhamento</strong><span>ICS</span></summary><div class="agenda-board-body"><div class="agenda-actions agenda-sharing-actions"><button class="btn btn-primary" id="agendaIcsMonth" type="button">Baixar mês</button><button class="btn btn-ghost" id="agendaIcsUpcoming" type="button">Baixar próximos</button><button class="btn btn-ghost" id="agendaShare" type="button">Compartilhar</button></div></div></details>`
 }
 
 function renderBoard(root: HTMLElement): void {
@@ -404,8 +329,11 @@ function renderBoard(root: HTMLElement): void {
       <details class="form-panel agenda-board-card" data-agenda-panel="meetings" ${uiPreferences.board.openPanels.includes('meetings') ? 'open' : ''}><summary><strong>Dados das reuniões</strong><span>${esc(meetingSummary)}</span></summary><div class="agenda-board-body"><label class="form-field"><span>Reunião</span><select id="boardMeetingDate">${meetingDates.map(item => `<option value="${esc(item.date)}" ${item.date === boardMeetingDate ? 'selected' : ''}>${esc(labelDate(item.date))} · ${item.kind === 'midweek' ? 'Meio de semana' : 'Fim de semana'}</option>`).join('') || '<option value="">Nenhuma reunião futura</option>'}</select></label><textarea id="boardInlineDraft" class="form-input" rows="12" maxlength="4000">${esc(boardMeetingMessage(meetingEvents, selectedMeeting))}</textarea><div class="agenda-actions"><button class="btn btn-ghost" id="boardInlineCopy" type="button">Copiar texto</button>${hasCleaning ? '<button class="btn btn-ghost" id="boardCleaningCopy" type="button">Copiar limpeza</button>' : ''}<button class="btn btn-primary" id="boardWhatsapp" type="button">Abrir WhatsApp</button></div><p class="form-help">${hasCleaning ? 'Limpeza fica disponível para cópia e não é incluída na mensagem de WhatsApp.' : ''}${agendaConfig().quadroWhatsAppLink ? ' O texto da reunião será copiado e o grupo configurado no Admin será aberto.' : ' Nenhum grupo foi configurado no Admin; o seletor comum do WhatsApp será aberto.'}</p></div></details>
       <details class="form-panel agenda-board-card" data-agenda-panel="moduleDocuments" ${uiPreferences.board.openPanels.includes('moduleDocuments') ? 'open' : ''}><summary><strong>PDFs dos módulos</strong><span>${Object.keys(visibleDocuments.modules).length} de ${PUBLIC_PDF_MODULES.length}</span></summary><div class="agenda-board-body"><label class="form-field"><span>Período</span><select id="boardDocumentPeriod">${periods.map(period => `<option value="${esc(period)}" ${period === boardDocumentPeriod ? 'selected' : ''}>${esc(formatDocumentMonth(period))}</option>`).join('') || `<option value="${esc(boardDocumentPeriod)}">${esc(formatDocumentMonth(boardDocumentPeriod))}</option>`}</select></label><div class="agenda-module-downloads">${PUBLIC_PDF_MODULES.map(module => moduleDownloadRow(module, visibleDocuments.modules[module])).join('')}</div></div></details>
       <details class="form-panel agenda-board-card" data-agenda-panel="adminDocuments" ${uiPreferences.board.openPanels.includes('adminDocuments') ? 'open' : ''}><summary><strong>Documentos do Admin</strong><span>${visibleDocuments.admin.length}</span></summary><div class="agenda-board-body"><div class="agenda-document-list">${visibleDocuments.admin.map(item => `<a class="agenda-document" href="${esc(item.url)}" target="_blank" rel="noopener noreferrer" download><span><strong>${esc(item.nome)}</strong><small>Publicado em ${esc(labelDate(item.criadoEm.slice(0, 10)))}</small></span><b>Baixar</b></a>`).join('') || '<p class="empty-state">Nenhum documento do Admin neste período.</p>'}</div></div></details>
-      ${boardSubscriptionPanel()}
     </div>`
+  const sections = root.querySelector('.agenda-board-sections')!
+  const moduleDocuments = sections.querySelector('[data-agenda-panel="moduleDocuments"]')!
+  const adminDocuments = sections.querySelector('[data-agenda-panel="adminDocuments"]')!
+  sections.prepend(moduleDocuments, adminDocuments)
   bindScreenTabs()
   document.getElementById('boardMeetingDate')?.addEventListener('change', event => { boardMeetingDate = (event.target as HTMLSelectElement).value; persistUiPreferences(); render() })
   document.getElementById('boardDocumentPeriod')?.addEventListener('change', event => { boardDocumentPeriod = (event.target as HTMLSelectElement).value; persistUiPreferences(); render() })
@@ -419,7 +347,6 @@ function renderBoard(root: HTMLElement): void {
       if (item) void openModuleDocumentWhatsapp(module, item)
     })
   })
-  bindBoardSubscription()
   bindPersistentPanels()
 }
 
@@ -463,38 +390,6 @@ function downloadBoardIcs(events: AgendaEvent[]): void {
   link.href = URL.createObjectURL(blob); link.download = `quadro-anuncios-${month}.ics`; link.click(); setTimeout(() => URL.revokeObjectURL(link.href), 1000)
 }
 
-function boardSubscriptionPanel(): string {
-  const current = Object.values(subscriptions()).find(item => item.tipo === 'quadro' && item.ativo)
-  const selected = current?.modulos?.filter(module => module !== 'quadro') as AgendaSource[] | undefined
-  if (selected?.length) { boardSubscriptionModules.clear(); selected.forEach(module => boardSubscriptionModules.add(module)) }
-  const checks = (Object.entries(sourceLabels) as [AgendaSource, string][]).map(([id, label]) => `<label class="agenda-module-check"><input type="checkbox" data-board-module="${id}" ${boardSubscriptionModules.has(id) ? 'checked' : ''}> ${esc(label)}</label>`).join('')
-  return `<details class="form-panel agenda-board-card" data-agenda-panel="subscription" ${uiPreferences.board.openPanels.includes('subscription') ? 'open' : ''}><summary><strong>Assinar o quadro</strong><span>${boardSubscriptionModules.size} módulos · ${current ? 'ativa' : 'não criada'}</span></summary><div class="agenda-board-body"><div class="agenda-module-options">${checks}</div>${current ? `<div class="notice">Esta assinatura recebe automaticamente os módulos selecionados.</div><div class="agenda-actions"><button class="btn btn-primary" id="copyBoardSubscription" type="button">Copiar link</button><a class="btn btn-ghost" href="${esc(webcalUrl(current.token))}">Assinar no iPhone / Apple</a><a class="btn btn-ghost" href="https://calendar.google.com/calendar/u/0/r/settings/addbyurl" target="_blank" rel="noopener noreferrer">Google Agenda</a><button class="btn btn-danger" id="revokeBoardSubscription" type="button">Revogar</button></div>` : '<button class="btn btn-primary" id="createBoardSubscription" type="button">Gerar link de assinatura</button>'}<p class="form-help">Google Agenda: copie o link e adicione por URL no navegador de um computador. No iPhone, use a assinatura Apple.</p></div></details>`
-}
-
-function bindBoardSubscription(): void {
-  const current = Object.values(subscriptions()).find(item => item.tipo === 'quadro' && item.ativo)
-  document.querySelectorAll<HTMLInputElement>('[data-board-module]').forEach(input => input.addEventListener('change', async () => {
-    const source = input.dataset['boardModule'] as AgendaSource
-    if (boardSubscriptionBusy) { input.checked = boardSubscriptionModules.has(source); return }
-    input.checked ? boardSubscriptionModules.add(source) : boardSubscriptionModules.delete(source)
-    if (!boardSubscriptionModules.size) { input.checked = true; boardSubscriptionModules.add(source); persistUiPreferences(); alert('A assinatura precisa manter ao menos um módulo.'); return }
-    persistUiPreferences()
-    if (!current) return
-    const modulos = [...boardSubscriptionModules]
-    boardSubscriptionBusy = true
-    const controls = Array.from(document.querySelectorAll<HTMLInputElement>('[data-board-module]'))
-    controls.forEach(control => { control.disabled = true })
-    try { Object.assign(current, await updateBoardSubscription(current.token, modulos)) }
-    catch { input.checked = !input.checked; input.checked ? boardSubscriptionModules.add(source) : boardSubscriptionModules.delete(source); persistUiPreferences(); alert('Não foi possível atualizar os módulos da assinatura.') }
-    finally { boardSubscriptionBusy = false; controls.forEach(control => { control.disabled = false }) }
-  }))
-  document.getElementById('createBoardSubscription')?.addEventListener('click', async () => {
-    if (!boardSubscriptionModules.size) { alert('Selecione ao menos um módulo.'); return }
-    try { await createSubscription({ tipo:'quadro', modulos:[...boardSubscriptionModules] }); render() } catch { alert('Não foi possível gerar o link de assinatura.') }
-  })
-  document.getElementById('copyBoardSubscription')?.addEventListener('click', async () => { if (current) await copySubscriptionLink(current.token) })
-  document.getElementById('revokeBoardSubscription')?.addEventListener('click', async () => { if (!current || !confirm('Revogar esta assinatura do quadro?')) return; try { await revokeSubscription(current.token); render() } catch { alert('Não foi possível revogar o link.') } })
-}
 
 function downloadIcs(events: AgendaEvent[], filename: string, emptyMessage: string): void {
   if (!events.length) { alert(emptyMessage); return }

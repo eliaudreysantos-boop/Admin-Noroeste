@@ -3,6 +3,37 @@
 Atualizado em 17/09/2026. Este documento substitui os sete planos/auditorias
 antigos da raiz. Historico anterior permanece recuperavel pelo Git.
 
+## Repaginacao autorizada e implementada localmente
+
+- Usuario autorizou commit e deploy desta repaginacao e retirada das assinaturas
+  em 17/09/2026. Destino exclusivo: teste/main e noroeste-testes.netlify.app.
+  Build e suite completa aprovados antes do envio. Conferir hash com git log;
+  referencias abaixo a "sem commit/deploy" descrevem a etapa anterior ao envio.
+
+- Decisao mais recente: usuario desistiu das assinaturas; manter apenas ICS avulso.
+  Controles e chamadas de assinatura removidos da Minha Agenda (Pessoal/Quadro).
+  Downloads de mes, proximos compromissos e Geral preservados. Nao prometer
+  atualizacao/exclusao automatica de compromissos importados.
+  Backend e links existentes NAO foram revogados ou apagados. Homologacao de
+  assinaturas Google/Apple deixa de ser criterio para finalizar o aplicativo.
+- Usuario pediu uma unica barra: topbar removida, bottombar azul original mantida.
+
+- Usuario aprovou "Implementar a repaginacao" apos o deploy ad93734 em teste/main.
+- Nova rodada SEM commit/deploy: Admin abre Pessoas, Tarefas abre Escala e TPL
+  abre Escala do mes. Abas compartilhadas em `src/ui/workspace-nav.ts`.
+- Admin agrupa configuracoes, vinculos e backup em Administracao; TPL agrupa
+  sete destinos em tres areas. Servico de Campo tem Programacao/Configuracoes.
+- Voltar das abas retorna a principal sem remontar o modulo; da principal retorna
+  aos modulos. Guardas impedem respostas de abas antigas de substituir a atual.
+- Cabecalho comum, superficies mais simples, formularios secundarios recolhidos,
+  tres abas iguais na Agenda e PDFs primeiro no Quadro. Motores/PDFs inalterados.
+- Testes: suite test:all, build, navegacao desktop/mobile nos seis modulos,
+  publication-download-browser e individual-browser. Capturas em tmp/layout.
+- Testes antigos que dependem dos menus intermediarios devem ser adaptados ao
+  novo fluxo quando executados; nao reintroduzir os menus para satisfazer seletores.
+- Testar a versao em http://127.0.0.1:5190/ antes de nova publicacao.
+- As instrucoes antigas de nao implementar abaixo foram substituidas pelo aceite.
+
 ## Atualizacao: Voltar e publicacao autorizados
 
 - Pedido posterior do usuario: corrigir Voltar, fazer commit e deploy no site de testes.

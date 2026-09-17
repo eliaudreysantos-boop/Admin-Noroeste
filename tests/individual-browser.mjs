@@ -44,6 +44,7 @@ try {
     page.on('pageerror', error => errors.push(error.message))
     await page.route('**/.netlify/functions/**', async route => {
       const url = new URL(route.request().url()), endpoint = url.pathname.split('/').pop()
+      assert.notEqual(endpoint, 'calendar-subscriptions', 'retired subscription UI makes no requests')
       if (endpoint === 'auth-session') return route.fulfill({ json:{ uid:'audit', csrf:'a'.repeat(48), usuario:{ nome:'Auditoria', ativo:true, masterId:'m1', apps:{ mestre:true, individual:true } } } })
       if (endpoint === 'auth-users') return route.fulfill({ json:{} })
       if (route.request().method() !== 'GET') return route.fulfill({ json:{ ok:true } })
@@ -57,8 +58,22 @@ try {
     await page.getByRole('tab', { name:'Pessoal', exact:true }).waitFor()
     assert.equal(await page.getByRole('tab', { name:'Relatório', exact:true }).count(), 0)
     assert.match(await page.locator('.agenda-next').innerText(), /próximo compromisso/i)
+    await page.getByText('Calendário e compartilhamento', { exact:true }).click()
+    for (const selector of ['#agendaIcsMonth', '#agendaIcsUpcoming']) {
+      const downloaded = page.waitForEvent('download')
+      await page.locator(selector).click()
+      const file = await downloaded
+      assert.match(file.suggestedFilename(), /\.ics$/)
+      assert.equal(await file.failure(), null)
+    }
     for (const screen of ['Pessoal', 'Geral', 'Quadro']) {
       await page.getByRole('tab', { name:screen, exact:true }).click()
+      assert.equal(await page.locator('[id*="Subscription"], a[href^="webcal:"], [data-agenda-panel="subscription"]').count(), 0)
+      if (screen === 'Geral') {
+        const downloaded = page.waitForEvent('download')
+        await page.locator('#generalIcsMonth').click()
+        assert.equal(await (await downloaded).failure(), null)
+      }
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, screen)
     }
     await page.getByRole('tab', { name:'Quadro', exact:true }).click()

@@ -39,7 +39,7 @@
   --bottom-h:  52px;
   --max-w:     480px;
   --radius:    8px;
-  --radius-lg: 14px;
+  --radius-lg: 8px;
   --shadow:    0 2px 8px rgba(0,0,0,.10);
   --shadow-lg: 0 8px 24px rgba(0,0,0,.14);
   --anim-duration: 500ms;
@@ -1195,3 +1195,52 @@ textarea.form-input {
 .coordinator-card summary small { display:block; margin-top:3px; color:var(--ink-3); }
 .coordinator-card-body { border-top:1px solid var(--border); padding:12px; }
 @media (max-width: 900px) { .coordinator-grid { grid-template-columns:1fr; } }
+
+/* Shared operational workspace. */
+:root { --bg:#f6f7f8; --surface-2:#f1f3f4; --ink:#202528; --ink-2:#50595e; --ink-3:#636e73; --border:#d9dfe2; --anim-duration:160ms; }
+* { letter-spacing:0; }
+#appContent { padding-top:24px; }
+.workspace-heading { display:flex; align-items:center; min-height:44px; margin-bottom:16px; }
+.workspace-heading h1 { font-size:1.45rem; line-height:1.25; font-weight:700; overflow-wrap:anywhere; }
+.task-period-toolbar { padding:12px 0; margin-bottom:16px; border-bottom:1px solid var(--border); }
+.workspace-disclosure { border-bottom:1px solid var(--border); }
+.workspace-disclosure > summary { padding:14px 0; cursor:pointer; font-weight:600; }
+#appContent .workspace-disclosure > .form-panel { border:0; }
+.service-manual { margin-bottom:20px; }
+#individualRoot .module-title { min-height:44px; margin-bottom:16px; }
+#individualRoot .module-title h2 { font-size:1.45rem; color:var(--ink) !important; }
+.workspace-tabs, .workspace-subtabs { display:flex; flex-wrap:wrap; gap:4px; border-bottom:1px solid var(--border); margin-bottom:20px; }
+.workspace-tabs button, .workspace-subtabs button { min-height:44px; border:0; border-bottom:3px solid transparent; background:transparent; padding:10px 14px; color:var(--ink-2); font:inherit; font-weight:600; cursor:pointer; }
+.workspace-tabs button[aria-current="page"] { color:var(--blue-mid); border-bottom-color:var(--blue-mid); }
+.workspace-tabs button:hover, .workspace-subtabs button:hover { background:var(--surface-2); }
+.workspace-subtabs { gap:12px; margin-top:-8px; }
+.workspace-subtabs button { font-size:.83rem; padding:8px 4px; }
+.workspace-subtabs button[aria-current="page"] { color:var(--ink); border-bottom-color:var(--ink-2); }
+button:focus-visible, summary:focus-visible { outline:2px solid var(--blue-mid); outline-offset:3px; }
+.module-menu { gap:12px; }
+.module-menu-btn { border-radius:8px; box-shadow:none; animation:none; min-width:0; }
+.module-menu-btn:hover { transform:none; box-shadow:none; border-color:var(--blue-mid); }
+.module-menu-btn .mod-icon { border-radius:6px; }
+#appContent .form-panel { border:0; border-radius:0; box-shadow:none; background:transparent; padding:16px 0; border-bottom:1px solid var(--border); }
+#appContent details.form-panel { padding:0; }
+#appContent details > summary { min-height:48px; }
+#appContent .form-panel .form-panel { border-bottom:0; }
+.service-summary > div { border:0; border-left:2px solid var(--border); border-radius:0; background:transparent; }
+.service-summary > div:first-child { border-left-color:var(--blue-mid); }
+#serviceConfig, #serviceSchedule { display:none; }
+#servicoCampoRoot > .module-section-title { display:none; }
+.agenda-screen-tabs { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); background:transparent; border:0; border-bottom:1px solid var(--border); border-radius:0; padding:0; }
+.agenda-screen-tabs .program-period-mode { border-radius:0; min-height:44px; }
+.agenda-board-card, .agenda-next { box-shadow:none; }
+.module-title h2 { font-size:1.3rem; }
+@media (max-width:560px) {
+  #appContent { padding-top:16px; }
+  .workspace-tabs { gap:0; }
+  .workspace-tabs button { padding:10px 9px; font-size:.82rem; flex:1 1 auto; }
+  .workspace-subtabs { gap:8px; }
+  .workspace-subtabs button { font-size:.78rem; }
+  .agenda-screen-tabs { grid-template-columns:repeat(3,minmax(0,1fr)); }
+}
+@media (prefers-color-scheme:dark) {
+  :root { --bg:#181b1d; --surface:#202527; --surface-2:#292f32; --ink:#eef1f2; --ink-2:#c3cbce; --ink-3:#a4afb4; --border:#414a4f; --blue-mid:#79bddf; }
+}

@@ -48,7 +48,7 @@ const cases = [
 ]
 await mkdir('.netlify', { recursive:true })
 try {
-  for (const width of [1280, 390]) for (const [module, tab, buttonId, , periodPath] of cases) {
+  for (const width of [1280, 390]) for (const [module, , buttonId, , periodPath] of cases) {
     const context = await browser.newContext({ viewport:{ width, height:900 }, serviceWorkers:'block' })
     const page = await context.newPage(), writes = [], errors = [], downloads = []
     let failure = 'upload'
@@ -71,7 +71,6 @@ try {
     })
     await page.goto(process.env.APP_TEST_URL || 'http://localhost:5180/')
     await page.locator('[data-menu-card="'+module+'"]').click()
-    if (module === 'tarefas' || module === 'escala') await page.locator('[data-menu-card="'+tab+'"]').click()
     if (module === 'tarefas') await page.getByText('Refazer uma função ou ajustar a impressão', { exact:true }).click()
     const button = page.locator(buttonId)
     await button.waitFor()
@@ -103,7 +102,7 @@ try {
       assert.equal(await (await download).failure(), null)
       assert.equal(writes.length, publishedWrites)
       if (module === 'servicoCampo') {
-        await page.locator('#serviceConfig').click()
+        await page.locator('[data-workspace-tab="configuracao"]').click()
         assert.equal(await page.locator('#serviceTemplateForm').isVisible(), false)
         await page.locator('.service-template summary').first().click()
         await page.locator('[data-edit-service-template]').click()

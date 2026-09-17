@@ -1,4 +1,5 @@
 import { lockPublicationUi } from '../ui/publication-busy'
+import { renderWorkspaceNav } from '../ui/workspace-nav'
 import type { AppContext } from '../types'
 import {
   get,
@@ -196,10 +197,9 @@ export default function mount(ctx: AppContext): void {
 
   el.innerHTML = `
     <div id="tarefasRoot">
-      <div id="tarefasContent"></div>
+      <div id="tarefasNav"></div><div id="tarefasContent"></div>
     </div>`
-  renderContent()
-  void ensureLoaded()
+  void openTarefasTab('escala')
 }
 
 function ensureLoaded(): Promise<boolean> {
@@ -248,9 +248,11 @@ async function loadTarefas(): Promise<boolean> {
 async function openTarefasTab(next: TarefasTab): Promise<void> {
   const content = document.getElementById('tarefasContent')
   if (!content) return
+  activeTab = next
+  renderNavigation()
   content.innerHTML = `${sectionTitle('Tarefas', '')}<p class="empty-state">Carregando dados...</p>`
   const loaded = await ensureLoaded()
-  if (!content.isConnected) return
+  if (!content.isConnected || activeTab !== next) return
   if (!loaded) {
     loadPromise = null
     content.innerHTML = `${sectionTitle('Tarefas', '')}<p class="empty-state">Não foi possível carregar os dados.</p><button id="retryTasks" class="btn btn-primary">Tentar novamente</button>`
@@ -262,6 +264,7 @@ async function openTarefasTab(next: TarefasTab): Promise<void> {
 }
 
 function renderContent(): void {
+  renderNavigation()
   if (activeTab === 'indice') {
     renderIndex()
     return
@@ -271,6 +274,14 @@ function renderContent(): void {
   else if (activeTab === 'participantes') renderParticipantes()
   else if (activeTab === 'pendencias') renderPendencias()
   else renderTaskConfig()
+}
+
+function renderNavigation(): void {
+  const host = document.getElementById('tarefasNav')
+  if (host) renderWorkspaceNav(host, 'Tarefas', 'escala', activeTab, [
+    { id:'escala', label:'Escala' }, { id:'participantes', label:'Pessoas' },
+    { id:'pendencias', label:'Pendências' }, { id:'config', label:'Configurações' },
+  ], id => { void openTarefasTab(id as TarefasTab) })
 }
 
 function renderIndex(): void {
@@ -303,7 +314,7 @@ function renderEscala(): void {
   content.innerHTML = `
     ${sectionTitle('Escala de tarefas', '')}
     ${locked ? '<div class="notice">Esta escala está publicada no Minha Agenda e bloqueada para edição.</div>' : '<div class="notice warning">Rascunho administrativo: publique para aparecer no Minha Agenda.</div>'}
-    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:12px">
+    <div class="task-period-toolbar">
       <div class="module-form-grid">
         <div class="form-group" style="margin:0"><label class="form-label" for="tarefasPeriodMode">Formato</label><select id="tarefasPeriodMode" class="form-select"><option value="month" ${periodMode === 'month' ? 'selected' : ''}>Mensal</option><option value="bimester" ${periodMode === 'bimester' ? 'selected' : ''}>Bimestral</option></select></div>
         <div class="form-group" style="margin:0"><label class="form-label" for="tarefasPeriodMonth">Período</label><input id="tarefasPeriodMonth" class="form-input" type="month" value="${escapeHtml(selectedPeriodMonth)}"></div>
@@ -591,6 +602,17 @@ function renderTaskConfig(): void {
     <div class="form-panel"><div class="module-form-grid"><label class="form-field"><span>Formato padrão</span><select id="taskConfigMode"><option value="month" ${selectedPeriodMode === 'month' ? 'selected' : ''}>Mensal</option><option value="bimester" ${selectedPeriodMode === 'bimester' ? 'selected' : ''}>Bimestral</option></select></label><label class="form-field"><span>Fonte preferida do PDF: <strong id="taskConfigFontValue">${printFont()} pt</strong></span><input id="taskConfigFont" type="range" min="${PRINT_MIN_PT}" max="${PRINT_MAX_PT}" value="${printFont()}"></label></div><button id="saveTaskConfig" class="btn btn-primary" type="button">Salvar preferências</button></div>
     <div class="form-panel"><h3 style="margin-top:0">Regras do motor</h3><p class="form-help">Estas opções valem apenas para as próximas gerações. Regras de integridade continuam obrigatórias.</p><div class="engine-rule-list"><label><input id="taskRulePresident" type="checkbox" ${rules.presidenteSegundaTarefa ? 'checked' : ''} ${canEditRules ? '' : 'disabled'}> Aproveitar o presidente em uma segunda tarefa mecânica</label><label><input id="taskRuleBalance" type="checkbox" ${rules.equilibrarDesignacoes ? 'checked' : ''} ${canEditRules ? '' : 'disabled'}> Equilibrar o total de designações</label><label><input id="taskRuleRepeat" type="checkbox" ${rules.evitarRepetirFuncao ? 'checked' : ''} ${canEditRules ? '' : 'disabled'}> Evitar repetir a mesma função</label></div>${canEditRules ? '<div class="scale-actions" style="margin-top:12px"><button id="saveTaskRules" class="btn btn-primary" type="button">Salvar regras</button><button id="restoreTaskRules" class="btn btn-ghost" type="button">Restaurar padrões</button></div>' : '<div class="notice">Somente o Admin pode alterar estas regras.</div>'}</div>
     <div class="form-panel"><h3 style="margin-top:0">Datas sem reunião</h3><div style="display:flex;gap:8px"><input id="taskExcludedDate" class="form-input" type="date"><button id="addTaskExcludedDate" class="btn btn-ghost" type="button">Adicionar</button></div><div class="module-option-list" style="margin-top:10px">${dates.map(date => `<div class="module-list-row"><strong>${escapeHtml(formatDate(date))}</strong><button class="btn btn-danger" data-remove-task-date="${escapeHtml(date)}" type="button">Remover</button></div>`).join('') || '<p class="empty-state">Nenhuma data excluída.</p>'}</div></div><div id="taskMessageSettings"></div>`
+  content.querySelectorAll<HTMLElement>(':scope > .form-panel').forEach((panel, index) => {
+    const details = document.createElement('details')
+    details.className = 'workspace-disclosure'
+    const summary = document.createElement('summary')
+    const heading = panel.querySelector('h3')
+    summary.textContent = heading?.textContent ?? 'Período e impressão'
+    heading?.remove()
+    details.open = index === 0
+    panel.replaceWith(details)
+    details.append(summary, panel)
+  })
   document.getElementById('taskConfigFont')?.addEventListener('input', event => { const value = (event.target as HTMLInputElement).value; document.getElementById('taskConfigFontValue')!.textContent = `${value} pt` })
   document.getElementById('saveTaskConfig')?.addEventListener('click', async () => {
     const mode = (document.getElementById('taskConfigMode') as HTMLSelectElement).value === 'month' ? 'month' : 'bimester'

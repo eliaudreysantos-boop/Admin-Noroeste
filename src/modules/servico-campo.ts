@@ -2,6 +2,7 @@ import { lockPublicationUi } from '../ui/publication-busy'
 import type { AppContext, ConfigCongregacao, MasterPessoa, RawPessoas } from '../types'
 import { child, compareAndSet, configCongregacaoRef, get, pessoasRef, servicoCampoRef, update } from '../firebase'
 import { moduleBackButton, moduleTitle } from '../ui/module-header'
+import { renderWorkspaceNav } from '../ui/workspace-nav'
 import { generateFieldServicePeriod, validFieldServiceMonth, validFieldServiceTime, type FieldServiceAssignment, type FieldServicePeriod, type FieldServiceTemplate } from './servico-campo-domain'
 import { mountModuleMessageSettings } from './module-message-settings'
 
@@ -53,7 +54,7 @@ export default function mount(appContext: AppContext): void {
   void appContext
   screen = 'programacao'; editingTemplateId = ''; loadPromise = null; data = {}; people = {}
   const host = document.getElementById('appContent'); if (!host) return
-  host.innerHTML = '<div id="servicoCampoRoot"></div>'
+  host.innerHTML = '<div id="serviceNav"></div><div id="servicoCampoRoot"></div>'
   void openScreen('programacao')
 }
 
@@ -74,9 +75,11 @@ async function load(): Promise<boolean> {
 
 async function openScreen(next: Screen): Promise<void> {
   const host = root()
+  screen = next
+  renderNavigation()
   host.innerHTML = `${moduleTitle('Serviço de Campo')}<p class="empty-state">Carregando dados...</p>`
   const loaded = await ensureLoaded()
-  if (!host.isConnected) return
+  if (!host.isConnected || screen !== next) return
   if (!loaded) {
     loadPromise = null
     host.innerHTML = `${moduleTitle('Serviço de Campo')}<p class="empty-state">Não foi possível carregar os dados.</p><button id="retryService" class="btn btn-primary">Tentar novamente</button>`
@@ -87,8 +90,15 @@ async function openScreen(next: Screen): Promise<void> {
 }
 
 function render(): void {
+  renderNavigation()
   if (screen === 'configuracao') renderConfiguration()
   else renderSchedule()
+}
+function renderNavigation(): void {
+  const host = document.getElementById('serviceNav')
+  if (host) renderWorkspaceNav(host, 'Serviço de Campo', 'programacao', screen, [
+    { id:'programacao', label:'Programação' }, { id:'configuracao', label:'Configurações' },
+  ], id => { void openScreen(id as Screen) })
 }
 
 function periodControl(): string {
@@ -126,7 +136,7 @@ function renderSchedule(): void {
 }
 
 function manualAssignmentForm(): string {
-  return `<form id="manualServiceForm" class="form-panel"><h3 style="margin-top:0">Adicionar saída</h3><div class="module-form-grid"><label class="form-field"><span>Data</span><input name="date" type="date" value="${selectedMonth}-01" required></label><label class="form-field"><span>Hora</span><input name="time" type="time" value="08:30" required></label><label class="form-field"><span>Local</span><input name="location" maxlength="80" required></label><label class="form-field"><span>Descrição</span><input name="label" maxlength="60" value="Saída de campo"></label><label class="form-field"><span>Dirigente</span><select name="leaderId">${leaderOptions()}</select></label></div><button class="btn btn-ghost" type="submit">Adicionar à programação</button></form>`
+  return `<details class="service-manual"><summary>Adicionar saída</summary><form id="manualServiceForm" class="form-panel"><div class="module-form-grid"><label class="form-field"><span>Data</span><input name="date" type="date" value="${selectedMonth}-01" required></label><label class="form-field"><span>Hora</span><input name="time" type="time" value="08:30" required></label><label class="form-field"><span>Local</span><input name="location" maxlength="80" required></label><label class="form-field"><span>Descrição</span><input name="label" maxlength="60" value="Saída de campo"></label><label class="form-field"><span>Dirigente</span><select name="leaderId">${leaderOptions()}</select></label></div><button class="btn btn-ghost" type="submit">Adicionar à programação</button></form></details>`
 }
 
 async function generatePeriod(): Promise<void> {

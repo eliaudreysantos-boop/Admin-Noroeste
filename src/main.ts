@@ -129,6 +129,13 @@ async function handleSair(): Promise<void> {
 // ─── Botão Voltar ────────────────────────────────────────────────────────────
 
 function handleBack(): void {
+  const workspace = document.querySelector<HTMLElement>('[data-workspace-home]')
+  if (workspace) {
+    if (workspace.dataset.workspaceActive !== workspace.dataset.workspaceHome) {
+      workspace.querySelector<HTMLButtonElement>(`[data-workspace-tab="${workspace.dataset.workspaceHome}"]`)?.click()
+    } else navigateBack()
+    return
+  }
   if (document.querySelector('[data-module-index-marker]')) navigateModuleIndex()
   else navigateBack()
 }
@@ -140,7 +147,10 @@ document.addEventListener('click', event => {
 
 function syncBottomNavigation(): void {
   const state = routeState()
-  const insideModuleScreen = Boolean(document.querySelector('[data-module-index-marker]'))
+  const workspace = document.querySelector<HTMLElement>('[data-workspace-home]')
+  const insideModuleScreen = workspace
+    ? workspace.dataset.workspaceActive !== workspace.dataset.workspaceHome
+    : Boolean(document.querySelector('[data-module-index-marker]'))
   const canBack = insideModuleScreen || state.canReturnToModules
   btnBack.textContent = '← Voltar'
   btnBack.title = insideModuleScreen ? 'Voltar ao início do módulo' : 'Voltar aos módulos'

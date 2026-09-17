@@ -4,6 +4,7 @@ import { apiJson } from '../secure-api.ts'
 import { child, compareAndUpdate, escalaRef, get, pessoasRef, update } from '../firebase'
 import { renderMenuCards, type ItemMenu } from '../ui/menu-cards'
 import { moduleBackButton } from '../ui/module-header'
+import { renderWorkspaceNav } from '../ui/workspace-nav'
 import {
   DEFAULT_ESCALA_GENERATION_RULES, ESCALA_RULE_LABELS, activeDates, analyzeCell, availabilityKey, generateAll,
   isBlocked, isPublishedMonth, isValidMonth, localSlots, normalizeEscalaGenerationRules, participantName, validatePair,
@@ -84,9 +85,8 @@ function input(localId = selectedLocalId): EscalaGenerationInput {
 export default function mount(ctx: AppContext): void {
   context = ctx; tab = 'indice'; selectedLocalId = ''; selectedParticipantId = ''; loadPromise = null
   participants = {}; pessoas = {}; locals = {}; historicalSnapshots = {}; availability = {}; tables = {}; blocks = {}; exclusions = {}; settings = {}; greetings = {}; publishedMonth = ''; publishedMonths = {}
-  document.getElementById('appContent')!.innerHTML = '<div id="escalaRoot"><div id="escalaContent"></div></div>'
-  render()
-  void ensureLoaded()
+  document.getElementById('appContent')!.innerHTML = '<div id="escalaRoot"><div id="escalaNav"></div><div id="escalaContent"></div></div>'
+  void go('escalaAtual')
 }
 function ensureLoaded(): Promise<boolean> {
   loadPromise ??= load()
@@ -119,9 +119,11 @@ async function load(): Promise<boolean> {
 }
 async function go(next: Tab): Promise<void> {
   const host = root()
+  tab = next
+  renderNavigation()
   host.innerHTML = `${moduleBackButton()}<p class="empty-state">Carregando dados...</p>`
   const loaded = await ensureLoaded()
-  if (!host.isConnected) return
+  if (!host.isConnected || tab !== next) return
   if (!loaded) {
     loadPromise = null
     host.innerHTML = `${moduleBackButton()}<p class="empty-state">Não foi possível carregar a Escala TPL.</p><button id="retryScale" class="btn btn-primary">Tentar novamente</button>`
@@ -131,6 +133,7 @@ async function go(next: Tab): Promise<void> {
   tab = next; render()
 }
 function render(): void {
+  renderNavigation()
   if (tab === 'indice') renderIndex()
   else if (tab === 'locais') renderLocais()
   else if (tab === 'participantes') renderParticipants()
@@ -140,6 +143,14 @@ function render(): void {
   else if (tab === 'pendencias') renderPending()
   else renderConfig()
   if (tab !== 'indice' && !root().querySelector('[data-module-index-marker]')) root().insertAdjacentHTML('afterbegin', moduleBackButton())
+}
+function renderNavigation(): void {
+  const host = document.getElementById('escalaNav')
+  if (host) renderWorkspaceNav(host, 'Escala TPL', 'escalaAtual', tab, [
+    { id:'escalaAtual', label:'Escala', children:[{ id:'escalaAtual', label:'Escala do mês' }, { id:'pendencias', label:'Pendências' }] },
+    { id:'participantes', label:'Participantes', children:[{ id:'participantes', label:'Pessoas' }, { id:'disponibilidade', label:'Disponibilidade' }, { id:'mensagens', label:'Confirmações' }] },
+    { id:'config', label:'Configurações', children:[{ id:'config', label:'Regras e mensagens' }, { id:'locais', label:'Locais e horários' }] },
+  ], id => { void go(id as Tab) })
 }
 function renderIndex(): void {
   root().innerHTML = '<div style="margin-bottom:14px"><h2 style="font-size:1.05rem;color:#1A6B3C">Escala TPL</h2></div><div id="escalaMenu"></div>'
