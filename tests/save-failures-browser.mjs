@@ -27,7 +27,7 @@ try {
     })
     await page.goto(process.env.APP_TEST_URL || 'http://localhost:5180/')
     await page.locator('[data-menu-card="escala"]').click()
-    await page.locator('[data-menu-card="participantes"]').click()
+    await page.locator('[data-workspace-tab="participantes"]').click()
     await page.locator('[data-person="m1"]').click()
     await page.evaluate(() => { document.querySelector('#pmSave').click(); document.querySelector('#pmSave').click() })
     await page.getByText('Falha simulada de rede', { exact:true }).waitFor()
