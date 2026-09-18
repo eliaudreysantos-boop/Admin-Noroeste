@@ -19,6 +19,11 @@ antigos da raiz. Historico anterior permanece recuperavel pelo Git.
   apos reinicio do navegador, reconectou, preservou preferencias e isolou cada
   instalacao em desktop e celular simulados. Downloads ICS avulsos tambem foram
   validados no teste publicado da Agenda.
+- Commit `b595a05`: Minha Agenda simplificada. Filtros de origem/status e a
+  opcao de datas passadas foram removidos das visoes Pessoal e Geral; a Agenda
+  mostra todos os itens do periodo. Quando o navegador disponibiliza a PWA, o
+  app sugere a instalacao e permite dispensar o aviso. Pareamento e desbloqueio
+  foram revalidados em desktop e celular.
 - Commit `77e251e`: repaginacao e ICS avulso enviados para teste/main.
 - Deploy confirmado em https://noroeste-testes.netlify.app/ por assets novos.
 - Commit anterior `ad93734`: Voltar e PDFs A4, tambem publicado.
@@ -34,7 +39,7 @@ antigos da raiz. Historico anterior permanece recuperavel pelo Git.
 - Testes de falha ao salvar, correcoes e carregamento lento foram atualizados
   para a navegacao por abas e passaram no site publicado. O commit `fec1b17`
   tambem manteve o motor de PDF fora do carregamento inicial dos modulos.
-- Ultimo commit publicado: `fec1b17` em `teste/main`. Esta atualizacao do
+- Ultimo commit publicado: `b595a05` em `teste/main`. Esta atualizacao do
   Markdown sera registrada no proximo commit autorizado.
 - Proximo passo: validacao funcional pelo usuario no site publicado, com dados
   e aparelhos reais.
@@ -104,7 +109,7 @@ antigos da raiz. Historico anterior permanece recuperavel pelo Git.
 - Site de testes: https://noroeste-testes.netlify.app/
 - Remoto `origin`: https://github.com/eliaudreysantos-boop/Admin-Noroeste.git
 - Site original: https://admin-noroeste.netlify.app/ (nao publicar nele).
-- Ultimo deploy confirmado: fec1b17. Conferir remoto antes de nova publicacao.
+- Ultimo deploy confirmado: b595a05. Conferir remoto antes de nova publicacao.
 - Codigo, PDFs, testes e proxy Vite estao commitados/publicados. Apenas esta
   atualizacao documental e posterior ao envio. Conferir git status ao retomar.
 - scripts/prepare-firebase-export.mjs ficou nao versionado por conter referencias
@@ -216,5 +221,5 @@ antigos da raiz. Historico anterior permanece recuperavel pelo Git.
   Nao esperar atualizacao/exclusao automatica dos compromissos importados.
   Homologacao de assinaturas e revogacao de links nao sao requisitos de conclusao.
 - Servico de Campo: ICS pessoal apenas para dirigente; Quadro sem alarme coletivo.
-- Commit/deploy concluido: fec1b17 no site de testes. Limpeza do Firebase e envio
+- Commit/deploy concluido: b595a05 no site de testes. Limpeza do Firebase e envio
   ao repositorio original sao etapas separadas, dependentes de autorizacao.
