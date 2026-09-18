@@ -3,7 +3,43 @@
 Atualizado em 17/09/2026. Este documento substitui os sete planos/auditorias
 antigos da raiz. Historico anterior permanece recuperavel pelo Git.
 
-## Repaginacao autorizada e implementada localmente
+## Estado publicado - prevalece sobre o historico abaixo
+
+- Retomada em 18/09/2026: suite `npm run test:all`, `npm run build`,
+  `git diff --check` e testes de navegador locais passaram. No site publicado,
+  `back-navigation-browser` passou; `individual-browser` e
+  `publication-download-browser` reproduziram o erro conhecido com
+  serviceWorkers bloqueados (`registration.update` indefinido).
+- Correcao aplicada e publicada em `e3b7f7b` no remoto `teste/main`:
+  `refreshServiceWorkerWeekly` agora ignora registro de service worker
+  ausente/indefinido. Teste novo em `tests/pwa-sync.test.mjs`. Validado
+  localmente e no site publicado com Agenda e publicacao/download em
+  desktop/celular, alem de suite completa e build.
+- PWA publicada validada em 18/09/2026 com service worker ativo: abriu offline
+  apos reinicio do navegador, reconectou, preservou preferencias e isolou cada
+  instalacao em desktop e celular simulados. Downloads ICS avulsos tambem foram
+  validados no teste publicado da Agenda.
+- Commit `77e251e`: repaginacao e ICS avulso enviados para teste/main.
+- Deploy confirmado em https://noroeste-testes.netlify.app/ por assets novos.
+- Commit anterior `ad93734`: Voltar e PDFs A4, tambem publicado.
+- Build, suite test:all e diff --check aprovados antes do envio.
+- Apos deploy: navegacao nos seis modulos e Minha Agenda verificadas em desktop
+  e celular com APIs simuladas, sem escrita real no Firebase.
+- Teste publicado da Agenda com serviceWorkers bloqueados apresentou registro
+  indefinido em update; repeticao com serviceWorkers permitidos passou, sem
+  erros. Essa adaptacao foi apenas na execucao, nao no script versionado.
+- Topbar removida; manter somente bottombar azul original com Voltar/Sair.
+- Assinaturas removidas da interface; ICS avulso preservado. Links antigos e
+  backend nao foram revogados/apagados. Homologacao de assinaturas fora do escopo.
+- Testes de falha ao salvar, correcoes e carregamento lento foram atualizados
+  para a navegacao por abas e passaram no site publicado. O commit `fec1b17`
+  tambem manteve o motor de PDF fora do carregamento inicial dos modulos.
+- Ultimo commit publicado: `fec1b17` em `teste/main`. Esta atualizacao do
+  Markdown sera registrada no proximo commit autorizado.
+- Proximo passo: validacao funcional pelo usuario no site publicado, com dados
+  e aparelhos reais.
+
+## Repaginacao implementada e publicada
 
 - Usuario autorizou commit e deploy desta repaginacao e retirada das assinaturas
   em 17/09/2026. Destino exclusivo: teste/main e noroeste-testes.netlify.app.
@@ -19,13 +55,13 @@ antigos da raiz. Historico anterior permanece recuperavel pelo Git.
 - Usuario pediu uma unica barra: topbar removida, bottombar azul original mantida.
 
 - Usuario aprovou "Implementar a repaginacao" apos o deploy ad93734 em teste/main.
-- Nova rodada SEM commit/deploy: Admin abre Pessoas, Tarefas abre Escala e TPL
+- Publicado em 77e251e: Admin abre Pessoas, Tarefas abre Escala e TPL
   abre Escala do mes. Abas compartilhadas em `src/ui/workspace-nav.ts`.
 - Admin agrupa configuracoes, vinculos e backup em Administracao; TPL agrupa
   sete destinos em tres areas. Servico de Campo tem Programacao/Configuracoes.
 - Voltar das abas retorna a principal sem remontar o modulo; da principal retorna
   aos modulos. Guardas impedem respostas de abas antigas de substituir a atual.
-- Cabecalho comum, superficies mais simples, formularios secundarios recolhidos,
+- Sem topbar, superficies mais simples, formularios secundarios recolhidos,
   tres abas iguais na Agenda e PDFs primeiro no Quadro. Motores/PDFs inalterados.
 - Testes: suite test:all, build, navegacao desktop/mobile nos seis modulos,
   publication-download-browser e individual-browser. Capturas em tmp/layout.
@@ -43,11 +79,11 @@ antigos da raiz. Historico anterior permanece recuperavel pelo Git.
 - Regressao reproduzida antes da correcao; teste `tests/back-navigation-browser.mjs`
   aprovado nos seis modulos, dois ciclos sem reload, em 1280 e 390 pixels.
 - `npm run test:all` e `npm run build` aprovados nesta rodada.
-- Replanejamento de layouts continua pendente, sem autorizacao de implementacao.
+- Replanejamento aprovado, implementado e publicado posteriormente em 77e251e.
 - Commit/deploy desta rodada devem ser conferidos no Git e no site de testes;
   referencias a "sem commit" abaixo descrevem o estado anterior a esta publicacao.
 
-## Pedido de replanejamento e limite de autorizacao
+## Pedido inicial de replanejamento (historico superado pelo aceite)
 
 - Replanejar o layout de TODOS os modulos ativos, nao apenas Admin e Minha Agenda.
 - Usuario relata: botao Voltar nao funciona ate atualizar a pagina.
@@ -68,9 +104,11 @@ antigos da raiz. Historico anterior permanece recuperavel pelo Git.
 - Site de testes: https://noroeste-testes.netlify.app/
 - Remoto `origin`: https://github.com/eliaudreysantos-boop/Admin-Noroeste.git
 - Site original: https://admin-noroeste.netlify.app/ (nao publicar nele).
-- Ultimo deploy de testes conhecido: e91c99b. Conferir remoto antes de publicar.
-- Ha alteracoes locais de PDFs, testes, proxy Vite e scripts SEM commit/deploy.
-  Conferir `git status` e o diff; preservar todo o trabalho existente.
+- Ultimo deploy confirmado: fec1b17. Conferir remoto antes de nova publicacao.
+- Codigo, PDFs, testes e proxy Vite estao commitados/publicados. Apenas esta
+  atualizacao documental e posterior ao envio. Conferir git status ao retomar.
+- scripts/prepare-firebase-export.mjs ficou nao versionado por conter referencias
+  pessoais especificas; output/ e tmp/ tambem ficaram fora do commit.
 - `output/` e `tmp/` contem artefatos e dados pessoais: nao incluir no commit.
 
 ## Aplicativo e principios a preservar
@@ -88,10 +126,10 @@ antigos da raiz. Historico anterior permanece recuperavel pelo Git.
 - Limpeza usa grupos proprios, sem dependencia de Secretario.
 - Servico de Campo tem rodizio por arranjo; varias saidas no mesmo dia sao validas.
 - Mensagens e links WhatsApp pertencem a cada modulo; preservar personalizacoes.
-- Minha Agenda: preservar preferencias por pessoa, identidade, cache/offline e
-  assinaturas. Reavaliar UX sem enfraquecer essas garantias.
+- Minha Agenda: preservar preferencias por pessoa, identidade e cache/offline.
+  Assinaturas sairam do escopo; exportacao avulsa ICS permanece.
 
-## Replanejamento proposto, ainda NAO aprovado para implementacao
+## Plano original (ja aprovado e executado; referencia historica)
 
 1. Inventariar telas, acoes, navegacao e estados de cada modulo ativo em desktop
    e celular. Mostrar o fluxo atual e quais telas podem ser reunidas/eliminadas.
@@ -110,7 +148,7 @@ antigos da raiz. Historico anterior permanece recuperavel pelo Git.
 6. Depois de autorizado: implementar por etapas e testar retorno, preservacao
    de estado, acessibilidade, celular/desktop, PDFs e regras dos motores.
 
-## PDFs: alteracoes locais concluidas e verificadas
+## PDFs: alteracoes publicadas e verificadas
 
 - Tarefas: 1 A4 retrato, inclusive bimestre com 19 linhas; dois blocos com datas
   nas linhas. Colunas: Operador 1/2 e Microfone 1/2; Presidente, Leitor, Entrada,
@@ -163,16 +201,20 @@ antigos da raiz. Historico anterior permanece recuperavel pelo Git.
   enviar a terceiros. Importacao futura exige backup fresco, escopo e aprovacao;
   mesclar nao remove ramos ausentes, substituir raiz pode perder dados recentes.
 
-## Validacao futura e encerramento
+## Pendencias reais de encerramento
 
 - Depois de autorizar codigo: `npm run test:all`, `npm run build`, testes de
   navegador pertinentes e `git diff --check`; nao presumir aprovacao da suite
   completa atual apenas com base nas rodadas antigas.
-- Revalidar Voltar sem reload em todos os modulos e em celular/desktop.
+- Usuario aprovar layout e fluxos publicados com seus dados: editar, salvar,
+  trocar abas e Voltar, principalmente no celular. Testes automatizados passaram.
 - Validar publicacao, retirada/reabertura, download e documentos manuais do Admin.
 - Medir latencia real de Functions/Firebase e verificar concorrencia de edicoes.
-- Por ultimo, homologar PWA offline/reconexao e ICS Google/Android/Apple:
-  America/Fortaleza, identidade isolada, somente publicados, atualizacao no mesmo
-  link, duas instalacoes, revogacao independente e remocao de links temporarios.
+- Homologar a PWA instalada em aparelho fisico; abertura offline, reconexao e
+  isolamento de identidade ja passaram em navegador automatizado.
+- Testar importacao avulsa de ICS no aparelho, com horarios America/Fortaleza.
+  Nao esperar atualizacao/exclusao automatica dos compromissos importados.
+  Homologacao de assinaturas e revogacao de links nao sao requisitos de conclusao.
 - Servico de Campo: ICS pessoal apenas para dirigente; Quadro sem alarme coletivo.
-- Commit/deploy dos ajustes locais segue pendente e aguarda nova autorizacao.
+- Commit/deploy concluido: fec1b17 no site de testes. Limpeza do Firebase e envio
+  ao repositorio original sao etapas separadas, dependentes de autorizacao.
