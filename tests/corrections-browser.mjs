@@ -57,41 +57,38 @@ try {
   await page.goto(process.env.APP_TEST_URL || 'http://127.0.0.1:5174/')
 
   await page.locator('[data-menu-card="servicoCampo"]').click()
-  await page.locator('[data-menu-card="programacao"]').waitFor({ timeout:300 })
-  await page.locator('[data-menu-card="programacao"]').click()
+  await page.locator('[data-workspace-tab="programacao"]').click()
   await page.getByText('Carregando dados...', { exact:true }).waitFor()
   {
     const downloaded = page.waitForEvent('download')
     await page.locator('#servicePdf').click()
     assert.equal(await (await downloaded).failure(), null)
   }
+  await page.locator('#servicePublish').click()
   await page.locator('#serviceReopen').waitFor()
   assert.ok(writes.some(write => write.path === 'servicoCampo' && write.body?.value?.['periods/2027-01/published'] === true))
   page.once('dialog', dialog => dialog.accept())
   await page.locator('#serviceReopen').click()
-  await page.getByRole('button', { name:'Baixar PDF e publicar período', exact:true }).waitFor()
+  await page.locator('#servicePublish').waitFor()
   assert.ok(writes.some(write => write.path === 'servicoCampo' && write.body?.value?.['periods/2027-01/published'] === false))
-  await page.locator('#btnBack').click()
   await page.locator('#btnBack').click()
 
   await page.locator('[data-menu-card="limpeza"]').click()
-  await page.locator('[data-menu-card="pdf"]').click()
   {
     const downloaded = page.waitForEvent('download')
     await page.locator('#btnGerarPdfLimpeza').click()
     assert.equal(await (await downloaded).failure(), null)
   }
+  await page.locator('#btnPublicarPdfLimpeza').click()
   await page.getByRole('button', { name:'Reabrir período', exact:true }).waitFor()
   assert.ok(writes.some(write => write.path === 'limpeza/periodos' && write.body?.value?.['2026-09/publicado'] === true))
   await page.getByRole('button', { name:'Reabrir período', exact:true }).click()
-  await page.getByRole('button', { name:'Baixar PDF e publicar período', exact:true }).waitFor()
+  await page.getByRole('button', { name:'Publicar no Quadro', exact:true }).waitFor()
   assert.ok(writes.some(write => write.path === 'limpeza/periodos' && write.body?.value?.['2026-09/publicado'] === false))
-  await page.locator('#btnBack').click()
   await page.locator('#btnBack').click()
 
   await page.locator('[data-menu-card="tarefas"]').click()
-  await page.locator('[data-menu-card="escala"]').waitFor({ timeout:300 })
-  await page.locator('[data-menu-card="escala"]').click()
+  await page.locator('[data-workspace-tab="escala"]').click()
   await page.getByText('Carregando dados...', { exact:true }).waitFor()
   await page.getByText('Refazer uma função ou ajustar a impressão', { exact:true }).click()
   {
@@ -99,11 +96,12 @@ try {
     await page.locator('#btnTarefasPdf').click()
     assert.equal(await (await downloaded).failure(), null)
   }
+  await page.locator('#btnToggleTaskLock').click()
   await page.getByRole('button', { name:'Reabrir escala', exact:true }).waitFor()
   await page.locator('#btnToggleTaskLock').click()
-  await page.getByText('Refazer uma função ou ajustar a impressão', { exact:true }).click()
-  await page.getByRole('button', { name:'Baixar PDF e publicar período', exact:true }).waitFor()
+  await page.getByRole('button', { name:'Publicar no Quadro', exact:true }).waitFor()
   assert.ok(writes.some(write => write.path === 'tarefas/scale/periods' && write.body?.value?.['2026-09/locked'] === true))
+  assert.ok(writes.some(write => write.path === 'tarefas/scale/periods' && write.body?.value?.['2026-09/locked'] === false))
 
   assert.deepEqual(pageErrors, [])
   assert.ok(writes.some(write => write.endpoint === 'storage-file' && write.method === 'POST'))
