@@ -68,6 +68,7 @@ try {
     }
     for (const screen of ['Pessoal', 'Geral', 'Quadro']) {
       await page.getByRole('tab', { name:screen, exact:true }).click()
+      assert.equal(await page.locator('#agendaSource, #agendaStatus, #generalSource, #generalStatus, #generalShowPast').count(), 0)
       assert.equal(await page.locator('[id*="Subscription"], a[href^="webcal:"], [data-agenda-panel="subscription"]').count(), 0)
       if (screen === 'Geral') {
         const downloaded = page.waitForEvent('download')

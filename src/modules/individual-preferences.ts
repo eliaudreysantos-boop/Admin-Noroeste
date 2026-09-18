@@ -1,26 +1,21 @@
-import { validAgendaDate, type AgendaSource, type AgendaStatus } from './individual-domain.ts'
+import { validAgendaDate, type AgendaSource } from './individual-domain.ts'
 
 export type AgendaScreen = 'agenda' | 'geral' | 'quadro'
 export type AgendaUiContext = 'standalone' | 'admin'
 export type PersonalView = 'upcoming' | 'month'
-export type PersonalPanel = 'calendar' | 'filters' | 'sharing'
+export type PersonalPanel = 'calendar' | 'sharing'
 export type BoardPanel = 'meetings' | 'moduleDocuments' | 'adminDocuments' | 'subscription'
 
 export interface AgendaUiPreferences {
   screen: AgendaScreen
   personal: {
     month: string
-    source: AgendaSource | 'todas'
-    status: AgendaStatus | 'todos'
     view: PersonalView
     openPanels: PersonalPanel[]
   }
   general: {
     month: string
-    source: AgendaSource | 'todas'
-    status: AgendaStatus | 'todos'
     selectedDate: string
-    showPast: boolean
   }
   board: {
     meetingDate: string
@@ -33,9 +28,8 @@ export interface AgendaUiPreferences {
 
 const SCREENS: AgendaScreen[] = ['agenda', 'geral', 'quadro']
 const SOURCES: AgendaSource[] = ['tarefas', 'limpeza', 'escala', 'servicoCampo']
-const STATUSES: AgendaStatus[] = ['futuro', 'confirmacao-pendente', 'alterado', 'realizado']
 const PERSONAL_VIEWS: PersonalView[] = ['upcoming', 'month']
-const PERSONAL_PANELS: PersonalPanel[] = ['calendar', 'filters', 'sharing']
+const PERSONAL_PANELS: PersonalPanel[] = ['calendar', 'sharing']
 const BOARD_PANELS: BoardPanel[] = ['meetings', 'moduleDocuments', 'adminDocuments', 'subscription']
 const DEFAULT_SUBSCRIPTION_MODULES: AgendaSource[] = ['tarefas', 'limpeza', 'escala', 'servicoCampo']
 
@@ -49,8 +43,8 @@ export function defaultAgendaUiPreferences(currentMonth: string): AgendaUiPrefer
   const safeMonth = monthValue(currentMonth, new Date().toISOString().slice(0, 7))
   return {
     screen:'agenda',
-    personal:{ month:safeMonth, source:'todas', status:'todos', view:'upcoming', openPanels:[] },
-    general:{ month:safeMonth, source:'todas', status:'todos', selectedDate:'', showPast:false },
+    personal:{ month:safeMonth, view:'upcoming', openPanels:[] },
+    general:{ month:safeMonth, selectedDate:'' },
     board:{ meetingDate:'', documentPeriod:safeMonth, openPanels:['meetings'], subscriptionModules:[...DEFAULT_SUBSCRIPTION_MODULES] },
     updatedAt:0,
   }
@@ -66,17 +60,12 @@ export function parseAgendaUiPreferences(raw: string | null, currentMonth: strin
       screen:oneOf(value['screen'], SCREENS, fallback.screen),
       personal:{
         month:monthValue(personal['month'], fallback.personal.month),
-        source:oneOf(personal['source'], ['todas', ...SOURCES], fallback.personal.source),
-        status:oneOf(personal['status'], ['todos', ...STATUSES], fallback.personal.status),
         view:oneOf(personal['view'], PERSONAL_VIEWS, fallback.personal.view),
         openPanels:stringList(personal['openPanels'], PERSONAL_PANELS),
       },
       general:{
         month:monthValue(general['month'], fallback.general.month),
-        source:oneOf(general['source'], ['todas', ...SOURCES], fallback.general.source),
-        status:oneOf(general['status'], ['todos', ...STATUSES], fallback.general.status),
         selectedDate:dateValue(general['selectedDate']),
-        showPast:general['showPast'] === true,
       },
       board:{
         meetingDate:dateValue(board['meetingDate']),

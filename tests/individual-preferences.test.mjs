@@ -11,7 +11,6 @@ test('preferencias invalidas voltam a padroes seguros', () => {
   }), '2026-09')
   assert.equal(parsed.screen, 'agenda')
   assert.equal(parsed.personal.month, '2026-09')
-  assert.equal(parsed.personal.source, 'todas')
   assert.deepEqual(parsed.personal.openPanels, ['calendar'])
   assert.equal(parsed.general.selectedDate, '')
   assert.deepEqual(parsed.board.subscriptionModules, ['tarefas'])

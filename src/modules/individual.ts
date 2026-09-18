@@ -12,8 +12,6 @@ let ctx: AppContext | null = null
 let data: RawRoot = {}
 let month = new Date().toISOString().slice(0, 7)
 let screen: 'agenda' | 'geral' | 'quadro' = 'agenda'
-let agendaSource: AgendaSource | 'todas' = 'todas'
-let agendaStatus: AgendaStatus | 'todos' = 'todos'
 let generalSelectedDate = ''
 let boardDocumentPeriod = month
 let boardMeetingDate = ''
@@ -79,15 +77,15 @@ function offlineCacheKey(masterId: string): string { return `${OFFLINE_CACHE_KEY
 
 function captureUiPreferences(): void {
   uiPreferences.screen = screen
-  if (screen === 'agenda') Object.assign(uiPreferences.personal, { month, source:agendaSource, status:agendaStatus })
-  if (screen === 'geral') Object.assign(uiPreferences.general, { month, source:agendaSource, status:agendaStatus, selectedDate:generalSelectedDate })
+  if (screen === 'agenda') Object.assign(uiPreferences.personal, { month })
+  if (screen === 'geral') Object.assign(uiPreferences.general, { month, selectedDate:generalSelectedDate })
   Object.assign(uiPreferences.board, { meetingDate:boardMeetingDate, documentPeriod:boardDocumentPeriod, subscriptionModules:[...boardSubscriptionModules] })
 }
 
 function applyScreenPreferences(nextScreen: AgendaScreen): void {
   screen = nextScreen
-  if (screen === 'agenda') { month = uiPreferences.personal.month; agendaSource = uiPreferences.personal.source; agendaStatus = uiPreferences.personal.status }
-  if (screen === 'geral') { month = uiPreferences.general.month; agendaSource = uiPreferences.general.source; agendaStatus = uiPreferences.general.status; generalSelectedDate = uiPreferences.general.selectedDate }
+  if (screen === 'agenda') month = uiPreferences.personal.month
+  if (screen === 'geral') { month = uiPreferences.general.month; generalSelectedDate = uiPreferences.general.selectedDate }
 }
 
 function ensureUiPreferences(): void {
@@ -112,10 +110,10 @@ function persistUiPreferences(): void {
 }
 
 function setPanelOpen(panel: PersonalPanel | BoardPanel, open: boolean): void {
-  const panels = panel === 'calendar' || panel === 'filters' || panel === 'sharing' ? uiPreferences.personal.openPanels : uiPreferences.board.openPanels
+  const panels = panel === 'calendar' || panel === 'sharing' ? uiPreferences.personal.openPanels : uiPreferences.board.openPanels
   const next = new Set<string>(panels)
   open ? next.add(panel) : next.delete(panel)
-  if (panel === 'calendar' || panel === 'filters' || panel === 'sharing') uiPreferences.personal.openPanels = [...next] as PersonalPanel[]
+  if (panel === 'calendar' || panel === 'sharing') uiPreferences.personal.openPanels = [...next] as PersonalPanel[]
   else uiPreferences.board.openPanels = [...next] as BoardPanel[]
   persistUiPreferences()
 }
@@ -205,7 +203,7 @@ function isAdmin(): boolean { return ctx?.usuario.apps.mestre === true }
 function selectedMasterId(): string { return ctx?.usuario.masterId ?? (isAdmin() ? subscriptionPersonId : '') }
 function personalEvents(): AgendaEvent[] { const masterId = selectedMasterId(); return offlinePersonalEvents ?? (masterId ? collectAgendaEvents(data, masterId) : []) }
 function announcementEvents(): AnnouncementEvent[] { return offlineAnnouncementEvents ?? collectAnnouncementEvents(data) }
-function monthEvents(): AgendaEvent[] { return personalEvents().filter(event => event.date.startsWith(month)).filter(event => agendaSource === 'todas' || event.source === agendaSource).filter(event => agendaStatus === 'todos' || event.status === agendaStatus) }
+function monthEvents(): AgendaEvent[] { return personalEvents().filter(event => event.date.startsWith(month)) }
 function agendaRoot(): Record<string, unknown> { return (data.agenda ?? {}) as Record<string, unknown> }
 function agendaConfig(): AgendaConfig { return (agendaRoot()['config'] ?? {}) as AgendaConfig }
 function documents(): AgendaPublicDocument[] { return Object.values((agendaRoot()['documentos'] ?? {}) as Record<string, AgendaPublicDocument>) }
@@ -248,8 +246,8 @@ function render(): void {
   ensureUiPreferences()
   if (screen === 'geral') { renderGeneralAgenda(root); return }
   if (screen === 'quadro') { renderBoard(root); return }
-  const events = monthEvents(), filtered = personalEvents().filter(event => agendaSource === 'todas' || event.source === agendaSource).filter(event => agendaStatus === 'todos' || event.status === agendaStatus)
-  const future = upcomingAgendaEvents(filtered, fortalezaDate()).sort((a, b) => `${a.date} ${a.time ?? ''}`.localeCompare(`${b.date} ${b.time ?? ''}`)), [year, monthNumber] = month.split('-').map(Number)
+  const events = monthEvents()
+  const future = upcomingAgendaEvents(personalEvents(), fortalezaDate()).sort((a, b) => `${a.date} ${a.time ?? ''}`.localeCompare(`${b.date} ${b.time ?? ''}`)), [year, monthNumber] = month.split('-').map(Number)
   const firstDow = new Date(year, monthNumber - 1, 1).getDay(), totalDays = new Date(year, monthNumber, 0).getDate()
   const byDay = new Map<number, AgendaEvent[]>(); events.forEach(event => { const day = Number(event.date.slice(-2)); byDay.set(day, [...(byDay.get(day) ?? []), event]) })
   const calendar = [...Array(firstDow).fill(''), ...Array.from({ length:totalDays }, (_, index) => String(index + 1))]
@@ -257,9 +255,8 @@ function render(): void {
   root.innerHTML = `${moduleTitle('Minha agenda')}${screenTabs()}${loadingAssignments ? '<div class="notice">Atualizando designações dos módulos...</div>' : ''}${adminPersonPicker()}
     ${nextCommitment(future[0])}
     <div class="program-period-modes agenda-view-modes" role="tablist" aria-label="Visualização dos compromissos"><button class="program-period-mode" role="tab" type="button" data-personal-view="upcoming" aria-selected="${uiPreferences.personal.view === 'upcoming'}">Próximos</button><button class="program-period-mode" role="tab" type="button" data-personal-view="month" aria-selected="${uiPreferences.personal.view === 'month'}">Mês</button></div>
-    <div class="agenda-list">${eventRows(listEvents) || `<p class="empty-state">${uiPreferences.personal.view === 'upcoming' ? 'Nenhum outro compromisso futuro.' : 'Nenhuma designação corresponde aos filtros.'}</p>`}</div>
+    <div class="agenda-list">${eventRows(listEvents) || `<p class="empty-state">${uiPreferences.personal.view === 'upcoming' ? 'Nenhum outro compromisso futuro.' : 'Nenhuma designação neste mês.'}</p>`}</div>
     <details class="form-panel agenda-board-card agenda-personal-panel" data-agenda-panel="calendar" ${uiPreferences.personal.openPanels.includes('calendar') ? 'open' : ''}><summary><strong>Calendário mensal</strong><span>${esc(month)}</span></summary><div class="agenda-board-body"><div class="agenda-toolbar"><button class="btn btn-ghost" id="agendaPrev" type="button" aria-label="Mês anterior">‹</button><label class="sr-only" for="agendaMonth">Mês do calendário pessoal</label><input class="form-input" id="agendaMonth" type="month" value="${month}"><button class="btn btn-ghost" id="agendaNext" type="button" aria-label="Próximo mês">›</button></div><div class="agenda-calendar"><div class="agenda-weekdays">${['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'].map(day => `<strong>${day}</strong>`).join('')}</div><div class="agenda-days">${calendar.map(day => day ? `<div class="agenda-day ${byDay.has(Number(day)) ? 'has-events' : ''}"><span>${day}</span>${(byDay.get(Number(day)) ?? []).slice(0, 3).map(event => `<i class="${event.source}" aria-hidden="true"></i>`).join('')}</div>` : '<div class="agenda-day empty"></div>').join('')}</div></div></div></details>
-    <details class="form-panel agenda-board-card agenda-personal-panel" data-agenda-panel="filters" ${uiPreferences.personal.openPanels.includes('filters') ? 'open' : ''}><summary><strong>Filtros</strong><span>${agendaSource === 'todas' && agendaStatus === 'todos' ? 'Todos' : 'Ativos'}</span></summary><div class="agenda-board-body"><div class="module-form-grid agenda-filters"><label class="form-field"><span>Origem</span><select id="agendaSource"><option value="todas">Todas</option>${Object.entries(sourceLabels).map(([id, label]) => `<option value="${id}" ${agendaSource === id ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select></label><label class="form-field"><span>Status</span><select id="agendaStatus"><option value="todos">Todos</option><option value="futuro" ${agendaStatus === 'futuro' ? 'selected' : ''}>Futuro</option><option value="confirmacao-pendente" ${agendaStatus === 'confirmacao-pendente' ? 'selected' : ''}>Confirmação pendente</option><option value="alterado" ${agendaStatus === 'alterado' ? 'selected' : ''}>Alterado</option><option value="realizado" ${agendaStatus === 'realizado' ? 'selected' : ''}>Realizado</option></select></label></div></div></details>
     ${calendarExportPanel()}`
   bind()
 }
@@ -271,8 +268,6 @@ function bind(): void {
   document.getElementById('agendaPrev')?.addEventListener('click', () => moveMonth(-1))
   document.getElementById('agendaNext')?.addEventListener('click', () => moveMonth(1))
   document.getElementById('agendaMonth')?.addEventListener('change', event => { month = (event.target as HTMLInputElement).value || month; persistUiPreferences(); render() })
-  document.getElementById('agendaSource')?.addEventListener('change', event => { agendaSource = (event.target as HTMLSelectElement).value as typeof agendaSource; persistUiPreferences(); render() })
-  document.getElementById('agendaStatus')?.addEventListener('change', event => { agendaStatus = (event.target as HTMLSelectElement).value as typeof agendaStatus; persistUiPreferences(); render() })
   document.querySelectorAll<HTMLButtonElement>('[data-personal-view]').forEach(button => button.addEventListener('click', () => { uiPreferences.personal.view = button.dataset['personalView'] === 'month' ? 'month' : 'upcoming'; persistUiPreferences(); render() }))
   document.getElementById('agendaIcsMonth')?.addEventListener('click', () => downloadIcs(monthEvents(), `minha-agenda-${month}.ics`, 'Nenhuma designação disponível neste mês.'))
   document.getElementById('agendaIcsUpcoming')?.addEventListener('click', () => downloadIcs(upcomingAgendaEvents(personalEvents(), fortalezaDate()), 'minha-agenda-proximos-compromissos.ics', 'Nenhum compromisso futuro disponível.'))
@@ -282,7 +277,7 @@ function bind(): void {
 
 function renderGeneralAgenda(root: HTMLElement): void {
   const today = fortalezaDate()
-  const events = announcementEvents().filter(event => event.date.startsWith(month)).filter(event => agendaSource === 'todas' || event.source === agendaSource).filter(event => agendaStatus === 'todos' || event.status === agendaStatus).filter(event => uiPreferences.general.showPast || event.date >= today)
+  const events = announcementEvents().filter(event => event.date.startsWith(month))
   const [year, monthNumber] = month.split('-').map(Number), firstDow = new Date(year, monthNumber - 1, 1).getDay(), totalDays = new Date(year, monthNumber, 0).getDate()
   const byDay = new Map<number, AnnouncementEvent[]>(); events.forEach(event => { const day = Number(event.date.slice(-2)); byDay.set(day, [...(byDay.get(day) ?? []), event]) })
   const calendar = [...Array(firstDow).fill(''), ...Array.from({ length:totalDays }, (_, index) => String(index + 1))]
@@ -292,8 +287,6 @@ function renderGeneralAgenda(root: HTMLElement): void {
   root.innerHTML = `${moduleTitle('Minha agenda')}${screenTabs()}${loadingAssignments ? '<div class="notice">Atualizando designações dos módulos...</div>' : ''}
     <div class="agenda-toolbar"><button class="btn btn-ghost" id="generalPrev" type="button" aria-label="Mês anterior">‹</button><label class="sr-only" for="generalMonth">Mês da agenda geral</label><input class="form-input" id="generalMonth" type="month" value="${month}"><button class="btn btn-ghost" id="generalNext" type="button" aria-label="Próximo mês">›</button></div>
     <div class="agenda-actions"><button class="btn btn-ghost" id="generalIcsMonth" type="button">Baixar calendário</button></div>
-    <div class="module-form-grid agenda-filters"><label class="form-field"><span>Origem</span><select id="generalSource"><option value="todas">Todas</option>${Object.entries(sourceLabels).map(([id, label]) => `<option value="${id}" ${agendaSource === id ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select></label><label class="form-field"><span>Status</span><select id="generalStatus"><option value="todos">Todos</option><option value="futuro" ${agendaStatus === 'futuro' ? 'selected' : ''}>Futuro</option><option value="confirmacao-pendente" ${agendaStatus === 'confirmacao-pendente' ? 'selected' : ''}>Confirmação pendente</option><option value="alterado" ${agendaStatus === 'alterado' ? 'selected' : ''}>Alterado</option><option value="realizado" ${agendaStatus === 'realizado' ? 'selected' : ''}>Realizado</option></select></label></div>
-    <label class="agenda-past-toggle"><input id="generalShowPast" type="checkbox" ${uiPreferences.general.showPast ? 'checked' : ''}> Incluir datas passadas</label>
     <div class="agenda-source-legend" aria-label="Cores dos módulos">${visibleSources.map(source => `<span><i class="${source}" aria-hidden="true"></i>${esc(sourceLabels[source])}</span>`).join('')}</div>
     <div class="agenda-calendar"><div class="agenda-weekdays">${['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'].map(day => `<strong>${day}</strong>`).join('')}</div><div class="agenda-days">${calendar.map(day => { if (!day) return '<div class="agenda-day empty"></div>'; const date = `${month}-${day.padStart(2, '0')}`, dayEvents = byDay.get(Number(day)) ?? [], sources = [...new Set(dayEvents.map(event => event.source))], accessible = dayEvents.length ? `${day}/${monthNumber}, ${dayEvents.length} ${dayEvents.length === 1 ? 'item' : 'itens'}: ${sources.map(source => sourceLabels[source]).join(', ')}` : `${day}/${monthNumber}, sem itens`; return `<button class="agenda-day agenda-day-button ${dayEvents.length ? 'has-events' : ''} ${generalSelectedDate === date ? 'selected' : ''}" type="button" data-general-date="${date}" aria-label="${esc(accessible)}"><span>${day}</span><span class="agenda-day-markers" aria-hidden="true">${dayEvents.slice(0, 3).map(event => `<i class="${event.source}"></i>`).join('')}${dayEvents.length > 3 ? `<b>+${dayEvents.length - 3}</b>` : ''}</span></button>` }).join('')}</div></div>
     <div class="agenda-selected-day"><strong>${esc(labelDate(generalSelectedDate))}</strong><span>${selectedEvents.length} item(ns)</span></div>
@@ -302,9 +295,6 @@ function renderGeneralAgenda(root: HTMLElement): void {
   document.getElementById('generalPrev')?.addEventListener('click', () => moveMonth(-1))
   document.getElementById('generalNext')?.addEventListener('click', () => moveMonth(1))
   document.getElementById('generalMonth')?.addEventListener('change', event => { month = (event.target as HTMLInputElement).value || month; persistUiPreferences(); render() })
-  document.getElementById('generalSource')?.addEventListener('change', event => { agendaSource = (event.target as HTMLSelectElement).value as typeof agendaSource; persistUiPreferences(); render() })
-  document.getElementById('generalStatus')?.addEventListener('change', event => { agendaStatus = (event.target as HTMLSelectElement).value as typeof agendaStatus; persistUiPreferences(); render() })
-  document.getElementById('generalShowPast')?.addEventListener('change', event => { uiPreferences.general.showPast = (event.target as HTMLInputElement).checked; persistUiPreferences(); render() })
   document.getElementById('generalIcsMonth')?.addEventListener('click', () => downloadBoardIcs(events))
   document.querySelectorAll<HTMLButtonElement>('[data-general-date]').forEach(button => button.addEventListener('click', () => { generalSelectedDate = button.dataset['generalDate'] ?? generalSelectedDate; persistUiPreferences(); render() }))
 }

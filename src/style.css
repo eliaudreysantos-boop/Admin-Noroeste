@@ -476,6 +476,9 @@ textarea.form-input {
 .login-agenda-link { margin-top: 10px; text-decoration: none; }
 .agenda-standalone #agendaShell { display: flex; flex-direction: column; min-height: 100dvh; }
 .agenda-standalone #agendaShell.hidden { display: none; }
+.agenda-install-suggestion { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 8px; margin: 10px 12px 0; padding: 10px 12px; border: 1px solid var(--primary); border-radius: 7px; background: var(--surface); color: var(--ink-2); font-size: .8rem; box-shadow: var(--shadow); }
+.agenda-install-suggestion .btn { min-height: 36px; padding: 6px 10px; }
+.agenda-install-suggestion .icon-btn { width: 32px; height: 32px; border: 0; background: transparent; color: var(--ink-3); font-size: 1.3rem; cursor: pointer; }
 .agenda-standalone .login-box > p { margin: 4px 0 18px; color: var(--ink-3); text-align: center; }
 
 .pending-summary {
