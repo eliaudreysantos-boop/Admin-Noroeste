@@ -4,7 +4,8 @@ export function shouldRefreshServiceWorker(lastUpdate: number, now = Date.now())
   return !Number.isFinite(lastUpdate) || lastUpdate <= 0 || now - lastUpdate >= WEEK_MS
 }
 
-export function refreshServiceWorkerWeekly(registration: ServiceWorkerRegistration, storageKey: string): void {
+export function refreshServiceWorkerWeekly(registration: ServiceWorkerRegistration | undefined, storageKey: string): void {
+  if (!registration?.update) return
   if (!shouldRefreshServiceWorker(Number(localStorage.getItem(storageKey) ?? 0))) return
   void registration.update().then(() => {
     const worker = registration.waiting ?? registration.active
