@@ -9,8 +9,9 @@ export default defineConfig({
     rollupOptions: {
       input: ['index.html', 'agenda/index.html'],
       output: {
-        // Mantém os módulos lazy como chunks separados (já funciona por padrão)
-        manualChunks: undefined,
+        manualChunks(id) {
+          if (id.includes('pdf-lib') || id.includes('public-pdf-layout')) return 'pdf-engine'
+        },
       },
     },
   },

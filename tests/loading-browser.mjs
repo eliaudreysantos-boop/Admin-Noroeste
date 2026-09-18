@@ -31,7 +31,7 @@ try {
     stallData = true
     const requested = page.waitForRequest('**/.netlify/functions/database?*')
     await page.locator('[data-menu-card="'+module+'"]').click()
-    if (tab) await page.locator('[data-menu-card="'+tab+'"]').click()
+    if (tab) await page.locator('[data-workspace-tab="'+tab+'"]').last().click()
     await requested
     await page.clock.runFor(15_100)
     await page.clock.resume()
