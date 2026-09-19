@@ -16,6 +16,7 @@ test('permissão de módulo não publica PDF em nome de outro módulo', () => {
   const tarefas = apps({ tarefas:true })
   assert.equal(canManageStoragePath('agenda/documentos/modulos/tarefas/2026-09.pdf', tarefas), true)
   assert.equal(canManageStoragePath('agenda/documentos/modulos/oradores/2026-09.pdf', tarefas), false)
+  assert.equal(canManageStoragePath('agenda/documentos/modulos/oradores/2026-09.pdf', apps({ oradores:true })), true)
   assert.equal(canManageStoragePath('secretario/templates/s21.pdf', tarefas), false)
   assert.equal(canManageStoragePath('secretario/templates/outro.pdf', apps({ secretario:true })), false)
 })
@@ -53,7 +54,7 @@ async function pdf(pages) {
   return doc.save()
 }
 
-for (const module of ['tarefas', 'limpeza', 'escala', 'servicoCampo']) {
+for (const module of ['tarefas', 'oradores', 'limpeza', 'escala', 'servicoCampo']) {
   test(`PDF de ${module}: upload, download exato, substituicao e remocao`, async () => {
     const store = memoryStorage()
     const path = `agenda/documentos/modulos/${module}/2026-09.pdf`

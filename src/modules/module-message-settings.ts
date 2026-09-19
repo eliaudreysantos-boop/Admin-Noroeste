@@ -3,7 +3,7 @@ import { agendaConfigRef, child, get, set } from '../firebase'
 
 export type MessageSettingsModule = Exclude<AgendaReminderModule, 'quadro'>
 
-interface ModuleMessageSettings {
+export interface ModuleMessageSettings {
   groupLink?: string
   meetingText?: string
   documentText?: string
@@ -11,6 +11,7 @@ interface ModuleMessageSettings {
 
 const MODULE_LABELS: Record<MessageSettingsModule, string> = {
   tarefas:'Tarefas',
+  oradores:'Oradores',
   limpeza:'Limpeza',
   escala:'Escala TPL',
   servicoCampo:'Serviço de Campo',
@@ -18,6 +19,7 @@ const MODULE_LABELS: Record<MessageSettingsModule, string> = {
 
 const MEETING_DEFAULTS: Record<MessageSettingsModule, string> = {
   tarefas:'Olá. Seguem as designações de tarefas da reunião:\n\n{dados_da_reuniao}\n\nAgradecemos pela atenção.',
+  oradores:'Olá. Segue a programação de oradores:\n\n{dados_da_reuniao}\n\nAgradecemos pela atenção.',
   limpeza:'Olá. Segue a programação de limpeza:\n\n{dados_da_reuniao}\n\nAgradecemos pela colaboração.',
   escala:'Olá. Segue a programação da Escala TPL:\n\n{dados_da_reuniao}\n\nAgradecemos pela atenção.',
   servicoCampo:'Olá. Segue a programação do serviço de campo:\n\n{programacao_servico_campo}\n\nSua participação será muito bem recebida. Agradecemos pela atenção.',
@@ -37,6 +39,7 @@ export async function mountModuleMessageSettings(
   containerId: string,
   module: MessageSettingsModule,
   notify: (message: string) => void,
+  onSaved?: (settings: Required<ModuleMessageSettings>) => void,
 ): Promise<void> {
   const container = document.getElementById(containerId)
   if (!container) return
@@ -89,6 +92,7 @@ export async function mountModuleMessageSettings(
     button.textContent = 'Salvando...'
     try {
       await set(child(agendaConfigRef, `moduleWhatsApp/${module}`), next)
+      onSaved?.({ ...defaults, ...next })
       notify('Mensagens do módulo salvas')
     } catch {
       notify('Não foi possível salvar as mensagens')

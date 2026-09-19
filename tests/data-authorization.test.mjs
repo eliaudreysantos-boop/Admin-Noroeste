@@ -24,17 +24,25 @@ test('cada módulo altera somente as próprias mensagens da Agenda', () => {
   const tasks = apps({ tarefas:true })
   assert.equal(canAccessData('agenda/config/moduleWhatsApp/tarefas', tasks, true), true)
   assert.equal(canAccessData('agenda/config/moduleWhatsApp/limpeza', tasks, true), false)
+  assert.equal(canAccessData('agenda/config/moduleWhatsApp/oradores', apps({ oradores:true }), true), true)
   assert.equal(canAccessData('agenda/config/icsReminders/tarefas', tasks, true), false)
 })
 
-test('permissao antiga de Oradores nao concede acesso', () => {
+test('Oradores altera somente discursos e eventos e lê os cadastros necessários', () => {
   const speakers = apps({ oradores:true })
-  assert.equal(canAccessData('tarefas/discursos', speakers, true), false)
-  assert.equal(canAccessData('tarefas/events', speakers, true), false)
+  assert.equal(canAccessData('tarefas/discursos', speakers, true), true)
+  assert.equal(canAccessData('tarefas/events', speakers, true), true)
+  assert.equal(canAccessData('tarefas/planning', speakers, false), true)
+  assert.equal(canAccessData('tarefas/people', speakers, false), true)
   assert.equal(canAccessData('tarefas/scale/periods', speakers, false), false)
   assert.equal(canAccessData('tarefas/scale/periods', speakers, true), false)
   assert.equal(canAccessData('tarefas/planning/oradoresPublicacoes', speakers, true), false)
   assert.equal(canAccessData('tarefas/planning/engineRules', speakers, true), false)
+  assert.equal(canAccessData('tarefas/discursos', apps({ tarefas:true }), false), true)
+  assert.equal(canAccessData('tarefas/discursos', apps({ tarefas:true }), true), false)
+  assert.equal(canMutateData('tarefas', 'PATCH', { 'discursos/oradores/o1':{} }, apps({ tarefas:true })), false)
+  assert.equal(canMutateData('tarefas', 'PATCH', { 'discursos/oradores/o1':{} }, speakers), true)
+  assert.equal(canMutateData('tarefas', 'PATCH', { 'scale/periods/2026-09':{} }, speakers), false)
 })
 
 test('publicação de PDF respeita o módulo da sessão', () => {
@@ -43,6 +51,7 @@ test('publicação de PDF respeita o módulo da sessão', () => {
   const other = { modulo:'oradores', tipo:'modulo', storagePath:'agenda/documentos/modulos/oradores/2026-09.pdf' }
   assert.equal(canMutateData('agenda/documentos', 'PATCH', { 'modulo-tarefas-2026-09':own }, tarefas), true)
   assert.equal(canMutateData('agenda/documentos', 'PATCH', { 'modulo-oradores-2026-09':other }, tarefas), false)
+  assert.equal(canMutateData('agenda/documentos', 'PATCH', { 'modulo-oradores-2026-09':other }, apps({ oradores:true })), true)
   assert.equal(canMutateData('agenda/documentos', 'DELETE', undefined, tarefas), false)
   assert.equal(canMutateData('agenda/documentos/modulo-oradores-2026-09', 'PUT', own, tarefas), false)
 })

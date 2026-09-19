@@ -14,6 +14,7 @@ export type ModuleName =
   | 'tarefas'
   | 'limpeza'
   | 'escala'
+  | 'oradores'
   | 'servicoCampo'
   | 'individual'
 
@@ -121,6 +122,7 @@ export interface MasterConfig {
 
 export type AgendaReminderModule =
   | 'tarefas'
+  | 'oradores'
   | 'limpeza'
   | 'escala'
   | 'servicoCampo'
@@ -138,6 +140,7 @@ export interface AgendaConfig {
 
 export type AgendaPublicDocumentModule =
   | 'tarefas'
+  | 'oradores'
   | 'limpeza'
   | 'escala'
   | 'servicoCampo'
@@ -175,6 +178,7 @@ export interface AppPermissions {
   tarefas:     boolean
   limpeza?:    boolean
   escala:      boolean
+  oradores?:   boolean
   servicoCampo?: boolean
   individual?: boolean
 }
@@ -204,6 +208,7 @@ export interface RawRoot {
   tarefas?:     Record<string, unknown>
   limpeza?:     Record<string, unknown>
   escala?:      Record<string, unknown>
+  oradores?:    Record<string, unknown>
   servicoCampo?: Record<string, unknown>
   agenda?:      Record<string, unknown>
 }

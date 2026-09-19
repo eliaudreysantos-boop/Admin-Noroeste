@@ -18,6 +18,8 @@ export function canAccessData(path: string, apps: AppPermissions, write: boolean
   if (root === 'master') return !write && (second === 'pessoas' || second === 'config')
   if (root === 'usuarios') return false
   if (root === 'tarefas') {
+    if (second === 'discursos' || second === 'events') return apps.oradores === true || (!write && apps.tarefas === true)
+    if (second === 'planning' || second === 'people') return apps.tarefas === true || (!write && (apps.oradores === true || apps.limpeza === true))
     if (apps.tarefas === true) return true
     return !write && apps.limpeza === true && second === 'planning'
   }
@@ -29,6 +31,7 @@ export function canAccessData(path: string, apps: AppPermissions, write: boolean
       if (!write) return true
       const messagePermissions: Record<string, keyof AppPermissions> = {
         tarefas:'tarefas', limpeza:'limpeza', escala:'escala',
+        oradores:'oradores',
         servicoCampo:'servicoCampo',
       }
       const permission = fourth ? messagePermissions[fourth] : undefined
@@ -40,7 +43,7 @@ export function canAccessData(path: string, apps: AppPermissions, write: boolean
 }
 
 const DOCUMENT_PERMISSIONS: Record<string, keyof AppPermissions> = {
-  tarefas:'tarefas', limpeza:'limpeza', escala:'escala', servicoCampo:'servicoCampo',
+  tarefas:'tarefas', oradores:'oradores', limpeza:'limpeza', escala:'escala', servicoCampo:'servicoCampo',
 }
 
 function documentModule(id: string, value: unknown): string {
@@ -48,13 +51,20 @@ function documentModule(id: string, value: unknown): string {
     const module = (value as Record<string, unknown>)['modulo']
     if (typeof module === 'string') return module
   }
-  return id.match(/^modulo-(tarefas|limpeza|escala|servicoCampo)-/)?.[1] ?? (id.startsWith('admin-') ? 'admin' : '')
+  return id.match(/^modulo-(tarefas|oradores|limpeza|escala|servicoCampo)-/)?.[1] ?? (id.startsWith('admin-') ? 'admin' : '')
 }
 
 export function canMutateData(path: string, method: string, value: unknown, apps: AppPermissions): boolean {
   if (isRetiredPath(path) || (path === 'tarefas' && method === 'DELETE')) return false
   if (!path && method !== 'PATCH') return false
   if (method === 'PATCH' && value && typeof value === 'object' && Object.keys(value).some(key => isRetiredPath([path, key].filter(Boolean).join('/')))) return false
+  if (path === 'tarefas' && !apps.mestre) {
+    if (method !== 'PATCH' || !value || typeof value !== 'object' || Array.isArray(value)) return false
+    return Object.keys(value as Record<string, unknown>).every(key => {
+      const area = key.split('/')[0]
+      return area === 'discursos' || area === 'events' ? apps.oradores === true : apps.tarefas === true
+    })
+  }
   if (apps.mestre) return true
   if (path.startsWith('agenda/documentos/')) return false
   if (path !== 'agenda/documentos') return true

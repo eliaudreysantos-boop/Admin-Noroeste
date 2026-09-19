@@ -1247,3 +1247,35 @@ button:focus-visible, summary:focus-visible { outline:2px solid var(--blue-mid);
 @media (prefers-color-scheme:dark) {
   :root { --bg:#181b1d; --surface:#202527; --surface-2:#292f32; --ink:#eef1f2; --ink-2:#c3cbce; --ink-3:#a4afb4; --border:#414a4f; --blue-mid:#79bddf; }
 }
+
+/* Oradores */
+#oradoresRoot > .module-section-title { display:none; }
+.oradores-period { max-width:390px; margin-bottom:14px; }
+.oradores-list { display:grid; gap:10px; margin-top:16px; }
+.oradores-card { border:1px solid var(--border); border-radius:10px; background:var(--surface); padding:14px; }
+.oradores-card-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:12px; }
+.oradores-card-head small, .oradores-card > small, .oradores-row small { display:block; margin-top:4px; color:var(--ink-3); line-height:1.45; }
+.oradores-card-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px 18px; margin-bottom:12px; }
+.oradores-card-grid span { display:block; color:var(--ink-3); font-size:.74rem; text-transform:uppercase; }
+.oradores-card-grid strong { display:block; margin-top:2px; font-size:.9rem; overflow-wrap:anywhere; }
+.oradores-row { display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:58px; padding:10px 0; border-bottom:1px solid var(--border); }
+.oradores-row > div { min-width:0; }
+.status-pill { display:inline-flex; align-items:center; min-height:26px; padding:3px 8px; border-radius:999px; background:var(--surface-2); color:var(--ink-2); font-size:.72rem; font-weight:700; white-space:nowrap; }
+.status-confirmado { color:var(--success); }
+.status-por_definir { color:var(--danger); }
+.oradores-check-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px 14px; margin:14px 0; }
+.oradores-check { display:flex; align-items:flex-start; gap:8px; min-height:34px; font-size:.88rem; }
+.oradores-check input { margin-top:3px; }
+.oradores-pending { width:100%; display:flex; align-items:center; justify-content:space-between; gap:12px; border:1px solid var(--border); border-left:4px solid var(--border); border-radius:8px; background:var(--surface); color:var(--ink); padding:12px; text-align:left; cursor:pointer; }
+.oradores-pending small { display:block; margin-top:4px; color:var(--ink-3); }
+.oradores-pending.severity-alta { border-left-color:var(--danger); }
+.oradores-pending.severity-media { border-left-color:#b7791f; }
+.oradores-pending.severity-baixa { border-left-color:var(--blue-mid); }
+.context-select { max-width:480px; margin-bottom:18px; }
+#oradoresRoot details { margin:12px 0; border-bottom:1px solid var(--border); }
+#oradoresRoot details > summary { padding:12px 0; cursor:pointer; font-weight:600; }
+@media (max-width:560px) {
+  .oradores-card-grid, .oradores-check-grid { grid-template-columns:1fr; }
+  .oradores-card-head { align-items:flex-start; }
+  .oradores-row { align-items:flex-start; }
+}

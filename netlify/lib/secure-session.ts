@@ -72,7 +72,7 @@ export async function clearLoginFailures(request: Request, scope: string): Promi
 function safeUser(user: Usuario): SafeUser {
   return {
     nome:String(user.nome ?? ''), senha:'', ativo:user.ativo === true,
-    apps:Object.fromEntries(['mestre', 'tarefas', 'limpeza', 'escala', 'servicoCampo', 'individual'].map(key => [key, user.apps?.[key as keyof AppPermissions] === true])) as unknown as AppPermissions,
+    apps:Object.fromEntries(['mestre', 'tarefas', 'oradores', 'limpeza', 'escala', 'servicoCampo', 'individual'].map(key => [key, user.apps?.[key as keyof AppPermissions] === true])) as unknown as AppPermissions,
     ...(user.masterId ? { masterId:user.masterId } : {}),
   }
 }

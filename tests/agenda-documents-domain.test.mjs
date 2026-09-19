@@ -16,10 +16,12 @@ test('seleção mantém apenas a versão oficial mais recente de cada módulo e 
   const grouped = groupPublicDocuments([
     doc({ id:'old', criadoEm:'2026-09-01T10:00:00.000Z' }),
     doc({ id:'new', criadoEm:'2026-09-02T10:00:00.000Z' }),
+    doc({ id:'speakers', modulo:'oradores' }),
     doc({ id:'manual', modulo:'admin', tipo:'admin', nome:'comunicado.pdf' }),
     doc({ id:'secretary', modulo:'programacao' }),
   ], '2026-09')
   assert.equal(grouped.modules.tarefas?.id, 'new')
+  assert.equal(grouped.modules.oradores?.id, 'speakers')
   assert.deepEqual(grouped.admin.map(item => item.id), ['manual'])
   assert.equal(Object.hasOwn(grouped.modules, 'programacao'), false)
 })

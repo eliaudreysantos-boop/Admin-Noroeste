@@ -1,6 +1,6 @@
 import type { AgendaPublicDocument, AgendaPublicDocumentModule } from '../types.ts'
 
-export const PUBLIC_PDF_MODULES = ['tarefas', 'escala', 'limpeza', 'servicoCampo'] as const
+export const PUBLIC_PDF_MODULES = ['tarefas', 'oradores', 'escala', 'limpeza', 'servicoCampo'] as const
 export type PublicPdfModule = typeof PUBLIC_PDF_MODULES[number]
 
 export interface PublicDocumentGroups {

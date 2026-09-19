@@ -11,12 +11,13 @@ const MODULE_META: Record<
   tarefas:     { label: 'Tarefas',      desc: 'Funções da reunião',           icon: '📋', color: '#7E3AF2' },
   limpeza:     { label: 'Limpeza',      desc: 'Grupos, rodízio e PDF',        icon: '🧹', color: '#006EB6' },
   escala:      { label: 'Escala TPL',   desc: 'Escala de campo TPL',          icon: '🌿', color: '#1A6B3C' },
+  oradores:    { label: 'Oradores',      desc: 'Discursos, saídas e intercâmbios', icon: '🎙️', color: '#72520A' },
   servicoCampo:{ label: 'Serviço de Campo', desc: 'Saídas, dirigentes e locais', icon: '⌖', color: '#8A5A00' },
   individual:  { label: 'Minha agenda',  desc: 'Suas designações e compromissos', icon: '✓', color: '#006EB6' },
 }
 
 const MODULES_ORDER: ModuleName[] = [
-  'mestre', 'servicoCampo', 'tarefas', 'limpeza', 'escala', 'individual',
+  'mestre', 'servicoCampo', 'tarefas', 'oradores', 'limpeza', 'escala', 'individual',
 ]
 
 // ─── Lazy loaders ───────────────────────────────────────────────────────────
@@ -31,6 +32,7 @@ async function loadModule(
     tarefas:     () => import('./modules/tarefas'),
     limpeza:     () => import('./modules/limpeza'),
     escala:      () => import('./modules/escala'),
+    oradores:    () => import('./modules/oradores'),
     servicoCampo:() => import('./modules/servico-campo'),
     individual:  () => import('./modules/individual'),
   }

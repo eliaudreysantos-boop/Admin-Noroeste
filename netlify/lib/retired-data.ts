@@ -1,6 +1,6 @@
 // Archived data is kept until the separate deletion proposal is approved.
 const RETIRED_ROOTS = new Set(['programacao', 'secretario', 'oradores'])
-const RETIRED_TASK_KEYS = new Set(['discursos'])
+const RETIRED_TASK_KEYS = new Set<string>()
 const row = (value: unknown): Record<string, unknown> => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
 
 export function isRetiredPath(path: string): boolean {

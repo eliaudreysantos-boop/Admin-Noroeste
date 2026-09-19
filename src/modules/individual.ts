@@ -47,7 +47,7 @@ interface AgendaDataResponse {
 const esc = (value: unknown): string => String(value ?? '').replace(/[&<>"']/g, char => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#039;' }[char] ?? char))
 const labelDate = (date: string): string => date.split('-').reverse().join('/')
 const sourceLabels: Record<AgendaSource, string> = { tarefas:'Tarefas', limpeza:'Limpeza', escala:'Escala TPL', servicoCampo:'Serviço de Campo' }
-const documentSourceLabels: Record<AgendaPublicDocument['modulo'], string> = { tarefas:'Tarefas', limpeza:'Limpeza', escala:'Escala TPL', servicoCampo:'Serviço de Campo', admin:'Admin' }
+const documentSourceLabels: Record<AgendaPublicDocument['modulo'], string> = { tarefas:'Tarefas', oradores:'Oradores', limpeza:'Limpeza', escala:'Escala TPL', servicoCampo:'Serviço de Campo', admin:'Admin' }
 const fortalezaDate = (): string => new Intl.DateTimeFormat('en-CA', { timeZone:'America/Fortaleza', year:'numeric', month:'2-digit', day:'2-digit' }).format(new Date()).replace(/\//g, '-')
 
 export default function mount(context: AppContext): void {
