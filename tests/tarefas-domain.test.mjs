@@ -28,6 +28,31 @@ const baseContext = (people, meeting = { date: '2026-09-12', type: 'weekend', as
   events: {},
 })
 
+test('Oradores bloqueia entrada por vínculo, segundo orador e identidade central, com opção de desligar', () => {
+  const context=baseContext({ p1:basePerson({masterId:'m1'}), p2:basePerson() })
+  const meeting=context.periods['2026-09'].meetings.m1
+  context.discursos={oradores:{o1:{pessoaId:'m1'},o2:{pessoaId:'p2'}},programacao:{d1:{data:meeting.date,secao:'s2',oradorId:'o1',oradorSecundarioId:'o2',tipo:'saida_orador'}}}
+  for(const id of ['p1','p2']) assert.equal(eligibility(id,'entrada',meeting,{},context).reason,'Discurso na mesma data')
+  assert.equal(eligibility('p1','entrada',{...meeting,date:'2026-09-13'},{},context).eligible,true)
+  context.engineRules={evitarConflitosOradores:false}
+  assert.equal(eligibility('p1','entrada',meeting,{},context).eligible,true)
+  context.engineRules={evitarConflitosOradores:true}
+  context.discursos.programacao.d1.secao='s1'
+  assert.equal(eligibility('p1','entrada',meeting,{},context).eligible,true)
+})
+
+test('geração exclui orador S2 e respeita checkbox desativado', () => {
+  const context=baseContext({p1:basePerson()})
+  context.discursos={oradores:{o1:{pessoaId:'p1'}},programacao:{d1:{data:'2026-09-12',secao:'s2',oradorId:'o1'}}}
+  const run=enabled=>computeGeneration(context,'2026-09-01','entrada','2026-09-01T00:00:00Z','2026-09',false,'',{evitarConflitosOradores:enabled})
+  const blocked=run(true),allowed=run(false)
+  assert.equal(blocked.aborted,true)
+  assert.ok(blocked.errors.some(message=>message.includes('sem candidato para Entrada')))
+  assert.equal(allowed.aborted,false)
+  assert.ok(!Object.values(blocked.patch).includes('p1'))
+  assert.ok(Object.values(allowed.patch).includes('p1'))
+})
+
 test('meio de semana não aplica Presidente nem Leitor', () => {
   const context = baseContext({ p1: basePerson() })
   const meeting = { date: '2026-09-09', type: 'midweek' }
@@ -162,7 +187,7 @@ test('regras opcionais podem impedir o reaproveitamento do presidente e ficam re
   assert.equal(result.aborted, false)
   const assigned = TASK_ROLES.map(role => result.patch[`2026-09/meetings/m1/assignments/${role}`]).filter(Boolean)
   assert.equal(new Set(assigned).size, assigned.length)
-  assert.deepEqual(result.patch['2026-09/appliedRules'], { presidenteSegundaTarefa:false, equilibrarDesignacoes:false, evitarRepetirFuncao:false, version:1 })
+  assert.deepEqual(result.patch['2026-09/appliedRules'], { presidenteSegundaTarefa:false, evitarConflitosOradores:true, equilibrarDesignacoes:false, evitarRepetirFuncao:false, version:1 })
 })
 
 test('paginação mantém todos os itens e nunca cria página vazia', () => {

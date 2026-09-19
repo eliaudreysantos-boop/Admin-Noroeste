@@ -55,12 +55,14 @@ export interface TaskPeriod {
 }
 
 export interface TaskGenerationRules {
+  evitarConflitosOradores: boolean
   presidenteSegundaTarefa: boolean
   equilibrarDesignacoes: boolean
   evitarRepetirFuncao: boolean
 }
 
 export const DEFAULT_TASK_GENERATION_RULES: TaskGenerationRules = {
+  evitarConflitosOradores:true,
   presidenteSegundaTarefa:true,
   equilibrarDesignacoes:true,
   evitarRepetirFuncao:true,
@@ -69,6 +71,7 @@ export const DEFAULT_TASK_GENERATION_RULES: TaskGenerationRules = {
 export function normalizeTaskGenerationRules(value?: Partial<TaskGenerationRules>): TaskGenerationRules {
   return {
     presidenteSegundaTarefa:value?.presidenteSegundaTarefa !== false,
+    evitarConflitosOradores:value?.evitarConflitosOradores !== false,
     equilibrarDesignacoes:value?.equilibrarDesignacoes !== false,
     evitarRepetirFuncao:value?.evitarRepetirFuncao !== false,
   }
@@ -86,6 +89,11 @@ export interface TaskEvent {
 }
 
 export interface TaskDomainContext {
+  discursos?: {
+    oradores?: Record<string, { pessoaId?: string }>
+    programacao?: Record<string, { data?: string; secao?: string; oradorId?: string; oradorSecundarioId?: string }>
+  }
+  engineRules?: Partial<TaskGenerationRules>
   people: Record<string, TaskPerson>
   periods: Record<string, TaskPeriod>
   events: Record<string, TaskEvent>
@@ -229,6 +237,17 @@ export function canShareMeeting(personId: string, role: TaskRole, assignments: P
     (role === 'presidente' && PRESIDENT_SECONDARY_SET.has(existing))
 }
 
+export function hasSpeakerAssignment(personId:string, date:string|undefined, context:TaskDomainContext):boolean {
+  if (!date) return false
+  const person=context.people[personId]
+  return Object.values(context.discursos?.programacao ?? {}).some(item => item.secao === 's2' && item.data === date &&
+    [item.oradorId,item.oradorSecundarioId].some(id => {
+      const linked=id ? context.discursos?.oradores?.[id]?.pessoaId : undefined
+      if (!linked) return false
+      return linked === personId || Boolean(person?.masterId && (linked === person.masterId || context.people[linked]?.masterId === person.masterId))
+    }))
+}
+
 export function eligibility(
   personId: string,
   role: TaskRole,
@@ -246,6 +265,7 @@ export function eligibility(
   if (isFolga(person, meeting.date)) return { eligible: false, reason: 'Folga nesta data' }
   if (isUnavailable(person, meeting.date)) return { eligible: false, reason: 'Indisponível nesta data' }
   if (meetingIsBlocked(context, meeting)) return { eligible: false, reason: 'Evento bloqueia a reunião' }
+  if (normalizeTaskGenerationRules(context.engineRules).evitarConflitosOradores && hasSpeakerAssignment(personId, meeting.date, context)) return { eligible:false, reason:'Discurso na mesma data' }
   if ((role === 'mic1' || role === 'mic2') && person.jovem === true) {
     const other = role === 'mic1' ? 'mic2' : 'mic1'
     const otherId = assignments[other]
@@ -373,7 +393,8 @@ export function computeGeneration(
   pendingFromDate = '',
   options?: Partial<TaskGenerationRules>,
 ): GenerationResult {
-  const rules = normalizeTaskGenerationRules(options)
+  const rules = normalizeTaskGenerationRules(options ?? context.engineRules)
+  context = { ...context, engineRules:rules }
   const targets = meetingEntries(context.periods)
     .filter(entry => (!targetPeriodId || entry.periodId === targetPeriodId) && entry.meeting.date && entry.meeting.date >= startDate && canonicalMeetingType(entry.meeting.type) && !meetingIsBlocked(context, entry.meeting))
     .filter(entry => !onlyPending || Boolean(entry.meeting.date && entry.meeting.date >= pendingFromDate))

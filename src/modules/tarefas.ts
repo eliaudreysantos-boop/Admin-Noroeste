@@ -5,6 +5,7 @@ import {
   get,
   update,
   tarefasRef,
+  tarefasDiscursosRef,
   tarefasPeopleRef,
   tarefasPlanejamentoRef,
   tarefasScaleRef,
@@ -77,6 +78,7 @@ let pessoas: Record<string, TarefasPessoa> = {}
 let periods: Record<string, TarefasPeriod> = {}
 let planning: TarefasPlanning = {}
 let events: Record<string, TaskEvent> = {}
+let discursos: TaskDomainContext['discursos'] = {}
 let congregationName = 'Noroeste'
 let masterPeople: Record<string, { name?: string; whatsapp?: string; active?: boolean }> = {}
 let context: AppContext
@@ -155,7 +157,7 @@ function meetingRefFor(meeting: TarefasMeeting): { periodId: string; meetingId: 
 }
 
 function domainContext(): TaskDomainContext {
-  return { people: pessoas, periods, events }
+  return { people: pessoas, periods, events, discursos, engineRules:planning.engineRules }
 }
 
 function formatDate(value: string | undefined): string {
@@ -219,6 +221,7 @@ async function loadTarefas(): Promise<boolean> {
       people?: Record<string, TarefasPessoa>
       scale?: { periods?: Record<string, TarefasPeriod> }
       planning?: TarefasPlanning
+      discursos?: TaskDomainContext['discursos']
       events?: Record<string, TaskEvent>
     } : {}
     pessoas = tarefas.people ?? {}
@@ -231,6 +234,7 @@ async function loadTarefas(): Promise<boolean> {
       ? savedPeriodMode
       : planning.periodMode === 'month' ? 'month' : 'bimester'
     events = tarefas.events ?? {}
+    discursos = tarefas.discursos ?? {}
     const congregacao = congregacaoSnap.exists() ? (congregacaoSnap.val() as { nome?: string }) : {}
     congregationName = congregacao.nome?.trim() || 'Noroeste'
     masterPeople = masterPeopleSnap.exists() ? (masterPeopleSnap.val() as Record<string, { name?: string; whatsapp?: string; active?: boolean }>) : {}
@@ -492,6 +496,10 @@ async function generateScale(startDate: string, mode: 'month' | 'bimester', role
   const button = document.getElementById('btnGenerateScale') as HTMLButtonElement | null
   if (button) button.disabled = true
   try {
+    if (normalizeTaskGenerationRules(planning.engineRules).evitarConflitosOradores) {
+      const snapshot = await get(tarefasDiscursosRef)
+      discursos = snapshot.exists() ? snapshot.val() as TaskDomainContext['discursos'] : {}
+    }
     const generatedAt = new Date().toISOString()
     const nextPlanning = { ...planning, periodMode: mode }
     const canonical = withCanonicalPeriod(periods, nextPlanning, startDate)
@@ -600,7 +608,7 @@ function renderTaskConfig(): void {
   const canEditRules = context.usuario.apps.mestre === true
   content.innerHTML = `${sectionTitle('Configuração', 'Preferências próprias de Tarefas. Dias e horários das reuniões continuam vindo do Admin.')}
     <div class="form-panel"><div class="module-form-grid"><label class="form-field"><span>Formato padrão</span><select id="taskConfigMode"><option value="month" ${selectedPeriodMode === 'month' ? 'selected' : ''}>Mensal</option><option value="bimester" ${selectedPeriodMode === 'bimester' ? 'selected' : ''}>Bimestral</option></select></label><label class="form-field"><span>Fonte preferida do PDF: <strong id="taskConfigFontValue">${printFont()} pt</strong></span><input id="taskConfigFont" type="range" min="${PRINT_MIN_PT}" max="${PRINT_MAX_PT}" value="${printFont()}"></label></div><button id="saveTaskConfig" class="btn btn-primary" type="button">Salvar preferências</button></div>
-    <div class="form-panel"><h3 style="margin-top:0">Regras do motor</h3><p class="form-help">Estas opções valem apenas para as próximas gerações. Regras de integridade continuam obrigatórias.</p><div class="engine-rule-list"><label><input id="taskRulePresident" type="checkbox" ${rules.presidenteSegundaTarefa ? 'checked' : ''} ${canEditRules ? '' : 'disabled'}> Aproveitar o presidente em uma segunda tarefa mecânica</label><label><input id="taskRuleBalance" type="checkbox" ${rules.equilibrarDesignacoes ? 'checked' : ''} ${canEditRules ? '' : 'disabled'}> Equilibrar o total de designações</label><label><input id="taskRuleRepeat" type="checkbox" ${rules.evitarRepetirFuncao ? 'checked' : ''} ${canEditRules ? '' : 'disabled'}> Evitar repetir a mesma função</label></div>${canEditRules ? '<div class="scale-actions" style="margin-top:12px"><button id="saveTaskRules" class="btn btn-primary" type="button">Salvar regras</button><button id="restoreTaskRules" class="btn btn-ghost" type="button">Restaurar padrões</button></div>' : '<div class="notice">Somente o Admin pode alterar estas regras.</div>'}</div>
+    <div class="form-panel"><h3 style="margin-top:0">Regras do motor</h3><p class="form-help">Estas opções valem apenas para as próximas gerações. Regras de integridade continuam obrigatórias.</p><div class="engine-rule-list"><label><input id="taskRuleSpeakers" type="checkbox" ${rules.evitarConflitosOradores ? 'checked' : ''} ${canEditRules ? '' : 'disabled'}> Evitar designar quem tem discurso ou saída de Oradores na mesma data (S2)</label><label><input id="taskRulePresident" type="checkbox" ${rules.presidenteSegundaTarefa ? 'checked' : ''} ${canEditRules ? '' : 'disabled'}> Aproveitar o presidente em uma segunda tarefa mecânica</label><label><input id="taskRuleBalance" type="checkbox" ${rules.equilibrarDesignacoes ? 'checked' : ''} ${canEditRules ? '' : 'disabled'}> Equilibrar o total de designações</label><label><input id="taskRuleRepeat" type="checkbox" ${rules.evitarRepetirFuncao ? 'checked' : ''} ${canEditRules ? '' : 'disabled'}> Evitar repetir a mesma função</label></div>${canEditRules ? '<div class="scale-actions" style="margin-top:12px"><button id="saveTaskRules" class="btn btn-primary" type="button">Salvar regras</button><button id="restoreTaskRules" class="btn btn-ghost" type="button">Restaurar padrões</button></div>' : '<div class="notice">Somente o Admin pode alterar estas regras.</div>'}</div>
     <div class="form-panel"><h3 style="margin-top:0">Datas sem reunião</h3><div style="display:flex;gap:8px"><input id="taskExcludedDate" class="form-input" type="date"><button id="addTaskExcludedDate" class="btn btn-ghost" type="button">Adicionar</button></div><div class="module-option-list" style="margin-top:10px">${dates.map(date => `<div class="module-list-row"><strong>${escapeHtml(formatDate(date))}</strong><button class="btn btn-danger" data-remove-task-date="${escapeHtml(date)}" type="button">Remover</button></div>`).join('') || '<p class="empty-state">Nenhuma data excluída.</p>'}</div></div><div id="taskMessageSettings"></div>`
   content.querySelectorAll<HTMLElement>(':scope > .form-panel').forEach((panel, index) => {
     const details = document.createElement('details')
@@ -637,6 +645,7 @@ function renderTaskConfig(): void {
 async function saveTaskRules(value?: TaskGenerationRules): Promise<void> {
   if (!context.usuario.apps.mestre) { toast('Somente o Admin pode alterar as regras'); return }
   const next = value ?? {
+    evitarConflitosOradores:(document.getElementById('taskRuleSpeakers') as HTMLInputElement).checked,
     presidenteSegundaTarefa:(document.getElementById('taskRulePresident') as HTMLInputElement).checked,
     equilibrarDesignacoes:(document.getElementById('taskRuleBalance') as HTMLInputElement).checked,
     evitarRepetirFuncao:(document.getElementById('taskRuleRepeat') as HTMLInputElement).checked,
