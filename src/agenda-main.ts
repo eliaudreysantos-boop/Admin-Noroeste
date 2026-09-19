@@ -11,7 +11,6 @@ const PEOPLE_KEY = 'noroeste_agenda_people_v2'
 const PEOPLE_SYNC_KEY = 'noroeste_agenda_people_sync_v2'
 const INSTALLATION_KEY = 'noroeste_agenda_installation_v1'
 const DEVICE_PAIRED_KEY = 'noroeste_agenda_device_paired_v1'
-const INSTALL_PROMPT_DISMISSED_KEY = 'noroeste_agenda_install_prompt_dismissed_v1'
 const DAILY_SYNC_MS = 24 * 60 * 60 * 1000
 const identity = document.getElementById('agendaIdentity')!
 const shell = document.getElementById('agendaShell')!
@@ -36,22 +35,25 @@ function isInstalled(): boolean {
 }
 
 function showInstallSuggestion(): void {
-  if (!installPrompt || isInstalled() || localStorage.getItem(INSTALL_PROMPT_DISMISSED_KEY) === 'true' || document.getElementById('agendaInstallSuggestion')) return
+  document.getElementById('agendaInstallSuggestion')?.remove()
+  if (isInstalled()) return
   const suggestion = document.createElement('aside')
   suggestion.id = 'agendaInstallSuggestion'
   suggestion.className = 'agenda-install-suggestion'
-  suggestion.innerHTML = '<span>Instale a Minha Agenda para abrir mais rápido e usar offline.</span><button id="agendaInstall" class="btn btn-primary" type="button">Instalar</button><button id="agendaInstallDismiss" class="icon-btn" type="button" aria-label="Fechar sugestão" title="Fechar">×</button>'
-  shell.prepend(suggestion)
-  const dismiss = (): void => { localStorage.setItem(INSTALL_PROMPT_DISMISSED_KEY, 'true'); suggestion.remove() }
-  document.getElementById('agendaInstallDismiss')?.addEventListener('click', dismiss)
+  suggestion.innerHTML = '<span>Instale a Minha Agenda para abrir mais rápido e usar offline.</span><button id="agendaInstall" class="btn btn-primary" type="button">Instalar</button>'
+  const host=shell.classList.contains('hidden') ? identity.querySelector('.login-box')! : shell
+  host.prepend(suggestion)
   document.getElementById('agendaInstall')?.addEventListener('click', async () => {
     const prompt = installPrompt
-    if (!prompt) return
-    await prompt.prompt()
-    const choice = await prompt.userChoice
-    installPrompt = null
-    if (choice.outcome === 'accepted') suggestion.remove()
-    else dismiss()
+    if (!prompt) {
+      alert('Abra o menu do navegador e procure “Instalar aplicativo” ou “Adicionar à tela inicial”. Se essa opção não estiver disponível, abra este endereço no navegador principal do aparelho. No iPhone ou iPad, procure “Adicionar à Tela de Início” no menu de compartilhamento.')
+      return
+    }
+    const button=document.getElementById('agendaInstall') as HTMLButtonElement
+    button.disabled=true
+    try { await prompt.prompt(); await prompt.userChoice }
+    catch { alert('Não foi possível abrir a instalação. Tente pelo menu do navegador.') }
+    finally { installPrompt=null; showInstallSuggestion() }
   })
 }
 
@@ -207,6 +209,8 @@ async function saveSelectedPerson(): Promise<void> {
 }
 
 void init()
+showInstallSuggestion()
+window.matchMedia('(display-mode: standalone)').addEventListener('change', showInstallSuggestion)
 
 window.addEventListener('beforeinstallprompt', event => {
   event.preventDefault()
@@ -216,7 +220,7 @@ window.addEventListener('beforeinstallprompt', event => {
 
 window.addEventListener('appinstalled', () => {
   installPrompt = null
-  document.getElementById('agendaInstallSuggestion')?.remove()
+  showInstallSuggestion()
 })
 
 window.addEventListener('online', () => void init())

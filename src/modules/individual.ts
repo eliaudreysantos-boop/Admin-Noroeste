@@ -3,7 +3,7 @@ import { configRef, escalaSettingsRef } from '../firebase'
 import { agendaConfigRef, agendaDocumentsRef, escalaParticipantsRef, escalaPublishedMonthRef, escalaPublishedMonthsRef, escalaPubSnapshotsRef, escalaScalesRef, escalaTablesRef, get, limpezaPeriodosRef, pessoasRef, servicoCampoRef, tarefasPeopleRef, tarefasScaleRef } from '../firebase'
 import { apiJson } from '../secure-api.ts'
 import { moduleTitle } from '../ui/module-header'
-import { agendaMessage, agendaToIcs, boardCleaningMessage, boardMeetingDates, boardMeetingEvents, boardMeetingMessage, boardMeetingWhatsappMessage, collectAgendaEvents, collectAnnouncementEvents, upcomingAgendaEvents, type AgendaEvent, type AgendaSource, type AgendaStatus, type AnnouncementEvent } from './individual-domain'
+import { agendaMessage, agendaToIcs, boardCleaningMessage, boardMeetingDates, boardMeetingEvents, boardMeetingMessage, collectAgendaEvents, collectAnnouncementEvents, upcomingAgendaEvents, type AgendaEvent, type AgendaSource, type AgendaStatus, type AnnouncementEvent } from './individual-domain'
 import type { AgendaConfig, AgendaPublicDocument, MasterPessoa } from '../types'
 import { agendaCacheNeedsSync, agendaUiStorageKey, defaultAgendaUiPreferences, parseAgendaUiPreferences, type AgendaScreen, type BoardPanel, type PersonalPanel } from './individual-preferences.ts'
 import { groupPublicDocuments, publicDocumentMonths, PUBLIC_PDF_MODULES, type PublicPdfModule } from './agenda-documents-domain.ts'
@@ -316,7 +316,7 @@ function renderBoard(root: HTMLElement): void {
   const meetingSummary = selectedMeeting ? `${labelDate(selectedMeeting.date)} · ${selectedMeeting.kind === 'midweek' ? 'Meio de semana' : 'Fim de semana'}` : 'Nenhuma reunião futura'
   root.innerHTML = `${moduleTitle('Minha agenda')}${screenTabs()}${loadingAssignments ? '<div class="notice">Atualizando designações dos módulos...</div>' : ''}
     <div class="agenda-board-sections">
-      <details class="form-panel agenda-board-card" data-agenda-panel="meetings" ${uiPreferences.board.openPanels.includes('meetings') ? 'open' : ''}><summary><strong>Dados das reuniões</strong><span>${esc(meetingSummary)}</span></summary><div class="agenda-board-body"><label class="form-field"><span>Reunião</span><select id="boardMeetingDate">${meetingDates.map(item => `<option value="${esc(item.date)}" ${item.date === boardMeetingDate ? 'selected' : ''}>${esc(labelDate(item.date))} · ${item.kind === 'midweek' ? 'Meio de semana' : 'Fim de semana'}</option>`).join('') || '<option value="">Nenhuma reunião futura</option>'}</select></label><textarea id="boardInlineDraft" class="form-input" rows="12" maxlength="4000">${esc(boardMeetingMessage(meetingEvents, selectedMeeting))}</textarea><div class="agenda-actions"><button class="btn btn-ghost" id="boardInlineCopy" type="button">Copiar texto</button>${hasCleaning ? '<button class="btn btn-ghost" id="boardCleaningCopy" type="button">Copiar limpeza</button>' : ''}<button class="btn btn-primary" id="boardWhatsapp" type="button">Abrir WhatsApp</button></div><p class="form-help">${hasCleaning ? 'Limpeza fica disponível para cópia e não é incluída na mensagem de WhatsApp.' : ''}${agendaConfig().quadroWhatsAppLink ? ' O texto da reunião será copiado e o grupo configurado no Admin será aberto.' : ' Nenhum grupo foi configurado no Admin; o seletor comum do WhatsApp será aberto.'}</p></div></details>
+      <details class="form-panel agenda-board-card" data-agenda-panel="meetings" ${uiPreferences.board.openPanels.includes('meetings') ? 'open' : ''}><summary><strong>Dados das reuniões</strong><span>${esc(meetingSummary)}</span></summary><div class="agenda-board-body"><label class="form-field"><span>Reunião</span><select id="boardMeetingDate">${meetingDates.map(item => `<option value="${esc(item.date)}" ${item.date === boardMeetingDate ? 'selected' : ''}>${esc(labelDate(item.date))} · ${item.kind === 'midweek' ? 'Meio de semana' : 'Fim de semana'}</option>`).join('') || '<option value="">Nenhuma reunião futura</option>'}</select></label><textarea id="boardInlineDraft" class="form-input" rows="12" maxlength="4000">${esc(boardMeetingMessage(meetingEvents, selectedMeeting))}</textarea><div class="agenda-actions"><button class="btn btn-ghost" id="boardInlineCopy" type="button">Copiar texto</button>${hasCleaning ? '<button class="btn btn-ghost" id="boardCleaningCopy" type="button">Copiar limpeza</button>' : ''}</div></div></details>
       <details class="form-panel agenda-board-card" data-agenda-panel="moduleDocuments" ${uiPreferences.board.openPanels.includes('moduleDocuments') ? 'open' : ''}><summary><strong>PDFs dos módulos</strong><span>${Object.keys(visibleDocuments.modules).length} de ${PUBLIC_PDF_MODULES.length}</span></summary><div class="agenda-board-body"><label class="form-field"><span>Período</span><select id="boardDocumentPeriod">${periods.map(period => `<option value="${esc(period)}" ${period === boardDocumentPeriod ? 'selected' : ''}>${esc(formatDocumentMonth(period))}</option>`).join('') || `<option value="${esc(boardDocumentPeriod)}">${esc(formatDocumentMonth(boardDocumentPeriod))}</option>`}</select></label><div class="agenda-module-downloads">${PUBLIC_PDF_MODULES.map(module => moduleDownloadRow(module, visibleDocuments.modules[module])).join('')}</div></div></details>
       <details class="form-panel agenda-board-card" data-agenda-panel="adminDocuments" ${uiPreferences.board.openPanels.includes('adminDocuments') ? 'open' : ''}><summary><strong>Documentos do Admin</strong><span>${visibleDocuments.admin.length}</span></summary><div class="agenda-board-body"><div class="agenda-document-list">${visibleDocuments.admin.map(item => `<a class="agenda-document" href="${esc(item.url)}" target="_blank" rel="noopener noreferrer" download><span><strong>${esc(item.nome)}</strong><small>Publicado em ${esc(labelDate(item.criadoEm.slice(0, 10)))}</small></span><b>Baixar</b></a>`).join('') || '<p class="empty-state">Nenhum documento do Admin neste período.</p>'}</div></div></details>
     </div>`
@@ -329,14 +329,6 @@ function renderBoard(root: HTMLElement): void {
   document.getElementById('boardDocumentPeriod')?.addEventListener('change', event => { boardDocumentPeriod = (event.target as HTMLSelectElement).value; persistUiPreferences(); render() })
   document.getElementById('boardInlineCopy')?.addEventListener('click', () => void navigator.clipboard.writeText((document.getElementById('boardInlineDraft') as HTMLTextAreaElement).value))
   document.getElementById('boardCleaningCopy')?.addEventListener('click', () => void navigator.clipboard.writeText(boardCleaningMessage(meetingEvents)))
-  document.getElementById('boardWhatsapp')?.addEventListener('click', () => openBoardWhatsapp(boardMeetingWhatsappMessage(meetingEvents, selectedMeeting)))
-  document.querySelectorAll<HTMLButtonElement>('[data-board-document-whatsapp]').forEach(button => {
-    button.addEventListener('click', () => {
-      const module = button.dataset['boardDocumentWhatsapp'] as PublicPdfModule
-      const item = visibleDocuments.modules[module]
-      if (item) void openModuleDocumentWhatsapp(module, item)
-    })
-  })
   bindPersistentPanels()
 }
 
@@ -348,26 +340,12 @@ function formatDocumentMonth(value: string): string {
 
 function moduleDownloadRow(module: PublicPdfModule, item?: AgendaPublicDocument): string {
   const label = documentSourceLabels[module]
-  const hasWhatsapp = Boolean(item && agendaConfig().moduleWhatsApp?.[module]?.groupLink?.trim())
   const actions = item
-    ? `<div class="agenda-module-download-actions"><a class="btn btn-primary" href="${esc(item.url)}" target="_blank" rel="noopener noreferrer" download="${esc(item.nome)}">Baixar PDF</a>${hasWhatsapp ? `<button class="btn btn-ghost" type="button" data-board-document-whatsapp="${module}">WhatsApp</button>` : ''}</div>`
+    ? `<div class="agenda-module-download-actions"><a class="btn btn-primary" href="${esc(item.url)}" target="_blank" rel="noopener noreferrer" download="${esc(item.nome)}">Baixar PDF</a></div>`
     : '<button class="btn btn-primary" type="button" disabled>Baixar PDF</button>'
   return `<div class="agenda-module-download"><span><strong>${esc(label)}</strong><small>${item ? esc(item.periodo) : 'Ainda não publicado'}</small></span>${actions}</div>`
 }
 
-async function openModuleDocumentWhatsapp(module: PublicPdfModule, item: AgendaPublicDocument): Promise<void> {
-  const current = agendaConfig().moduleWhatsApp?.[module]
-  const groupLink = current?.groupLink?.trim()
-  if (!groupLink) return
-  const label = documentSourceLabels[module]
-  const template = current?.documentText?.trim() || 'Olá. O arquivo de {modulo} referente a {periodo} está disponível para consulta:\n\n{link_ou_orientacao}\n\nAgradecemos pela atenção.'
-  const message = template
-    .split('{modulo}').join(label)
-    .split('{periodo}').join(item.periodo)
-    .split('{link_ou_orientacao}').join(item.url)
-  try { await navigator.clipboard.writeText(message) } catch { /* O grupo ainda pode ser aberto sem a cópia automática. */ }
-  window.open(groupLink, '_blank', 'noopener,noreferrer')
-}
 
 function boardReminderOptions(): Partial<Record<AgendaSource, string[]>> {
   const values = agendaConfig().icsReminders?.quadro ?? []
@@ -389,19 +367,8 @@ function downloadIcs(events: AgendaEvent[], filename: string, emptyMessage: stri
 
 function openShare(): void {
   const overlay = document.createElement('div'); overlay.className = 'modal-overlay'
-  overlay.innerHTML = `<div class="modal"><h2>Compartilhar agenda</h2><textarea id="agendaDraft" class="form-input" rows="10" maxlength="2000">${esc(agendaMessage(monthEvents()))}</textarea><div class="module-row-actions"><button class="btn btn-ghost" id="agendaCopy">Copiar</button><button class="btn btn-primary" id="agendaWhatsapp">Abrir WhatsApp</button><button class="btn btn-ghost" id="agendaClose">Fechar</button></div></div>`
+  overlay.innerHTML = `<div class="modal"><h2>Compartilhar agenda</h2><textarea id="agendaDraft" class="form-input" rows="10" maxlength="2000">${esc(agendaMessage(monthEvents()))}</textarea><div class="module-row-actions"><button class="btn btn-ghost" id="agendaCopy">Copiar</button><button class="btn btn-ghost" id="agendaClose">Fechar</button></div></div>`
   document.body.appendChild(overlay)
   document.getElementById('agendaClose')?.addEventListener('click', () => overlay.remove())
   document.getElementById('agendaCopy')?.addEventListener('click', () => void navigator.clipboard.writeText((document.getElementById('agendaDraft') as HTMLTextAreaElement).value))
-  document.getElementById('agendaWhatsapp')?.addEventListener('click', () => window.open(`https://wa.me/?text=${encodeURIComponent((document.getElementById('agendaDraft') as HTMLTextAreaElement).value)}`, '_blank', 'noopener,noreferrer'))
-}
-
-async function openBoardWhatsapp(message: string): Promise<void> {
-  const groupLink = agendaConfig().moduleWhatsApp?.quadro?.groupLink?.trim() || agendaConfig().quadroWhatsAppLink?.trim()
-  if (groupLink) {
-    try { await navigator.clipboard.writeText(message) } catch { /* O grupo ainda pode ser aberto sem a cópia automática. */ }
-    window.open(groupLink, '_blank', 'noopener,noreferrer')
-    return
-  }
-  window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer')
 }

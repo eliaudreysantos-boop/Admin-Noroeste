@@ -3,7 +3,7 @@ import type { AppContext, ConfigCongregacao, MasterPessoa, RawPessoas } from '..
 import { child, compareAndSet, configCongregacaoRef, get, pessoasRef, servicoCampoRef, update } from '../firebase'
 import { moduleBackButton, moduleTitle } from '../ui/module-header'
 import { renderWorkspaceNav } from '../ui/workspace-nav'
-import { generateFieldServicePeriod, validFieldServiceMonth, validFieldServiceTime, type FieldServiceAssignment, type FieldServicePeriod, type FieldServiceTemplate } from './servico-campo-domain'
+import { fieldServiceConflicts, generateFieldServicePeriod, validFieldServiceMonth, validFieldServiceTime, type FieldServiceAssignment, type FieldServicePeriod, type FieldServiceTemplate } from './servico-campo-domain'
 import { mountModuleMessageSettings } from './module-message-settings'
 
 interface ServiceRoot {
@@ -113,7 +113,9 @@ function bindPeriod(): void {
 }
 
 function leaderOptions(selected = ''): string {
-  return `<option value="">A definir</option>${leaderIds().map(masterId => `<option value="${esc(masterId)}" ${selected === masterId ? 'selected' : ''}>${esc(personName(masterId))}</option>`).join('')}`
+  const ids=leaderIds()
+  const retained=selected&&!ids.includes(selected)?`<option value="${esc(selected)}" selected>${esc(personName(selected))} (fora do rodízio atual)</option>`:''
+  return `<option value="">A definir</option>${retained}${ids.map(masterId => `<option value="${esc(masterId)}" ${selected === masterId ? 'selected' : ''}>${esc(personName(masterId))}</option>`).join('')}`
 }
 
 function assignmentRow(assignment: FieldServiceAssignment, locked: boolean): string {
@@ -154,15 +156,18 @@ async function generatePeriod(): Promise<void> {
 async function changeLeader(assignmentId: string, leaderId: string): Promise<void> {
   const period = currentPeriod(), assignment = period?.assignments?.[assignmentId]; if (!period || !assignment || period.published) return
   if (leaderId && !leaderIds().includes(leaderId)) { toast('Selecione um dirigente aprovado'); return }
+  if(fieldServiceConflicts(Object.values(period.assignments).map(item=>item.id===assignmentId?{...item,leaderId}:item)).length){toast('O dirigente já tem uma saída na mesma data e horário');return}
   try { await update(servicoCampoRef, { [`periods/${selectedMonth}/assignments/${assignmentId}/leaderId`]:leaderId }); assignment.leaderId = leaderId; toast('Dirigente atualizado'); render() } catch (error) { toast(failureMessage(error, 'Não foi possível atualizar o dirigente')) }
 }
 
 async function addManualAssignment(form: HTMLFormElement): Promise<void> {
+  if(currentPeriod()?.published) { toast('Reabra o mês antes de editar'); return }
   const values = new FormData(form), date = String(values.get('date') ?? ''), time = String(values.get('time') ?? ''), location = String(values.get('location') ?? '').trim(), assignmentId = id('saida')
   if (!date.startsWith(`${selectedMonth}-`) || !location || !validFieldServiceTime(time)) { toast('Preencha uma saída válida dentro do mês selecionado'); return }
   if (Object.values(currentPeriod()?.assignments ?? {}).some(item => item.date === date && item.time === time && item.location.trim().localeCompare(location, 'pt-BR', { sensitivity:'base' }) === 0)) { toast('Esta saída já existe na programação'); return }
   const assignment: FieldServiceAssignment = { id:assignmentId, templateId:'', date, time, location, label:String(values.get('label') ?? '').trim() || 'Saída de campo', leaderId:String(values.get('leaderId') ?? ''), manual:true }
   const current = currentPeriod() ?? { month:selectedMonth, assignments:{}, published:false }
+  if(fieldServiceConflicts([...Object.values(current.assignments),assignment]).length){toast('O dirigente já tem uma saída na mesma data e horário');return}
   try { await update(servicoCampoRef, { [`periods/${selectedMonth}/month`]:selectedMonth, [`periods/${selectedMonth}/published`]:false, [`periods/${selectedMonth}/assignments/${assignmentId}`]:assignment }); current.assignments[assignmentId] = assignment; data.periods = { ...periods(), [selectedMonth]:current }; toast('Saída adicionada'); render() } catch (error) { toast(failureMessage(error, 'Não foi possível adicionar a saída')) }
 }
 
@@ -177,6 +182,7 @@ async function publishPeriod(): Promise<void> {
   const period = currentPeriod(), assignments = Object.values(period?.assignments ?? {})
   const eligible = new Set(leaderIds())
   if (!period || !assignments.length || assignments.some(item => !item.leaderId || !eligible.has(item.leaderId))) { toast('Defina um dirigente ativo para todas as saídas'); return }
+  if(fieldServiceConflicts(assignments).length){toast('Há dirigentes em saídas simultâneas. Corrija antes de publicar.');return}
 
   const month = selectedMonth, pdfInput = structuredClone(fieldServicePdfInput(assignments))
   const publishedAt = new Date().toISOString()

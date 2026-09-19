@@ -1,6 +1,18 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { datesForDow, generateFieldServicePeriod, publishedFieldServiceAssignments, validFieldServiceMonth, validFieldServiceTime } from '../src/modules/servico-campo-domain.ts'
+import { datesForDow, generateFieldServicePeriod, publishedFieldServiceAssignments, validFieldServiceMonth, validFieldServiceTime, fieldServiceConflicts } from '../src/modules/servico-campo-domain.ts'
+
+test('rodízios com mesmos candidatos não repetem dirigente no mesmo horário',()=>{
+  const t={label:'Saída',dow:0,time:'08:30',active:true,sortOrder:0,leaderIds:['m1','m2']}
+  const input={month:'2026-09',leaderIds:['m1','m2'],templates:{a:{...t,id:'a',location:'A'},b:{...t,id:'b',location:'B'}}}
+  const generated=generateFieldServicePeriod(input)
+  assert.equal(fieldServiceConflicts(Object.values(generated.assignments)).length,0)
+  const one=generateFieldServicePeriod({...input,leaderIds:['m1']})
+  assert.ok(Object.values(one.assignments).some(item=>!item.leaderId))
+  const rows=Object.values(generated.assignments).filter(item=>item.date==='2026-09-06')
+  rows[1].leaderId=rows[0].leaderId
+  assert.equal(fieldServiceConflicts(rows).length,2)
+})
 
 test('valida competência e horário sem aceitar normalizações do Date', () => {
   assert.equal(validFieldServiceMonth('2026-12'), true)

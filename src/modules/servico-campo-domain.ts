@@ -29,6 +29,10 @@ export interface FieldServicePeriod {
   publishedAt?: string
 }
 
+export function fieldServiceConflicts(assignments:FieldServiceAssignment[]):FieldServiceAssignment[] {
+  return assignments.filter((item,index)=>Boolean(item.leaderId)&&assignments.some((other,otherIndex)=>otherIndex!==index&&other.leaderId===item.leaderId&&other.date===item.date&&other.time===item.time))
+}
+
 export const validFieldServiceMonth = (month: string): boolean => /^\d{4}-(0[1-9]|1[0-2])$/.test(month)
 export const validFieldServiceTime = (time: string): boolean => /^([01]\d|2[0-3]):[0-5]\d$/.test(time)
 
@@ -85,7 +89,7 @@ export function generateFieldServicePeriod(input: {
         }
         continue
       }
-      const leaderId = [...templateLeaders].sort((a, b) => (counts[a] ?? 0) - (counts[b] ?? 0) || templateLeaders.indexOf(a) - templateLeaders.indexOf(b))[0] ?? ''
+      const leaderId = templateLeaders.filter(id=>![...Object.values(assignments),...Object.values(previous)].some(item=>item.leaderId===id&&item.date===date&&item.time===template.time)).sort((a, b) => (counts[a] ?? 0) - (counts[b] ?? 0) || templateLeaders.indexOf(a) - templateLeaders.indexOf(b))[0] ?? ''
       assignments[id] = { id, templateId:template.id, date, time:template.time, location:template.location, label:template.label || 'Saída de campo', leaderId }
       if (leaderId) counts[leaderId] = (counts[leaderId] ?? 0) + 1
     }

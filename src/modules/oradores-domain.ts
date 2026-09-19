@@ -69,6 +69,23 @@ export interface TalkSchedule {
 }
 
 export interface ThemeHistory { temaId:string; data:string; oradorId?:string; secao?:string; historicoCompartilhado?:boolean }
+export function scheduleBaseForEdit(previous?:TalkSchedule):Partial<TalkSchedule> {
+  const result={...previous}
+  for(const key of ['oradorId','oradorNome','temaId','temaNumero','temaTitulo','oradorSecundarioId','oradorSecundarioNome','oradorSecundarioTipo','congregacaoDestinoId','congregacaoDestinoNome','congregacaoOrigemId','congregacaoOrigemNome','horarioLocal','observacoes'] as const) delete result[key]
+  return result
+}
+
+export function isDuplicateSchedule(item:TalkSchedule, date:string, kind:TalkKind, speakerId:string, congregationId:string):boolean {
+  if(item.data!==date || item.secao==='s1') return false
+  if(kind==='saida_orador') return item.tipo===kind && item.oradorId===speakerId && scheduleCongregationId(item)===congregationId
+  return item.tipo!=='saida_orador'
+}
+
+export function speakerLinkOptions(people:Record<string,{name?:string;active?:boolean;masterId?:string}>,selected:string):{value:string;label:string}[] {
+  const options=Object.entries(people).filter(([id,p])=>p.active!==false||id===selected||p.masterId===selected).map(([id,p])=>({value:id,label:p.name||id}))
+  if(selected&&!options.some(o=>o.value===selected)) options.unshift({value:selected,label:Object.values(people).find(p=>p.masterId===selected)?.name||'Vínculo atual (preservado)'})
+  return options.sort((a,b)=>a.label.localeCompare(b.label,'pt-BR'))
+}
 export interface SpeakerEvent { data:string; titulo:string; descricao?:string; tipo:SpeakerEventKind; impactoTarefas?:{ bloqueiaReuniao?:boolean; tiposReuniao?:string[] } }
 
 export interface SpeakersRoot {
@@ -164,6 +181,7 @@ export function speakerPendingItems(root: SpeakersRoot, today = new Date().toISO
     if (days >= 0 && days <= 7 && scheduleStatus(item)==='confirmado' && !item.reconfirmacao?.status) items.push({ id:`schedule-reconfirm-${id}`, severity:'alta', title:'Reconfirmar — está perto', detail:`${prefix} · ${item.oradorNome ?? root.oradores?.[item.oradorId ?? '']?.nome ?? 'Orador'}`, screen:'programacao', recordId:id })
   })
   Object.entries(root.oradores ?? {}).filter(([,speaker]) => speaker.ativo).forEach(([id,speaker]) => {
+    if(speaker.tipo==='local'&&!speaker.pessoaId) items.push({id:`speaker-link-${id}`,severity:'media',title:'Orador sem vínculo com Tarefas',detail:`${speaker.nome} · proteção contra conflitos indisponível`,screen:'oradores',recordId:id})
     if (!speaker.telefone || !speaker.temaIds.length) items.push({ id:`speaker-${id}`, severity:'baixa', title:'Cadastro incompleto', detail:`${speaker.nome} · ${!speaker.telefone ? 'sem telefone' : 'sem temas'}`, screen:'oradores', recordId:id })
   })
   Object.entries(root.congregacoes ?? {}).filter(([,congregation]) => congregation.ativa).forEach(([id,congregation]) => {

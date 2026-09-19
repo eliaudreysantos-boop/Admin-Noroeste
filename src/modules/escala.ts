@@ -42,6 +42,7 @@ let availability: EscalaAvailability = {}, tables: EscalaTables = {}, blocks: Es
 let exclusions: Record<string, string[]> = {}, settings: Settings = {}, greetings: Greetings = {}
 let publishedMonth = '', selectedMonth = monthNow(), selectedLocalId = '', selectedParticipantId = ''
 let publishedMonths: Record<string, boolean> = {}
+let publishedMonthBaseline: string | null = null
 let tab: Tab = 'indice'
 let pendingParticipantId = ''
 let downloadingPdf = false
@@ -98,7 +99,7 @@ async function load(): Promise<boolean> {
     const data = snap.exists() ? snap.val() as Data : {}
     locals = data.scales ?? {}; availability = data.availability ?? {}
     tables = data.tables ?? {}; blocks = data.monthSlotBlocks ?? {}; exclusions = data.monthExclusions ?? {}
-    settings = data.settings ?? {}; greetings = data.greetings ?? {}; publishedMonth = data.publishedMonth ?? ''
+    settings = data.settings ?? {}; greetings = data.greetings ?? {}; publishedMonth = data.publishedMonth ?? ''; publishedMonthBaseline = data.publishedMonth ?? null
     publishedMonths = data.publishedMonths ?? {}
     const savedMonth = localStorage.getItem(ESCALA_MONTH_KEY) ?? data.editingMonth
     selectedMonth = isValidMonth(savedMonth ?? '') ? savedMonth! : monthNow()
@@ -402,13 +403,14 @@ async function generate(): Promise<void> {
   if (monthLocked() || changingPublication) { toast('Despublique o mês antes de gerar'); return }
   const generated = generateAll({ month:selectedMonth, locals, participants, availability, tables, blocks, exclusions:exclusions[selectedMonth] ?? [], rules:settings.engineRules })
   if (generated.errors.length) { toast(generated.errors.join('. ')); return }
-  const patch: Record<string, unknown> = { editingMonth: selectedMonth, lastGeneratedAt: now() }
-  Object.keys(generated.results).forEach(id => { patch[`tables/${id}/${selectedMonth}`] = generated.tables[id][selectedMonth] })
   try {
-    await update(escalaRef, patch); tables = generated.tables
+    const [editing,last]=await Promise.all([get(child(escalaRef,'editingMonth')),get(child(escalaRef,'lastGeneratedAt'))])
+    const expected={tables, publishedMonth:publishedMonthBaseline, publishedMonths,editingMonth:editing.val(),lastGeneratedAt:last.val()}
+    await compareAndUpdate(escalaRef, expected, {tables:generated.tables,publishedMonth:publishedMonthBaseline,publishedMonths,editingMonth:selectedMonth,lastGeneratedAt:now()})
+    tables = generated.tables
     const total = Object.values(generated.results).reduce((sum, result) => ({ filled: sum.filled + result.summary.filled, kept: sum.kept + result.summary.preserved, empty: sum.empty + result.summary.empty }), { filled: 0, kept: 0, empty: 0 })
     toast(`${total.filled} preenchidos, ${total.kept} mantidos${total.empty ? ` e ${total.empty} sem dupla` : ''}`); renderScale()
-  } catch { toast('Nada foi gravado; a geração falhou sem escrita parcial') }
+  } catch (error) { toast(error instanceof Error?error.message:'Não foi possível salvar a geração') }
 }
 function pairModal(date: string, time: string): void {
   if (monthLocked() || changingPublication) return
@@ -426,10 +428,17 @@ async function savePair(date: string, time: string, overlay: HTMLElement): Promi
   if (errors.length && !confirm(`Esta escolha tem conflito:\n\n${errors.join('\n')}\n\nSalvar assim mesmo?`)) return
   const dow = new Date(`${date}T12:00:00`).getDay()
   try {
-    await update(escalaRef, { [`tables/${selectedLocalId}/${selectedMonth}/slots`]: localSlots(locals[selectedLocalId]), [`tables/${selectedLocalId}/${selectedMonth}/rows/${date}/dow`]: dow, [`tables/${selectedLocalId}/${selectedMonth}/rows/${date}/slots/${time}`]: { p1, p2 }, [`manualEdits/${selectedLocalId}/${selectedMonth}/${date}/${time.replace(':', '-')}`]: { p1, p2, editedAt: now(), editedBy: context.uid, conflicts: errors } })
+    const nextTables=structuredClone(tables)
+    nextTables[selectedLocalId]??={}
+    nextTables[selectedLocalId][selectedMonth]??={slots:localSlots(locals[selectedLocalId]),rows:{}}
+    nextTables[selectedLocalId][selectedMonth].rows[date]??={dow,slots:{}}
+    nextTables[selectedLocalId][selectedMonth].rows[date].slots[time]={p1,p2}
+    const auditPath=`manualEdits/${selectedLocalId}/${selectedMonth}/${date}/${time.replace(':','-')}`
+    const audit=await get(child(escalaRef,auditPath))
+    await compareAndUpdate(escalaRef,{tables,publishedMonth:publishedMonthBaseline,publishedMonths,[auditPath]:audit.val()},{tables:nextTables,publishedMonth:publishedMonthBaseline,publishedMonths,[auditPath]:{p1,p2,editedAt:now(),editedBy:context.uid,conflicts:errors}})
     tables[selectedLocalId] ??= {}; tables[selectedLocalId][selectedMonth] ??= { slots: localSlots(locals[selectedLocalId]), rows: {} }; tables[selectedLocalId][selectedMonth].rows[date] ??= { dow, slots: {} }; tables[selectedLocalId][selectedMonth].rows[date].slots[time] = { p1, p2 }
     overlay.remove(); toast('Dupla atualizada'); renderScale()
-  } catch { toast('Não foi possível salvar a dupla') }
+  } catch (error) { toast(error instanceof Error?error.message:'Não foi possível salvar a dupla') }
 }
 async function publish(): Promise<void> {
   if (monthLocked() || changingPublication) return
@@ -452,7 +461,7 @@ async function publish(): Promise<void> {
       catch { toast('Publicação incompleta. Reabra o módulo e confira o PDF no Quadro.'); return }
       throw error
     }
-    publishedMonth = month; publishedMonths[month] = true; historicalSnapshots[month] = snapshot; toast('Mês publicado e bloqueado'); renderScale()
+    publishedMonth = month; publishedMonthBaseline=month; publishedMonths[month] = true; historicalSnapshots[month] = snapshot; toast('Mês publicado e bloqueado'); renderScale()
   } catch { toast('Não foi possível publicar') }
   finally { changingPublication = false; releaseUi() }
 }
@@ -471,7 +480,7 @@ async function unpublish(): Promise<void> {
       catch { toast('Falha ao restaurar a publicação. Reabra o módulo e confira o período.'); return }
       throw error
     }
-    publishedMonth = nextLatest; delete publishedMonths[month]; toast('Mês aberto para edição'); renderScale()
+    publishedMonth = nextLatest; publishedMonthBaseline=nextLatest; delete publishedMonths[month]; toast('Mês aberto para edição'); renderScale()
   } catch { toast('Não foi possível despublicar') }
   finally { changingPublication = false; releaseUi() }
 }

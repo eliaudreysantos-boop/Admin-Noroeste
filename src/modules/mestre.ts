@@ -861,8 +861,8 @@ async function deletePessoa(mid: string): Promise<void> {
     rootData = null
     toast('Pessoa removida')
     renderPessoas()
-  } catch {
-    toast('Erro ao remover')
+  } catch (error) {
+    toast(error instanceof Error ? error.message : 'Erro ao remover')
   }
 }
 

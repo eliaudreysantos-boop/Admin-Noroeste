@@ -244,7 +244,7 @@ async function saveGeneratedPeriod(): Promise<void> {
       `${periodAnchor.slice(0, 7)}-01`, periodMode, effective.config,
       reunioes as ConfigReunioes, effective.people, congregationName, new Date().toISOString(),
     )
-    await update(limpezaPeriodosRef, { [generated.id]: generated })
+    await compareAndUpdate(limpezaPeriodosRef, { [generated.id]:periodos[generated.id] ?? null }, { [generated.id]: generated })
     try {
       await update(configLimpezaRef, { periodMode })
       limpeza.periodMode = periodMode

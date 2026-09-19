@@ -1,6 +1,36 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { monthBounds, normalizeSpeakersRoot, scheduleStatus, speakerPendingItems } from '../src/modules/oradores-domain.ts'
+import { monthBounds, normalizeSpeakersRoot, scheduleStatus, speakerPendingItems, scheduleBaseForEdit, isDuplicateSchedule, speakerLinkOptions } from '../src/modules/oradores-domain.ts'
+
+test('saídas distintas compartilham data, mas duplicatas e duas reuniões locais são recusadas', () => {
+  const row={data:'2026-11-21',secao:'s2',tipo:'saida_orador',oradorId:'a',congregacaoDestinoId:'c'}
+  assert.equal(isDuplicateSchedule(row,row.data,'saida_orador','b','c'),false)
+  assert.equal(isDuplicateSchedule(row,row.data,'saida_orador','a','c'),true)
+  assert.equal(isDuplicateSchedule({...row,tipo:'discurso_local'},row.data,'discurso_visitante','b','c'),true)
+})
+
+test('edição remove campos apagados sem perder metadados nem modificar o original', () => {
+  const original={data:'2026-11-21',tipo:'discurso_local',status:'por_confirmar',temaId:'t',oradorId:'a',oradorSecundarioId:'b',observacoes:'texto',avisadoEm:'2026-09-01',localCongregacaoId:'local'}
+  const result=scheduleBaseForEdit(original)
+  for(const key of ['temaId','oradorId','oradorSecundarioId','observacoes']) assert.equal(key in result,false)
+  assert.equal(result.avisadoEm,original.avisadoEm)
+  assert.equal(result.localCongregacaoId,'local')
+  assert.equal(original.temaId,'t')
+})
+
+test('seletor preserva vínculo central, inativo e ausente', () => {
+  const people={p:{name:'Nome',masterId:'m'},inactive:{name:'Inativo',active:false}}
+  assert.ok(speakerLinkOptions(people,'m').some(x=>x.value==='m'&&x.label==='Nome'))
+  assert.ok(speakerLinkOptions(people,'inactive').some(x=>x.value==='inactive'))
+  assert.ok(speakerLinkOptions(people,'legacy').some(x=>x.value==='legacy'))
+})
+
+test('orador local sem vínculo gera pendência de proteção', () => {
+  const root=normalizeSpeakersRoot({oradores:{o:{nome:'Local',tipo:'local',ativo:true}}})
+  assert.ok(speakerPendingItems(root).some(x=>x.id==='speaker-link-o'))
+  root.oradores.o.pessoaId='p'
+  assert.ok(!speakerPendingItems(root).some(x=>x.id==='speaker-link-o'))
+})
 
 test('normaliza os registros atuais sem perder os campos principais', () => {
   const root = normalizeSpeakersRoot({

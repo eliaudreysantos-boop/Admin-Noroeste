@@ -1,4 +1,5 @@
 import { activeData, preserveArchivedTasks } from '../lib/retired-data.ts'
+import { deleteUnreferencedMasterPerson } from '../lib/master-person-delete.ts'
 import { appSession, json, objectBody, validCsrf } from '../lib/secure-session.ts'
 import { adminDatabase } from '../lib/subscription-store.ts'
 import { readBatch } from '../lib/database-reads.ts'
@@ -34,6 +35,11 @@ export default async (request: Request): Promise<Response> => {
     }
     if (request.method === 'DELETE') {
       if (!canMutateData(path, request.method, undefined, session.usuario.apps)) return json(403, { error:'Alteração não autorizada.' })
+      if(/^master\/pessoas\/[^/]+$/.test(path)) {
+        const mid=path.split('/')[2]!
+        const result=await adminDatabase().ref('/').transaction(current=>deleteUnreferencedMasterPerson(current,mid))
+        return result.committed?json(200,{ok:true}):json(409,{error:'A pessoa possui vínculos ou já foi removida. Recarregue o cadastro antes de continuar.'})
+      }
       await reference.remove()
     }
     else {

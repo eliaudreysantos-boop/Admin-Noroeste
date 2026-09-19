@@ -818,7 +818,13 @@ function assignmentEditor(periodId: string, meetingId: string, meeting: TarefasM
 
 function bindAssignmentEditors(): void {
   document.querySelectorAll<HTMLSelectElement>('.tarefas-assignment-select').forEach(select => {
-    select.addEventListener('change', () => {
+    select.addEventListener('change', async () => {
+      select.disabled = true
+      try {
+      if (normalizeTaskGenerationRules(planning.engineRules).evitarConflitosOradores) {
+        const snapshot = await get(tarefasDiscursosRef)
+        discursos = snapshot.exists() ? snapshot.val() as TaskDomainContext['discursos'] : {}
+      }
       const periodId = select.dataset['period'] ?? ''
       const meetingId = select.dataset['meeting'] ?? ''
       const role = select.dataset['role'] as TaskRole
@@ -828,12 +834,16 @@ function bindAssignmentEditors(): void {
         select.value = select.dataset['original'] ?? ''
         return
       }
-      void saveAssignment(
+      await saveAssignment(
         periodId,
         meetingId,
         role,
         select.value,
       )
+      } catch {
+        select.value = select.dataset['original'] ?? ''
+        toast('Não foi possível verificar conflitos com Oradores. Tente novamente.')
+      } finally { select.disabled = false }
     })
   })
 }
