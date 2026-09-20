@@ -1,4 +1,6 @@
 import './style.css'
+import { installMonthNavigation } from './ui/month-navigation'
+installMonthNavigation()
 import type { MasterPessoa, Usuario } from './types'
 import mountAgenda from './modules/individual'
 import { normalizeAgendaPeople, sanitizeAgendaPeople } from './modules/individual-domain'
