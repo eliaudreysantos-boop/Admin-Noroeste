@@ -46,6 +46,8 @@ test('Oradores altera somente discursos e eventos e lê os cadastros necessário
 })
 
 test('publicação de PDF respeita o módulo da sessão', () => {
+  assert.equal(canAccessData('agenda/documentos', apps({ oradores:true }), true), true)
+  assert.equal(canAccessData('agenda/documentos', apps({ individual:true }), true), false)
   const tarefas = apps({ tarefas:true })
   const own = { modulo:'tarefas', tipo:'modulo', storagePath:'agenda/documentos/modulos/tarefas/2026-09.pdf' }
   const other = { modulo:'oradores', tipo:'modulo', storagePath:'agenda/documentos/modulos/oradores/2026-09.pdf' }

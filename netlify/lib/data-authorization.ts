@@ -37,7 +37,7 @@ export function canAccessData(path: string, apps: AppPermissions, write: boolean
       const permission = fourth ? messagePermissions[fourth] : undefined
       return third === 'moduleWhatsApp' && Boolean(permission && apps[permission])
     }
-    if (second === 'documentos') return !write || Boolean(apps.tarefas || apps.limpeza || apps.escala || apps.servicoCampo)
+    if (second === 'documentos') return !write || Boolean(apps.tarefas || apps.oradores || apps.limpeza || apps.escala || apps.servicoCampo)
   }
   return false
 }
