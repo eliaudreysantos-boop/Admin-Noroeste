@@ -1,6 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { updateAgendaHistory } from '../src/modules/agenda-changes.ts'
+import { parseAgendaHistory, updateAgendaHistory } from '../src/modules/agenda-changes.ts'
+test('histórico corrompido é descartado com segurança', () => {
+  for (const raw of ['{', '{"events":[],"changes":[null]}', '{"events":[{}],"changes":[]}']) assert.equal(parseAgendaHistory(raw), null)
+})
 const event = { id:'a', source:'tarefas', date:'2026-09-25', title:'Entrada', detail:'Reunião', status:'futuro' }
 const update = (previous, events) => updateAgendaHistory(previous, events, '2026-09-21T12:00:00Z', '2026-09-21')
 test('primeira sincronização é referência, e repetições não duplicam histórico', () => {

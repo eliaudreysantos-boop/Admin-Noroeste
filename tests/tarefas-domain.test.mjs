@@ -37,6 +37,8 @@ test('Oradores bloqueia entrada por vínculo, segundo orador e identidade centra
   context.engineRules={evitarConflitosOradores:false}
   assert.equal(eligibility('p1','entrada',meeting,{},context).eligible,true)
   context.engineRules={evitarConflitosOradores:true}
+  delete context.discursos.programacao.d1.secao
+  assert.equal(eligibility('p1','entrada',meeting,{},context).reason,'Discurso na mesma data')
   context.discursos.programacao.d1.secao='s1'
   assert.equal(eligibility('p1','entrada',meeting,{},context).eligible,true)
 })

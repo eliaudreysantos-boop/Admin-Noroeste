@@ -1283,6 +1283,8 @@ button:focus-visible, summary:focus-visible { outline:2px solid var(--blue-mid);
 .month-navigation { display:flex; align-items:center; gap:6px; width:100%; min-width:0; }
 .month-navigation input[type="month"] { flex:1; min-width:0; width:auto; }
 .month-navigation > button { flex-shrink:0; padding:8px; }
+.admin-badge { display:inline-flex; align-items:center; padding:4px 9px; margin:0 0 12px; border:1px solid var(--border); border-radius:999px; background:var(--surface-2); color:var(--ink-2); font-size:.75rem; font-weight:600; }
+@media print { .admin-badge { display:none !important; } }
 .month-navigation .btn { font-size:.875rem; min-height:44px; }
 .month-navigation input[type="month"] { min-height:44px; }
 .workspace-heading h1, .module-title h2 { font-size:1.45rem; line-height:1.25; }

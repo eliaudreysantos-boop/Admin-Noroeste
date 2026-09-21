@@ -2,6 +2,19 @@ import type { AgendaEvent } from './individual-domain'
 export interface AgendaChange { kind:'alterado' | 'retirado' | 'adicionado'; before?:AgendaEvent; after?:AgendaEvent; detectedAt:string }
 export interface AgendaHistory { events:AgendaEvent[]; changes:AgendaChange[] }
 const key = (event:AgendaEvent):string => `${event.source}:${event.id}`
+export function parseAgendaHistory(raw:string | null):AgendaHistory | null {
+  try {
+    const value = JSON.parse(raw ?? 'null')
+    const validEvent = (event:unknown):event is AgendaEvent => {
+      if (!event || typeof event !== 'object') return false
+      const item = event as AgendaEvent
+      return typeof item.id === 'string' && ['tarefas','oradores','limpeza','escala','servicoCampo'].includes(item.source) && typeof item.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(item.date) && typeof item.title === 'string' && typeof item.detail === 'string'
+    }
+    if (!value || !Array.isArray(value.events) || !value.events.every(validEvent) || !Array.isArray(value.changes)) return null
+    if (!value.changes.every((change:any) => change && ['alterado','retirado','adicionado'].includes(change.kind) && typeof change.detectedAt === 'string' && (change.kind === 'adicionado' ? validEvent(change.after) : change.kind === 'retirado' ? validEvent(change.before) : validEvent(change.before) && validEvent(change.after)))) return null
+    return { events:value.events, changes:value.changes.slice(0,100) }
+  } catch { return null }
+}
 const content = (event:AgendaEvent):string => JSON.stringify([event.date,event.time,event.title,event.detail,event.location,event.status])
 export function updateAgendaHistory(previous:AgendaHistory | null, events:AgendaEvent[], now:string, today:string):AgendaHistory {
   if (!previous) return { events, changes:[] }

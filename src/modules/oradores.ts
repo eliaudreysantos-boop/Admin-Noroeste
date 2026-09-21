@@ -1,5 +1,5 @@
 import type { AppContext } from '../types'
-import { agendaConfigRef, child, get, oradoresCadastroRef, oradoresCongregacoesRef, oradoresEventosRef, oradoresProgramacaoRef, oradoresRef, oradoresTemasRef, set, tarefasPeopleRef, tarefasPlanejamentoRef, update } from '../firebase'
+import { agendaConfigRef, child, compareAndSet, get, oradoresCadastroRef, oradoresCongregacoesRef, oradoresEventosRef, oradoresProgramacaoRef, oradoresRef, oradoresTemasRef, set, tarefasPeopleRef, tarefasPlanejamentoRef, update } from '../firebase'
 import { renderWorkspaceNav } from '../ui/workspace-nav'
 import { moduleBackButton } from '../ui/module-header'
 import { lockPublicationUi } from '../ui/publication-busy'
@@ -24,6 +24,7 @@ let planning: Planning = {}
 let taskPeople: Record<string, TaskPerson> = {}
 let selectedMonth = localStorage.getItem('noroeste_oradores_month') ?? new Date().toISOString().slice(0, 7)
 let editingId = ''
+let rawSchedule:Record<string, unknown> = {}
 let scheduleDraft: Record<string, string> | null = null
 let selectedSpeakerId = ''
 let selectedCongregationId = ''
@@ -59,6 +60,7 @@ export default function mount(_: AppContext): void {
 async function load(): Promise<boolean> {
   try {
     const [rootSnapshot,eventSnapshot,planningSnapshot,peopleSnapshot,messageSnapshot]=await Promise.all([get(oradoresRef), get(oradoresEventosRef), get(tarefasPlanejamentoRef), get(tarefasPeopleRef), get<ModuleMessageSettings>(child(agendaConfigRef,'moduleWhatsApp/oradores'))])
+    rawSchedule = (rootSnapshot.val() as SpeakersRoot | null)?.programacao ?? {}
     data=selectSecondSection(normalizeSpeakersRoot(rootSnapshot.exists()?rootSnapshot.val():{}))
     events=normalizeSpeakerEvents(eventSnapshot.exists()?eventSnapshot.val():{})
     planning=planningSnapshot.exists() ? planningSnapshot.val() as Planning : {}
@@ -175,10 +177,10 @@ async function saveSchedule(form:HTMLFormElement): Promise<void> {
   const status=previous?.status==='confirmado'?'confirmado':speakerId||manualName?'por_confirmar':'por_definir'
   const item:TalkSchedule={ ...scheduleBaseForEdit(previous), data:date, tipo:kind, status, updatedAt:now, secao:section as 's2', ...(speakerId?{oradorId:speakerId,oradorNome:speaker?.nome}:manualName?{oradorNome:manualName}:{}), ...(theme?{temaId:themeId,temaNumero:theme.numero,temaTitulo:theme.titulo}:{}), ...(second?{oradorSecundarioId:secondId,oradorSecundarioNome:second.nome,oradorSecundarioTipo:second.tipo}:{}), ...(kind==='saida_orador'&&congregation?{congregacaoDestinoId:congregationId,congregacaoDestinoNome:congregation.nome}:kind==='discurso_visitante'&&congregation?{congregacaoOrigemId:congregationId,congregacaoOrigemNome:congregation.nome}:{}), ...(kind!=='saida_orador'&&String(values.get('horarioLocal')??'')?{horarioLocal:String(values.get('horarioLocal'))}:{}), ...(String(values.get('observacoes')??'').trim()?{observacoes:String(values.get('observacoes')).trim()}:{}), ...(status==='confirmado'?{confirmacao:previous?.confirmacao??{status:true,confirmadoEm:now}}:{confirmacao:{status:false,confirmadoEm:''}}) }
   const id=previous?editingId:newSpeakerId('programacao')
-  try { await set(child(oradoresProgramacaoRef,id),item); schedule()[id]=item; editingId=''; scheduleDraft=null; toast(previous?'Programação atualizada':'Programação criada'); renderSchedule() } catch { toast('Não foi possível salvar a programação') }
+  try { await compareAndSet(child(oradoresProgramacaoRef,id),rawSchedule[id] ?? null,item); rawSchedule[id]=structuredClone(item); schedule()[id]=item; editingId=''; scheduleDraft=null; toast(previous?'Programação atualizada':'Programação criada'); renderSchedule() } catch { toast('Não foi possível salvar. Reabra a programação para conferir alterações de outro administrador.') }
 }
 
-async function deleteSchedule(): Promise<void> { const id=editingId, item=schedule()[id]; if (!item||!confirm(`Excluir a programação de ${formatSpeakerDate(item.data)}?`)) return; try { await set(child(oradoresProgramacaoRef,id),null); delete schedule()[id]; editingId=''; toast('Programação excluída'); renderSchedule() } catch { toast('Não foi possível excluir') } }
+async function deleteSchedule(): Promise<void> { const id=editingId, item=schedule()[id]; if (!item||!confirm(`Excluir a programação de ${formatSpeakerDate(item.data)}?`)) return; try { await compareAndSet(child(oradoresProgramacaoRef,id),rawSchedule[id] ?? null,null); delete rawSchedule[id]; delete schedule()[id]; editingId=''; toast('Programação excluída'); renderSchedule() } catch { toast('Não foi possível excluir') } }
 async function toggleConfirmation(id:string): Promise<void> { const item=schedule()[id]; if (!item) return; const confirmed=scheduleStatus(item)==='confirmado', status=confirmed?(item.oradorId||item.oradorNome?'por_confirmar':'por_definir'):'confirmado', confirmation={status:!confirmed,confirmadoEm:confirmed?'':isoNow()}; try { await update(child(oradoresProgramacaoRef,id),{status,confirmacao:confirmation,updatedAt:isoNow()}); item.status=status; item.confirmacao=confirmation; renderSchedule() } catch { toast('Não foi possível alterar a confirmação') } }
 async function toggleReconfirmation(id:string): Promise<void> { const item=schedule()[id]; if (!item) return; const value=!item.reconfirmacao?.status, reconfirmacao={status:value,confirmadoEm:value?isoNow():''}; try { await update(child(oradoresProgramacaoRef,id),{reconfirmacao,updatedAt:isoNow()}); item.reconfirmacao=reconfirmacao; renderSchedule() } catch { toast('Não foi possível alterar a reconfirmação') } }
 async function notifySchedule(id:string):Promise<void>{const item=schedule()[id],speaker=item?speakers()[item.oradorId??'']:undefined;if(!item||!speaker||!openWhatsapp(speaker.telefone,scheduleMessage(item)))return;const avisadoEm=isoNow();try{await update(child(oradoresProgramacaoRef,id),{avisadoEm});item.avisadoEm=avisadoEm}catch{toast('O WhatsApp abriu, mas não foi possível registrar o aviso')}}

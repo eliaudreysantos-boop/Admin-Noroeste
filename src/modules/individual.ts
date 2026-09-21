@@ -1,5 +1,5 @@
 import type { AppContext, RawRoot } from '../types'
-import { updateAgendaHistory, type AgendaHistory } from './agenda-changes'
+import { parseAgendaHistory, updateAgendaHistory, type AgendaHistory } from './agenda-changes'
 import { configRef, escalaSettingsRef } from '../firebase'
 import { agendaConfigRef, agendaDocumentsRef, escalaParticipantsRef, escalaPublishedMonthRef, escalaPublishedMonthsRef, escalaPubSnapshotsRef, escalaScalesRef, escalaTablesRef, get, limpezaPeriodosRef, pessoasRef, servicoCampoRef, tarefasPeopleRef, tarefasScaleRef, tarefasDiscursosRef } from '../firebase'
 import { apiJson } from '../secure-api.ts'
@@ -78,8 +78,7 @@ function offlineCacheKey(masterId: string): string { return `${OFFLINE_CACHE_KEY
 function historyKey(masterId:string):string { return `noroeste_agenda_history_v1:${masterId}` }
 function readAgendaHistory(masterId:string):AgendaHistory | null {
   try {
-    const value = JSON.parse(localStorage.getItem(historyKey(masterId)) ?? 'null')
-    return value && Array.isArray(value.events) && Array.isArray(value.changes) ? value : null
+    return parseAgendaHistory(localStorage.getItem(historyKey(masterId)))
   } catch { return null }
 }
 function recordAgendaHistory(masterId:string, events:AgendaEvent[]):void {
@@ -278,7 +277,7 @@ function render(): void {
   const calendar = [...Array(firstDow).fill(''), ...Array.from({ length:totalDays }, (_, index) => String(index + 1))]
   const listEvents = uiPreferences.personal.view === 'upcoming' ? future.slice(1, 9) : events
   root.innerHTML = `${moduleTitle('Minha agenda')}${screenTabs()}${loadingAssignments ? '<div class="notice">Atualizando designações dos módulos...</div>' : ''}${adminPersonPicker()}
-    ${nextCommitment(future[0])}${historyPanel()}
+    <span class="admin-badge">${loadingAssignments ? 'Sincronizando' : 'Histórico local deste aparelho'}</span>${nextCommitment(future[0])}${historyPanel()}
     <div class="program-period-modes agenda-view-modes" role="tablist" aria-label="Visualização dos compromissos"><button class="program-period-mode" role="tab" type="button" data-personal-view="upcoming" aria-selected="${uiPreferences.personal.view === 'upcoming'}">Próximos</button><button class="program-period-mode" role="tab" type="button" data-personal-view="month" aria-selected="${uiPreferences.personal.view === 'month'}">Mês</button></div>
     <div class="agenda-list">${eventRows(listEvents) || `<p class="empty-state">${uiPreferences.personal.view === 'upcoming' ? 'Nenhum outro compromisso futuro.' : 'Nenhuma designação neste mês.'}</p>`}</div>
     <details class="form-panel agenda-board-card agenda-personal-panel" data-agenda-panel="calendar" ${uiPreferences.personal.openPanels.includes('calendar') ? 'open' : ''}><summary><strong>Calendário mensal</strong><span>${esc(month)}</span></summary><div class="agenda-board-body"><div class="agenda-toolbar"><button class="btn btn-ghost" id="agendaPrev" type="button" aria-label="Mês anterior">‹</button><label class="sr-only" for="agendaMonth">Mês do calendário pessoal</label><input class="form-input" id="agendaMonth" type="month" value="${month}"><button class="btn btn-ghost" id="agendaNext" type="button" aria-label="Próximo mês">›</button></div><div class="agenda-calendar"><div class="agenda-weekdays">${['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'].map(day => `<strong>${day}</strong>`).join('')}</div><div class="agenda-days">${calendar.map(day => day ? `<div class="agenda-day ${byDay.has(Number(day)) ? 'has-events' : ''}"><span>${day}</span>${(byDay.get(Number(day)) ?? []).slice(0, 3).map(event => `<i class="${event.source}" aria-hidden="true"></i>`).join('')}</div>` : '<div class="agenda-day empty"></div>').join('')}</div></div></div></details>

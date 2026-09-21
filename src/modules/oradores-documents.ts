@@ -49,7 +49,7 @@ export async function createSpeakersSchedulePdf(input:Input):Promise<Uint8Array>
   const outgoingWidths=[90,165,70,180,272],outgoingHeaders=['Data','Orador','Tema','Congregação','Endereço']
   section('Saídas de nossos oradores',outgoingHeaders,outgoingWidths)
   if(!outgoing.length){page!.drawText('Nenhuma saída programada neste período.',{x:37,y:y-20,size:8.5,font:regular,color:PDF_MUTED})}
-  for(const item of outgoing){const theme=input.themes[item.temaId??''],destination=input.congregations[scheduleCongregationId(item)];const values=[pdfDate(item.data),speakerName(item,input.speakers),String(theme?.numero??item.temaNumero??'-'),destination?.nome??scheduleCongregationName(item)??'-',destination?.observacoes??'-'];const height=rowHeight(regular,values,outgoingWidths);if(y-height<34){addPage();section('Saídas de nossos oradores - continuação',outgoingHeaders,outgoingWidths)}drawRow(page!,fonts,values,outgoingWidths,y,height);y-=height}
+  for(const item of outgoing){const theme=input.themes[item.temaId??''],destination=input.congregations[scheduleCongregationId(item)];const values=[pdfDate(item.data),speakerName(item,input.speakers),String(theme?.numero??item.temaNumero??'-'),destination?.nome??scheduleCongregationName(item)??'-',destination?.localizacao??'-'];const height=rowHeight(regular,values,outgoingWidths);if(y-height<34){addPage();section('Saídas de nossos oradores - continuação',outgoingHeaders,outgoingWidths)}drawRow(page!,fonts,values,outgoingWidths,y,height);y-=height}
   return pdf.save()
 }
 

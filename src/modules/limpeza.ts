@@ -508,7 +508,7 @@ function renderPdf(): void {
     <div class="form-panel">
       <label class="form-field"><span>Escala gerada</span><select id="pdfLimpezaPeriodo" class="form-select" ${Object.keys(periodos).length ? '' : 'disabled'}>${generatedPeriodOptions() || '<option>Nenhuma escala gerada</option>'}</select></label>
       <details><summary>Ajustar PDF</summary><label class="form-field"><span>Fonte base: <strong id="pdfLimpezaFonteValor">${fontSize} pt</strong></span><input id="pdfLimpezaFonte" type="range" min="8" max="22" value="${fontSize}"></label></details>
-      <p>${period?.publicado ? 'Publicado' : 'Rascunho'}</p>
+      <span class="admin-badge">${period?.publicado ? 'Publicado' : 'Rascunho'}</span>
       <button id="btnGerarPdfLimpeza" class="btn btn-primary btn-full" type="button" ${period ? '' : 'disabled'}>Baixar PDF</button>
       <button id="btnPublicarPdfLimpeza" class="btn btn-ghost btn-full" style="margin-top:8px" type="button" ${period ? '' : 'disabled'}>${period?.publicado ? 'Reabrir período' : 'Publicar no Quadro'}</button>
     </div>`
@@ -544,7 +544,7 @@ async function toggleCleaningPublication(): Promise<void> {
       const restore = await createCleaningPdf(period, { requestedFontSize:fontSize })
       await unpublishAgendaModulePdf('limpeza', period.id)
       try {
-        await update(limpezaPeriodosRef, { [`${period.id}/publicado`]:false, [`${period.id}/publicadoEm`]:null })
+        await compareAndUpdate(limpezaPeriodosRef, { [period.id]:period }, { [period.id]:{ ...period, publicado:false, publicadoEm:null } })
       } catch (error) {
         try { await publishAgendaModulePdf(restore.bytes, metadata) }
         catch { console.warn('Não foi possível restaurar a publicação de Limpeza') }
@@ -558,7 +558,7 @@ async function toggleCleaningPublication(): Promise<void> {
       await publishAgendaModulePdf(result.bytes, metadata)
       const publishedAt = new Date().toISOString()
       try {
-        await update(limpezaPeriodosRef, { [`${period.id}/publicado`]:true, [`${period.id}/publicadoEm`]:publishedAt })
+        await compareAndUpdate(limpezaPeriodosRef, { [period.id]:period }, { [period.id]:{ ...period, publicado:true, publicadoEm:publishedAt } })
       } catch (error) {
         try { await unpublishAgendaModulePdf('limpeza', period.id) }
         catch { console.warn('Não foi possível desfazer a publicação incompleta de Limpeza') }

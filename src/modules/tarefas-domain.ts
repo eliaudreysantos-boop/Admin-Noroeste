@@ -240,7 +240,7 @@ export function canShareMeeting(personId: string, role: TaskRole, assignments: P
 export function hasSpeakerAssignment(personId:string, date:string|undefined, context:TaskDomainContext):boolean {
   if (!date) return false
   const person=context.people[personId]
-  return Object.values(context.discursos?.programacao ?? {}).some(item => item.secao === 's2' && item.data === date &&
+  return Object.values(context.discursos?.programacao ?? {}).some(item => item.secao !== 's1' && item.data === date &&
     [item.oradorId,item.oradorSecundarioId].some(id => {
       const linked=id ? context.discursos?.oradores?.[id]?.pessoaId : undefined
       if (!linked) return false
