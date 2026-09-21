@@ -1,3 +1,4 @@
+import { agendaLocation, cleanAddress } from './agenda-location.ts'
 import type { MasterPessoa } from '../types'
 
 export type AgendaSource = 'tarefas' | 'oradores' | 'limpeza' | 'escala' | 'servicoCampo'
@@ -5,7 +6,7 @@ export type AgendaStatus = 'futuro' | 'confirmacao-pendente' | 'alterado' | 'rea
 
 export interface AgendaEvent {
   id: string; source: AgendaSource; date: string; time?: string; title: string
-  detail: string; location?: string; note?: string; status: AgendaStatus
+  detail: string; location?: string; mapLocation?:string; note?: string; status: AgendaStatus
 }
 
 export interface AnnouncementEvent extends AgendaEvent { people: string[] }
@@ -151,8 +152,9 @@ function speakerAgendaEvents(root: Row): { event: AgendaEvent; masterIds: string
     const theme = rows(rows(talks['temas'])[text(item['temaId'])])
     const title = text(theme['titulo']) || text(item['temaTitulo'])
     const outgoing = item['tipo'] === 'saida_orador'
-    const location = text(item[outgoing ? 'congregacaoDestinoNome' : 'localCongregacaoNome']) || text(rows(rows(talks['congregacoes'])[text(item[outgoing ? 'congregacaoDestinoId' : 'localCongregacaoId'])])['nome'])
-    const event: AgendaEvent = { id:`oradores:${id}`, source:'oradores', date, ...(time ? { time } : {}), title:outgoing ? 'Saída de orador' : 'Discurso público', detail:[outgoing ? 'Discurso em outra congregação' : 'Reunião do fim de semana', title].filter(Boolean).join(' · '), ...(location ? { location } : {}), status:'futuro' }
+    const congregation = rows(rows(talks['congregacoes'])[text(item[outgoing ? 'congregacaoDestinoId' : 'localCongregacaoId'])])
+    const location = cleanAddress(text(congregation['localizacao'])) || text(item[outgoing ? 'congregacaoDestinoNome' : 'localCongregacaoNome']) || text(rows(rows(talks['congregacoes'])[text(item[outgoing ? 'congregacaoDestinoId' : 'localCongregacaoId'])])['nome'])
+    const event: AgendaEvent = { id:`oradores:${id}`, source:'oradores', date, ...(time ? { time } : {}), title:outgoing ? 'Saída de orador' : 'Discurso público', detail:[outgoing ? 'Discurso em outra congregação' : 'Reunião do fim de semana', title].filter(Boolean).join(' · '), ...(location ? { location } : {}), ...(text(congregation['mapa']) ? {mapLocation:text(congregation['mapa'])} : {}), status:'futuro' }
     return [{ event, masterIds, names }]
   })
 }
@@ -202,10 +204,11 @@ function nextCivilDate(value: string): string {
 export function agendaToIcs(events: AgendaEvent[], generatedAt: string, options: AgendaIcsOptions = {}): string {
   const namespace = options.namespace?.replace(/[^a-zA-Z0-9_-]/g, '') || 'noroeste'
   const body = events.filter(event => validAgendaDate(event.date) && validAgendaTime(event.time)).map(event => {
-    const date = event.date.replace(/-/g, ''), start = event.time ? `DTSTART;TZID=America/Fortaleza:${date}T${event.time.replace(':', '')}00` : `DTSTART;VALUE=DATE:${date}`, details = [event.detail, event.note, `Origem: ${event.source}`, `Status: ${event.status}`].filter(Boolean).join('\n')
+    const place = agendaLocation(event.location ?? '', event.mapLocation)
+    const date = event.date.replace(/-/g, ''), start = event.time ? `DTSTART;TZID=America/Fortaleza:${date}T${event.time.replace(':', '')}00` : `DTSTART;VALUE=DATE:${date}`, details = [event.detail, event.note, place.url ? `Mapa: ${place.url}` : '', `Origem: ${event.source}`, `Status: ${event.status}`].filter(Boolean).join('\n')
     const end = event.time ? 'DURATION:PT1H' : `DTEND;VALUE=DATE:${nextCivilDate(event.date)}`
     const alarms = [...new Set(options.reminders?.[event.source] ?? [])].filter(validReminder).slice(0, 2).flatMap(offset => ['BEGIN:VALARM', 'ACTION:DISPLAY', `DESCRIPTION:${icsEscape(`Lembrete: ${event.title}`)}`, `TRIGGER:-${offset}`, 'END:VALARM'])
-    return ['BEGIN:VEVENT', `UID:${icsEscape(event.id)}@${namespace}`, `DTSTAMP:${utcStamp(generatedAt)}`, start, end, `SUMMARY:${icsEscape(event.title)}`, `DESCRIPTION:${icsEscape(details)}`, ...(event.location ? [`LOCATION:${icsEscape(event.location)}`] : []), ...alarms, 'END:VEVENT'].join('\r\n')
+    return ['BEGIN:VEVENT', `UID:${icsEscape(event.id)}@${namespace}`, `DTSTAMP:${utcStamp(generatedAt)}`, start, end, `SUMMARY:${icsEscape(event.title)}`, `DESCRIPTION:${icsEscape(details)}`, ...(place.address ? [`LOCATION:${icsEscape(place.address)}`] : []), ...(place.url ? [`URL:${place.url}`] : []), ...(place.geo ? [`GEO:${place.geo}`] : []), ...alarms, 'END:VEVENT'].join('\r\n')
   }).join('\r\n')
   const timezone = ['BEGIN:VTIMEZONE', 'TZID:America/Fortaleza', 'BEGIN:STANDARD', 'DTSTART:19700101T000000', 'TZOFFSETFROM:-0300', 'TZOFFSETTO:-0300', 'TZNAME:BRT', 'END:STANDARD', 'END:VTIMEZONE']
   return ['BEGIN:VCALENDAR', 'VERSION:2.0', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH', 'PRODID:-//Noroeste//Minha agenda//PT-BR', `X-WR-CALNAME:${icsEscape(options.calendarName || 'Minha agenda Noroeste')}`, 'X-WR-TIMEZONE:America/Fortaleza', ...timezone, ...(body ? body.split('\r\n') : []), 'END:VCALENDAR'].map(foldIcsLine).join('\r\n') + '\r\n'

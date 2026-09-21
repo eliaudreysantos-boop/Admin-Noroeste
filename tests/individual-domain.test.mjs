@@ -1,4 +1,15 @@
 import test from 'node:test'
+import { agendaLocation, cleanAddress } from '../src/modules/agenda-location.ts'
+test('localização limpa HTML, codifica Plus Code e oferece coordenadas sem aceitar esquemas inseguros', () => {
+  assert.equal(cleanAddress('Rua B-4 &#x20; Aracaju &amp; Centro'), 'Rua B-4 Aracaju & Centro')
+  assert.match(agendaLocation('Endereço', '2V6X+GW2 Aracaju, SE').url, /2V6X%2BGW2/)
+  assert.equal(agendaLocation('Endereço', '-10.9, -37.1').geo, '-10.9;-37.1')
+  assert.equal(agendaLocation('Endereço', 'javascript:alert(1)').url, '')
+  const ics = agendaToIcs([{id:'map',source:'oradores',date:'2026-09-20',title:'Discurso',detail:'Reunião',status:'futuro',location:'Rua B-4 &#x20;',mapLocation:'-10.9, -37.1'}], '2026-09-01T00:00:00Z').replace(/\r\n /g,'')
+  assert.match(ics, /LOCATION:Rua B-4/)
+  assert.match(ics, /GEO:-10.9;-37.1/)
+  assert.match(ics, /URL:https:\/\/www.google.com\/maps/)
+})
 import assert from 'node:assert/strict'
 import { agendaMessage, agendaToIcs, announcementMessage, boardCleaningMessage, boardMeetingDates, boardMeetingEvents, boardMeetingMessage, boardMeetingWhatsappMessage, collectAgendaEvents, collectAnnouncementEvents, eventsInFeedWindow, normalizeAgendaPeople, sanitizeAgendaPeople, upcomingAgendaEvents, validAgendaDate, validAgendaTime } from '../src/modules/individual-domain.ts'
 

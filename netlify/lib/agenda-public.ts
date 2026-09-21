@@ -23,6 +23,7 @@ export function publicAgendaEvent(value: AgendaEvent): AgendaEvent | null {
     id, source:value.source, date:value.date, title, detail, status:value.status,
     ...(value.time && /^([01]\d|2[0-3]):[0-5]\d$/.test(value.time) ? { time:value.time } : {}),
     ...(value.location ? { location:text(value.location, 300) } : {}),
+    ...(value.mapLocation ? { mapLocation:text(value.mapLocation, 2000) } : {}),
   }
 }
 
