@@ -15,10 +15,9 @@ let screen: 'agenda' | 'geral' | 'quadro' = 'agenda'
 let generalSelectedDate = ''
 let boardDocumentPeriod = month
 let boardMeetingDate = ''
-const boardSubscriptionModules = new Set<AgendaSource>(['tarefas', 'oradores', 'limpeza', 'escala', 'servicoCampo'])
 let uiPreferences = defaultAgendaUiPreferences(month)
 let uiPreferencesKey = ''
-let subscriptionPersonId = ''
+let selectedPersonId = ''
 let loadingAssignments = true
 let offlinePersonalEvents: AgendaEvent[] | null = null
 let offlineAnnouncementEvents: AnnouncementEvent[] | null = null
@@ -79,7 +78,7 @@ function captureUiPreferences(): void {
   uiPreferences.screen = screen
   if (screen === 'agenda') Object.assign(uiPreferences.personal, { month })
   if (screen === 'geral') Object.assign(uiPreferences.general, { month, selectedDate:generalSelectedDate })
-  Object.assign(uiPreferences.board, { meetingDate:boardMeetingDate, documentPeriod:boardDocumentPeriod, subscriptionModules:[...boardSubscriptionModules] })
+  Object.assign(uiPreferences.board, { meetingDate:boardMeetingDate, documentPeriod:boardDocumentPeriod })
 }
 
 function applyScreenPreferences(nextScreen: AgendaScreen): void {
@@ -97,8 +96,6 @@ function ensureUiPreferences(): void {
   uiPreferences = parseAgendaUiPreferences(localStorage.getItem(nextKey), fortalezaDate().slice(0, 7))
   boardMeetingDate = uiPreferences.board.meetingDate
   boardDocumentPeriod = uiPreferences.board.documentPeriod
-  boardSubscriptionModules.clear()
-  uiPreferences.board.subscriptionModules.forEach(module => boardSubscriptionModules.add(module))
   applyScreenPreferences(uiPreferences.screen)
 }
 
@@ -200,7 +197,7 @@ async function load(): Promise<void> {
 }
 
 function isAdmin(): boolean { return ctx?.usuario.apps.mestre === true }
-function selectedMasterId(): string { return ctx?.usuario.masterId ?? (isAdmin() ? subscriptionPersonId : '') }
+function selectedMasterId(): string { return ctx?.usuario.masterId ?? (isAdmin() ? selectedPersonId : '') }
 function personalEvents(): AgendaEvent[] { const masterId = selectedMasterId(); return offlinePersonalEvents ?? (masterId ? collectAgendaEvents(data, masterId) : []) }
 function announcementEvents(): AnnouncementEvent[] { return offlineAnnouncementEvents ?? collectAnnouncementEvents(data) }
 function monthEvents(): AgendaEvent[] { return personalEvents().filter(event => event.date.startsWith(month)) }
@@ -209,19 +206,19 @@ function agendaConfig(): AgendaConfig { return (agendaRoot()['config'] ?? {}) as
 function documents(): AgendaPublicDocument[] { return Object.values((agendaRoot()['documentos'] ?? {}) as Record<string, AgendaPublicDocument>) }
 function people(): Record<string, MasterPessoa> { return data.master?.pessoas ?? {} }
 function ensureSelectedPerson(): void {
-  if (ctx?.usuario.masterId) { subscriptionPersonId = ctx.usuario.masterId; return }
+  if (ctx?.usuario.masterId) { selectedPersonId = ctx.usuario.masterId; return }
   const savedAdminPerson = localStorage.getItem(ADMIN_PERSON_KEY) ?? '', savedPerson = people()[savedAdminPerson]
-  if (!subscriptionPersonId && isAdmin() && savedPerson && savedPerson.active !== false) subscriptionPersonId = savedAdminPerson
-  const selectedPerson = people()[subscriptionPersonId]
-  if (!isAdmin() || (subscriptionPersonId && selectedPerson && selectedPerson.active !== false)) return
-  subscriptionPersonId = Object.entries(people()).filter(([, person]) => person.active !== false).sort(([, a], [, b]) => a.name.localeCompare(b.name, 'pt-BR'))[0]?.[0] ?? ''
+  if (!selectedPersonId && isAdmin() && savedPerson && savedPerson.active !== false) selectedPersonId = savedAdminPerson
+  const selectedPerson = people()[selectedPersonId]
+  if (!isAdmin() || (selectedPersonId && selectedPerson && selectedPerson.active !== false)) return
+  selectedPersonId = Object.entries(people()).filter(([, person]) => person.active !== false).sort(([, a], [, b]) => a.name.localeCompare(b.name, 'pt-BR'))[0]?.[0] ?? ''
 }
 function adminPersonPicker(): string {
   if (!isAdmin() || ctx?.usuario.masterId) return ''
-  const options = Object.entries(people()).filter(([, person]) => person.active !== false).sort(([, a], [, b]) => a.name.localeCompare(b.name, 'pt-BR')).map(([id, person]) => `<option value="${esc(id)}" ${subscriptionPersonId === id ? 'selected' : ''}>${esc(person.name)}</option>`).join('')
+  const options = Object.entries(people()).filter(([, person]) => person.active !== false).sort(([, a], [, b]) => a.name.localeCompare(b.name, 'pt-BR')).map(([id, person]) => `<option value="${esc(id)}" ${selectedPersonId === id ? 'selected' : ''}>${esc(person.name)}</option>`).join('')
   return `<div class="form-panel agenda-admin-person"><label class="form-field"><span>Visualizar pessoa</span><select id="adminAgendaPerson">${options}</select></label><p class="form-help">O Admin consulta a agenda pelo vínculo permanente.</p></div>`
 }
-function bindAdminPersonPicker(): void { document.getElementById('adminAgendaPerson')?.addEventListener('change', event => { persistUiPreferences(); subscriptionPersonId = (event.target as HTMLSelectElement).value; localStorage.setItem(ADMIN_PERSON_KEY, subscriptionPersonId); uiPreferencesKey = ''; render() }) }
+function bindAdminPersonPicker(): void { document.getElementById('adminAgendaPerson')?.addEventListener('change', event => { persistUiPreferences(); selectedPersonId = (event.target as HTMLSelectElement).value; localStorage.setItem(ADMIN_PERSON_KEY, selectedPersonId); uiPreferencesKey = ''; render() }) }
 function screenTabs(): string { return `<div class="program-period-modes agenda-screen-tabs" role="tablist" aria-label="Minha agenda"><button class="program-period-mode" role="tab" type="button" data-agenda-screen="agenda" aria-selected="${screen === 'agenda'}">Pessoal</button><button class="program-period-mode" role="tab" type="button" data-agenda-screen="geral" aria-selected="${screen === 'geral'}">Geral</button><button class="program-period-mode" role="tab" type="button" data-agenda-screen="quadro" aria-selected="${screen === 'quadro'}">Quadro</button></div>` }
 function bindScreenTabs(): void { document.querySelectorAll<HTMLButtonElement>('[data-agenda-screen]').forEach(button => button.addEventListener('click', () => { captureUiPreferences(); uiPreferences.screen = button.dataset['agendaScreen'] as AgendaScreen; applyScreenPreferences(uiPreferences.screen); persistUiPreferences(); render(); document.getElementById('individualRoot')?.scrollIntoView({ block:'start' }) })) }
 

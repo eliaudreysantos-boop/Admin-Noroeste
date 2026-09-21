@@ -198,7 +198,7 @@ test('dados das reuniões selecionam datas futuras e módulos conforme o tipo', 
 
 test('Oradores integra S2 confirmada por vínculo e inclui visitantes no quadro', () => {
   const data = { master:{ pessoas:{ m1:{ name:'Ana', active:true } } }, tarefas:{ people:{ p1:{ masterId:'m1' } }, discursos:{ oradores:{ o1:{ nome:'Ana', pessoaId:'p1' }, v1:{ nome:'Visitante' } }, temas:{ t1:{ titulo:'Tema público' } }, programacao:{
-    local:{ secao:'s2', data:'2026-09-20', tipo:'discurso_local', status:'confirmado', oradorId:'o1', temaId:'t1', observacoes:'SEGREDO' },
+    local:{ data:'2026-09-20', tipo:'discurso_local', status:'confirmado', oradorId:'o1', temaId:'t1', observacoes:'SEGREDO' },
     visita:{ secao:'s2', data:'2026-09-27', tipo:'discurso_visitante', status:'confirmado', oradorId:'v1' },
     saida:{ secao:'s2', data:'2026-09-20', tipo:'saida_orador', status:'confirmado', oradorSecundarioId:'o1', congregacaoDestinoNome:'Destino' },
     antiga:{ secao:'s1', data:'2026-09-20', status:'confirmado', oradorId:'o1' },

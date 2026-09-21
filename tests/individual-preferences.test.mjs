@@ -13,7 +13,7 @@ test('preferencias invalidas voltam a padroes seguros', () => {
   assert.equal(parsed.personal.month, '2026-09')
   assert.deepEqual(parsed.personal.openPanels, ['calendar'])
   assert.equal(parsed.general.selectedDate, '')
-  assert.deepEqual(parsed.board.subscriptionModules, ['tarefas'])
+  assert.equal(parsed.board.subscriptionModules, undefined)
 })
 
 test('json corrompido e valor excessivo nao quebram a agenda', () => {
@@ -26,11 +26,6 @@ test('preferencias ficam isoladas por pessoa e contexto', () => {
   assert.notEqual(agendaUiStorageKey('pessoa-a', 'standalone'), agendaUiStorageKey('pessoa-a', 'admin'))
 })
 
-test('assinatura inicial do quadro inclui todos os módulos públicos', () => {
-  assert.deepEqual(defaultAgendaUiPreferences('2026-09').board.subscriptionModules, [
-    'tarefas', 'oradores', 'limpeza', 'escala', 'servicoCampo',
-  ])
-})
 
 test('cache ausente, inválido, futuro ou vencido exige sincronização', () => {
   const now = 2_000_000

@@ -1,10 +1,10 @@
-import { validAgendaDate, type AgendaSource } from './individual-domain.ts'
+import { validAgendaDate } from './individual-domain.ts'
 
 export type AgendaScreen = 'agenda' | 'geral' | 'quadro'
 export type AgendaUiContext = 'standalone' | 'admin'
 export type PersonalView = 'upcoming' | 'month'
 export type PersonalPanel = 'calendar' | 'sharing'
-export type BoardPanel = 'meetings' | 'moduleDocuments' | 'adminDocuments' | 'subscription'
+export type BoardPanel = 'meetings' | 'moduleDocuments' | 'adminDocuments'
 
 export interface AgendaUiPreferences {
   screen: AgendaScreen
@@ -21,17 +21,14 @@ export interface AgendaUiPreferences {
     meetingDate: string
     documentPeriod: string
     openPanels: BoardPanel[]
-    subscriptionModules: AgendaSource[]
   }
   updatedAt: number
 }
 
 const SCREENS: AgendaScreen[] = ['agenda', 'geral', 'quadro']
-const SOURCES: AgendaSource[] = ['tarefas', 'oradores', 'limpeza', 'escala', 'servicoCampo']
 const PERSONAL_VIEWS: PersonalView[] = ['upcoming', 'month']
 const PERSONAL_PANELS: PersonalPanel[] = ['calendar', 'sharing']
-const BOARD_PANELS: BoardPanel[] = ['meetings', 'moduleDocuments', 'adminDocuments', 'subscription']
-const DEFAULT_SUBSCRIPTION_MODULES: AgendaSource[] = ['tarefas', 'oradores', 'limpeza', 'escala', 'servicoCampo']
+const BOARD_PANELS: BoardPanel[] = ['meetings', 'moduleDocuments', 'adminDocuments']
 
 const record = (value: unknown): Record<string, unknown> => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
 const oneOf = <T extends string>(value: unknown, allowed: readonly T[], fallback: T): T => typeof value === 'string' && allowed.includes(value as T) ? value as T : fallback
@@ -45,7 +42,7 @@ export function defaultAgendaUiPreferences(currentMonth: string): AgendaUiPrefer
     screen:'agenda',
     personal:{ month:safeMonth, view:'upcoming', openPanels:[] },
     general:{ month:safeMonth, selectedDate:'' },
-    board:{ meetingDate:'', documentPeriod:safeMonth, openPanels:['meetings'], subscriptionModules:[...DEFAULT_SUBSCRIPTION_MODULES] },
+    board:{ meetingDate:'', documentPeriod:safeMonth, openPanels:['meetings'] },
     updatedAt:0,
   }
 }
@@ -55,7 +52,6 @@ export function parseAgendaUiPreferences(raw: string | null, currentMonth: strin
   if (!raw || raw.length > 20_000) return fallback
   try {
     const value = record(JSON.parse(raw)), personal = record(value['personal']), general = record(value['general']), board = record(value['board'])
-    const subscriptionModules = stringList(board['subscriptionModules'], SOURCES)
     return {
       screen:oneOf(value['screen'], SCREENS, fallback.screen),
       personal:{
@@ -71,7 +67,6 @@ export function parseAgendaUiPreferences(raw: string | null, currentMonth: strin
         meetingDate:dateValue(board['meetingDate']),
         documentPeriod:monthValue(board['documentPeriod'], fallback.board.documentPeriod),
         openPanels:stringList(board['openPanels'], BOARD_PANELS),
-        subscriptionModules:subscriptionModules.length ? subscriptionModules : [...fallback.board.subscriptionModules],
       },
       updatedAt:Number.isFinite(Number(value['updatedAt'])) ? Math.max(0, Number(value['updatedAt'])) : 0,
     }

@@ -160,16 +160,6 @@ export interface AgendaPublicDocument {
   criadoEm: string
 }
 
-export interface AgendaSubscription {
-  token: string
-  tipo: 'pessoal' | 'quadro'
-  installationId?: string
-  masterId?: string
-  modulos?: AgendaReminderModule[]
-  ativo: boolean
-  criadoEm: string
-  revogadoEm?: string
-}
 
 // ─── Usuários ──────────────────────────────────────────────────────────────
 

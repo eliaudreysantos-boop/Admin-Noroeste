@@ -139,7 +139,7 @@ function speakerAgendaEvents(root: Row): { event: AgendaEvent; masterIds: string
   const tasks = rows(root['tarefas']), talks = rows(tasks['discursos']), speakers = rows(talks['oradores'])
   return Object.entries(rows(talks['programacao'])).flatMap(([id, raw]) => {
     const item = rows(raw)
-    if (item['secao'] !== 's2' || (item['status'] !== 'confirmado' && rows(item['confirmacao'])['status'] !== true)) return []
+    if (item['secao'] === 's1' || (item['status'] !== 'confirmado' && rows(item['confirmacao'])['status'] !== true)) return []
     const date = text(item['data']), time = text(item['horarioLocal']) || undefined
     if (!validAgendaDate(date) || !validAgendaTime(time)) return []
     const ids = [text(item['oradorId']), text(item['oradorSecundarioId'])]

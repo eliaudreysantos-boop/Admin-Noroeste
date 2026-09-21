@@ -45,7 +45,7 @@ test('preferencias antigas de Relatorio e fontes removidas migram para telas ati
   const prefs = parseAgendaUiPreferences(JSON.stringify({ screen:'relatorio', personal:{ source:'oradores' }, board:{ subscriptionModules:['programacao', 'limpeza'] } }), '2026-09')
   assert.equal(prefs.screen, 'agenda')
   assert.equal('source' in prefs.personal, false)
-  assert.deepEqual(prefs.board.subscriptionModules, ['limpeza'])
+  assert.equal(prefs.board.subscriptionModules, undefined)
   assert.equal('report' in prefs, false)
 })
 
