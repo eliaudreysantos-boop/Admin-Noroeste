@@ -1,7 +1,7 @@
 import type { AgendaConfig, AgendaPublicDocument, AgendaReminderModule } from '../../src/types.ts'
 import type { AgendaEvent, AgendaSource, AgendaStatus, AnnouncementEvent } from '../../src/modules/individual-domain.ts'
 
-const SOURCES = new Set<AgendaSource>(['tarefas', 'limpeza', 'escala', 'servicoCampo'])
+const SOURCES = new Set<AgendaSource>(['tarefas', 'oradores', 'limpeza', 'escala', 'servicoCampo'])
 const STATUSES = new Set<AgendaStatus>(['futuro', 'confirmacao-pendente', 'alterado', 'realizado'])
 const REMINDER_MODULES = new Set<AgendaReminderModule>([...SOURCES, 'oradores', 'quadro'])
 const DOCUMENT_MODULES = new Set(['tarefas', 'oradores', 'limpeza', 'escala', 'servicoCampo', 'admin'])

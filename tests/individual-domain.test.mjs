@@ -185,15 +185,48 @@ test('dados das reuniões selecionam datas futuras e módulos conforme o tipo', 
   assert.equal(midweek.some(item => item.source === 'limpeza'), true)
   assert.equal(midweek.some(item => item.source === 'oradores'), false)
   const weekendMessage = boardMeetingMessage(weekend, dates[1])
-  assert.doesNotMatch(weekendMessage, /^ORADORES/m)
+  assert.match(weekendMessage, /^ORADORES/m)
   assert.match(weekendMessage, /^TAREFAS/m)
   assert.match(weekendMessage, /^LIMPEZA/m)
-  assert.match(boardCleaningMessage(weekend), /^LIMPEZA/m)
-  assert.match(boardCleaningMessage(weekend), /Limpeza semanal do Salão do Reino/)
+  assert.match(boardCleaningMessage(weekend), /^Limpeza: Grupo /m)
+  assert.doesNotMatch(boardCleaningMessage(weekend), /Limpeza semanal do Salão do Reino|Ana|Bruno/)
   assert.doesNotMatch(boardMeetingWhatsappMessage(weekend, dates[1]), /LIMPEZA/)
   const midweekMessage = boardMeetingMessage(midweek, dates[2])
   assert.match(midweekMessage, /^TAREFAS/m)
   assert.doesNotMatch(midweekMessage, /^VIDA E MINISTÉRIO/m)
+})
+
+test('Oradores integra S2 confirmada por vínculo e inclui visitantes no quadro', () => {
+  const data = { master:{ pessoas:{ m1:{ name:'Ana', active:true } } }, tarefas:{ people:{ p1:{ masterId:'m1' } }, discursos:{ oradores:{ o1:{ nome:'Ana', pessoaId:'p1' }, v1:{ nome:'Visitante' } }, temas:{ t1:{ titulo:'Tema público' } }, programacao:{
+    local:{ secao:'s2', data:'2026-09-20', tipo:'discurso_local', status:'confirmado', oradorId:'o1', temaId:'t1', observacoes:'SEGREDO' },
+    visita:{ secao:'s2', data:'2026-09-27', tipo:'discurso_visitante', status:'confirmado', oradorId:'v1' },
+    saida:{ secao:'s2', data:'2026-09-20', tipo:'saida_orador', status:'confirmado', oradorSecundarioId:'o1', congregacaoDestinoNome:'Destino' },
+    antiga:{ secao:'s1', data:'2026-09-20', status:'confirmado', oradorId:'o1' },
+    rascunho:{ secao:'s2', data:'2026-09-20', status:'por_confirmar', oradorId:'o1' },
+  } } } }
+  const personal = collectAgendaEvents(data, 'm1')
+  assert.equal(personal.length, 2)
+  assert.equal(personal.find(item => item.title === 'Saída de orador').location, 'Destino')
+  assert.deepEqual(collectAgendaEvents(data, 'm1', { oradores:false }), [])
+  assert.deepEqual(collectAgendaEvents(data, 'Ana'), [])
+  const board = collectAnnouncementEvents(data)
+  assert.ok(board.some(item => item.people.includes('Visitante')))
+  const selected = { date:'2026-09-20', kind:'weekend' }
+  const meeting = boardMeetingEvents(board, selected)
+  assert.equal(meeting.length, 1)
+  assert.match(boardMeetingMessage(meeting, selected), /Ana/)
+  assert.match(boardMeetingMessage(meeting, selected), /Tema público/)
+  assert.doesNotMatch(JSON.stringify(board), /SEGREDO|rascunho|antiga/)
+  assert.match(agendaToIcs(personal, '2026-09-01T00:00:00Z'), /oradores:local/)
+})
+
+test('texto da limpeza mostra apenas o grupo e preserva participantes nos dados', () => {
+  const event = { id:'limpeza:grupo', source:'limpeza', date:'2026-09-16', title:'Limpeza - Grupo 1', detail:'Limpeza após a reunião do meio de semana', status:'futuro', people:['Ana', 'Bruno'] }
+  assert.equal(boardCleaningMessage([event]), 'Limpeza: Grupo 1')
+  const message = boardMeetingMessage([event], { date:event.date, kind:'midweek' })
+  assert.match(message, /Limpeza: Grupo 1/)
+  assert.doesNotMatch(message, /Ana|Bruno|Limpeza após/)
+  assert.deepEqual(event.people, ['Ana', 'Bruno'])
 })
 
 test('compartilhamento do quadro usa somente dados públicos', () => {

@@ -1041,6 +1041,7 @@ textarea.form-input {
 .agenda-day-button.selected { outline: 2px solid var(--primary); outline-offset: -2px; background: #E8F2FA; }
 .agenda-day i, .agenda-source-legend i { display: inline-block; width: 7px; height: 7px; margin: 12px 2px 0 0; border-radius: 50%; background: var(--ink-3); }
 .agenda-day i.tarefas, .agenda-source-legend i.tarefas { background: #7047A3; }
+.agenda-day i.oradores, .agenda-source-legend i.oradores { background: #b36b17; }
 .agenda-day i.limpeza, .agenda-source-legend i.limpeza { background: #008C95; }
 .agenda-day i.escala, .agenda-source-legend i.escala { background: #1A6B3C; }
 .agenda-day i.servicoCampo, .agenda-source-legend i.servicoCampo { background: #A73569; }
@@ -1282,3 +1283,13 @@ button:focus-visible, summary:focus-visible { outline:2px solid var(--blue-mid);
 .month-navigation { display:flex; align-items:center; gap:6px; width:100%; min-width:0; }
 .month-navigation input[type="month"] { flex:1; min-width:0; width:auto; }
 .month-navigation > button { flex-shrink:0; padding:8px; }
+.month-navigation .btn { font-size:.875rem; min-height:44px; }
+.month-navigation input[type="month"] { min-height:44px; }
+.workspace-heading h1, .module-title h2 { font-size:1.45rem; line-height:1.25; }
+.oradores-card { border-radius:8px; }
+.service-actions, .module-row-actions { flex-wrap:wrap; gap:8px; }
+@media (max-width:560px) {
+  .service-actions > .btn, .module-row-actions > .btn { min-height:44px; }
+  .month-navigation { gap:4px; }
+  .month-navigation .btn { padding:8px 6px; }
+}

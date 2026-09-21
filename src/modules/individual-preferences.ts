@@ -27,11 +27,11 @@ export interface AgendaUiPreferences {
 }
 
 const SCREENS: AgendaScreen[] = ['agenda', 'geral', 'quadro']
-const SOURCES: AgendaSource[] = ['tarefas', 'limpeza', 'escala', 'servicoCampo']
+const SOURCES: AgendaSource[] = ['tarefas', 'oradores', 'limpeza', 'escala', 'servicoCampo']
 const PERSONAL_VIEWS: PersonalView[] = ['upcoming', 'month']
 const PERSONAL_PANELS: PersonalPanel[] = ['calendar', 'sharing']
 const BOARD_PANELS: BoardPanel[] = ['meetings', 'moduleDocuments', 'adminDocuments', 'subscription']
-const DEFAULT_SUBSCRIPTION_MODULES: AgendaSource[] = ['tarefas', 'limpeza', 'escala', 'servicoCampo']
+const DEFAULT_SUBSCRIPTION_MODULES: AgendaSource[] = ['tarefas', 'oradores', 'limpeza', 'escala', 'servicoCampo']
 
 const record = (value: unknown): Record<string, unknown> => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
 const oneOf = <T extends string>(value: unknown, allowed: readonly T[], fallback: T): T => typeof value === 'string' && allowed.includes(value as T) ? value as T : fallback

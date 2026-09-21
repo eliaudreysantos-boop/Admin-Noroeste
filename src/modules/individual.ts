@@ -1,6 +1,6 @@
 import type { AppContext, RawRoot } from '../types'
 import { configRef, escalaSettingsRef } from '../firebase'
-import { agendaConfigRef, agendaDocumentsRef, escalaParticipantsRef, escalaPublishedMonthRef, escalaPublishedMonthsRef, escalaPubSnapshotsRef, escalaScalesRef, escalaTablesRef, get, limpezaPeriodosRef, pessoasRef, servicoCampoRef, tarefasPeopleRef, tarefasScaleRef } from '../firebase'
+import { agendaConfigRef, agendaDocumentsRef, escalaParticipantsRef, escalaPublishedMonthRef, escalaPublishedMonthsRef, escalaPubSnapshotsRef, escalaScalesRef, escalaTablesRef, get, limpezaPeriodosRef, pessoasRef, servicoCampoRef, tarefasPeopleRef, tarefasScaleRef, tarefasDiscursosRef } from '../firebase'
 import { apiJson } from '../secure-api.ts'
 import { moduleTitle } from '../ui/module-header'
 import { agendaMessage, agendaToIcs, boardCleaningMessage, boardMeetingDates, boardMeetingEvents, boardMeetingMessage, collectAgendaEvents, collectAnnouncementEvents, upcomingAgendaEvents, type AgendaEvent, type AgendaSource, type AgendaStatus, type AnnouncementEvent } from './individual-domain'
@@ -15,7 +15,7 @@ let screen: 'agenda' | 'geral' | 'quadro' = 'agenda'
 let generalSelectedDate = ''
 let boardDocumentPeriod = month
 let boardMeetingDate = ''
-const boardSubscriptionModules = new Set<AgendaSource>(['tarefas', 'limpeza', 'escala', 'servicoCampo'])
+const boardSubscriptionModules = new Set<AgendaSource>(['tarefas', 'oradores', 'limpeza', 'escala', 'servicoCampo'])
 let uiPreferences = defaultAgendaUiPreferences(month)
 let uiPreferencesKey = ''
 let subscriptionPersonId = ''
@@ -46,7 +46,7 @@ interface AgendaDataResponse {
 
 const esc = (value: unknown): string => String(value ?? '').replace(/[&<>"']/g, char => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#039;' }[char] ?? char))
 const labelDate = (date: string): string => date.split('-').reverse().join('/')
-const sourceLabels: Record<AgendaSource, string> = { tarefas:'Tarefas', limpeza:'Limpeza', escala:'Escala TPL', servicoCampo:'Serviço de Campo' }
+const sourceLabels: Record<AgendaSource, string> = { tarefas:'Tarefas', oradores:'Oradores', limpeza:'Limpeza', escala:'Escala TPL', servicoCampo:'Serviço de Campo' }
 const documentSourceLabels: Record<AgendaPublicDocument['modulo'], string> = { tarefas:'Tarefas', oradores:'Oradores', limpeza:'Limpeza', escala:'Escala TPL', servicoCampo:'Serviço de Campo', admin:'Admin' }
 const fortalezaDate = (): string => new Intl.DateTimeFormat('en-CA', { timeZone:'America/Fortaleza', year:'numeric', month:'2-digit', day:'2-digit' }).format(new Date()).replace(/\//g, '-')
 
@@ -180,13 +180,13 @@ async function load(): Promise<void> {
       tarefasPeopleRef, tarefasScaleRef, limpezaPeriodosRef,
       escalaParticipantsRef, escalaScalesRef, escalaTablesRef,
       escalaPublishedMonthRef, escalaPublishedMonthsRef, escalaPubSnapshotsRef,
-      agendaConfigRef, agendaDocumentsRef, servicoCampoRef, configRef, escalaSettingsRef,
+      agendaConfigRef, agendaDocumentsRef, servicoCampoRef, configRef, escalaSettingsRef, tarefasDiscursosRef,
     ]
     const values = await Promise.all(references.map(readValue))
     const value = (index: number): unknown => values[index]
     data = {
       master:{ pessoas:masterPeople, config:value(12) },
-      tarefas:{ people:value(0), scale:{ periods:value(1) } },
+      tarefas:{ discursos:value(14), people:value(0), scale:{ periods:value(1) } },
       limpeza:{ periodos:value(2) },
       escala:{ participants:value(3), scales:value(4), tables:value(5), publishedMonth:value(6), publishedMonths:value(7), publishedSnapshots:value(8), settings:value(13) },
       agenda:{ config:value(9), documentos:value(10) }, servicoCampo:value(11),

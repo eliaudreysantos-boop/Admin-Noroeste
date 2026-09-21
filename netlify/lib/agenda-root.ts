@@ -1,7 +1,7 @@
 import { adminDatabase } from './subscription-store.ts'
 
 const PATHS = [
-  'master/pessoas', 'master/config', 'tarefas/people', 'tarefas/scale/periods',
+  'master/pessoas', 'master/config', 'tarefas/people', 'tarefas/scale/periods', 'tarefas/discursos',
   'limpeza/periodos', 'escala/participants', 'escala/scales', 'escala/tables',
   'escala/settings', 'escala/publishedMonth', 'escala/publishedMonths',
   'escala/publishedSnapshots', 'servicoCampo', 'agenda/config', 'agenda/documentos',

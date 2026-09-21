@@ -3,7 +3,7 @@ import { agendaToIcs, collectAgendaEvents, collectAnnouncementEvents, eventsInFe
 import type { AgendaConfig, AgendaSubscription } from '../../src/types.ts'
 import { privateSubscriptionStore, type SubscriptionStore } from '../lib/subscription-store.ts'
 
-const SOURCES: AgendaSource[] = ['tarefas', 'limpeza', 'escala', 'servicoCampo']
+const SOURCES: AgendaSource[] = ['tarefas', 'oradores', 'limpeza', 'escala', 'servicoCampo']
 
 function configuredDatabaseUrl(): string {
   return ((globalThis as unknown as { process?: { env?: Record<string, string | undefined> } }).process?.env?.['FIREBASE_DATABASE_URL'] ?? '').trim().replace(/\/$/, '')

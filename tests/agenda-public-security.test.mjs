@@ -16,7 +16,8 @@ test('payload público da Agenda remove caminhos internos e URLs inseguras', () 
 
 test('evento publico ignora fontes retiradas e preserva fontes ativas', () => {
   const base = { id:'evento', date:'2026-09-20', title:'Designação', detail:'Reunião', status:'futuro', note:'Observação interna' }
-  assert.equal(publicAgendaEvent({ ...base, source:'oradores' }), null)
+  assert.equal(publicAgendaEvent({ ...base, source:'oradores' })?.source, 'oradores')
+  assert.equal(publicAgendaEvent({ ...base, source:'oradores' })?.note, undefined)
   assert.equal(publicAgendaEvent({ ...base, source:'programacao' }), null)
   assert.equal(publicAgendaEvent({ ...base, source:'tarefas' })?.source, 'tarefas')
 })

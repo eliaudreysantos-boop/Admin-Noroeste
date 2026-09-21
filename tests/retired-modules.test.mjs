@@ -23,7 +23,8 @@ test('leituras da Agenda nao consultam mais os modulos retirados', async () => {
   await loadAgendaRoot(async path => { calls.push(path); return null })
   assert.ok(calls.includes('limpeza/periodos'))
   assert.ok(calls.includes('tarefas/scale/periods'))
-  assert.equal(calls.some(path => /secretario|programacao|discursos/.test(path)), false)
+  assert.ok(calls.includes('tarefas/discursos'))
+  assert.equal(calls.some(path => /secretario|programacao/.test(path)), false)
 })
 
 test('backup operacional inclui discursos ativos e omite raízes aposentadas', () => {
