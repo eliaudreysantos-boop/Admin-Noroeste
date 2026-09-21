@@ -1,4 +1,5 @@
 import type { AppContext, RawRoot } from '../types'
+import { updateAgendaHistory, type AgendaHistory } from './agenda-changes'
 import { configRef, escalaSettingsRef } from '../firebase'
 import { agendaConfigRef, agendaDocumentsRef, escalaParticipantsRef, escalaPublishedMonthRef, escalaPublishedMonthsRef, escalaPubSnapshotsRef, escalaScalesRef, escalaTablesRef, get, limpezaPeriodosRef, pessoasRef, servicoCampoRef, tarefasPeopleRef, tarefasScaleRef, tarefasDiscursosRef } from '../firebase'
 import { apiJson } from '../secure-api.ts'
@@ -73,6 +74,27 @@ export default function mount(context: AppContext): void {
 
 function standaloneAgenda(): boolean { return ctx?.uid.startsWith('agenda-') === true }
 function offlineCacheKey(masterId: string): string { return `${OFFLINE_CACHE_KEY}:${masterId}` }
+
+function historyKey(masterId:string):string { return `noroeste_agenda_history_v1:${masterId}` }
+function readAgendaHistory(masterId:string):AgendaHistory | null {
+  try {
+    const value = JSON.parse(localStorage.getItem(historyKey(masterId)) ?? 'null')
+    return value && Array.isArray(value.events) && Array.isArray(value.changes) ? value : null
+  } catch { return null }
+}
+function recordAgendaHistory(masterId:string, events:AgendaEvent[]):void {
+  if (!masterId) return
+  try { localStorage.setItem(historyKey(masterId), JSON.stringify(updateAgendaHistory(readAgendaHistory(masterId), events, new Date().toISOString(), fortalezaDate()))) } catch { /* Histórico local indisponível não bloqueia a agenda. */ }
+}
+function historyPanel():string {
+  const changes = readAgendaHistory(selectedMasterId())?.changes ?? []
+  return `<details class="form-panel"><summary>Alterações e retiradas (${changes.length})</summary><p class="notice">Histórico deste aparelho, desde a primeira sincronização. Retirado significa que o compromisso deixou de constar na sua agenda; pode ter sido cancelado ou reatribuído. O ICS já importado não é atualizado automaticamente.</p>${changes.map(change => {
+    const event = change.after ?? change.before
+    if (!event) return ''
+    const label = change.kind === 'retirado' ? 'Retirado da sua agenda' : change.kind === 'alterado' ? 'Alterado' : 'Adicionado'
+    return `<article class="agenda-event"><time>${esc(labelDate(event.date))}</time><div><strong>${esc(label)} · ${esc(event.title)}</strong><small>${esc(event.detail)}${event.time ? ` · ${esc(event.time)}` : ''}${event.location ? ` · ${esc(event.location)}` : ''}</small>${change.kind === 'alterado' && change.before ? `<p>Antes: ${esc(labelDate(change.before.date))} ${esc(change.before.time ?? '')} · ${esc(change.before.detail)} · ${esc(change.before.location ?? '')}</p>` : ''}<small>Detectado em ${esc(labelDate(change.detectedAt.slice(0,10)))}</small></div></article>`
+  }).join('') || '<p>Nenhuma alteração detectada neste aparelho.</p>'}</details>`
+}
 
 function captureUiPreferences(): void {
   uiPreferences.screen = screen
@@ -160,13 +182,15 @@ async function load(): Promise<void> {
       offlineAnnouncementEvents = response.announcements
       synchronized = true
       loadingAssignments = false
+      recordAgendaHistory(response.masterId, response.events)
       saveOfflineCache()
       render()
       return
     }
+    let readsComplete = true
     const readValue = async (reference: typeof pessoasRef): Promise<unknown> => {
       try { const snapshot = await get(reference); return snapshot.exists() ? snapshot.val() as unknown : undefined }
-      catch { return undefined }
+      catch { readsComplete = false; return undefined }
     }
     const masterPeople = await readValue(pessoasRef)
     if (!masterPeople || typeof masterPeople !== 'object') throw new Error('Pessoas indisponíveis')
@@ -189,6 +213,10 @@ async function load(): Promise<void> {
       agenda:{ config:value(9), documentos:value(10) }, servicoCampo:value(11),
     } as RawRoot
     synchronized = true
+    if (readsComplete) {
+      ensureSelectedPerson()
+      recordAgendaHistory(selectedMasterId(), collectAgendaEvents(data, selectedMasterId()))
+    }
   }
   catch { data = previousData }
   loadingAssignments = false
@@ -250,7 +278,7 @@ function render(): void {
   const calendar = [...Array(firstDow).fill(''), ...Array.from({ length:totalDays }, (_, index) => String(index + 1))]
   const listEvents = uiPreferences.personal.view === 'upcoming' ? future.slice(1, 9) : events
   root.innerHTML = `${moduleTitle('Minha agenda')}${screenTabs()}${loadingAssignments ? '<div class="notice">Atualizando designações dos módulos...</div>' : ''}${adminPersonPicker()}
-    ${nextCommitment(future[0])}
+    ${nextCommitment(future[0])}${historyPanel()}
     <div class="program-period-modes agenda-view-modes" role="tablist" aria-label="Visualização dos compromissos"><button class="program-period-mode" role="tab" type="button" data-personal-view="upcoming" aria-selected="${uiPreferences.personal.view === 'upcoming'}">Próximos</button><button class="program-period-mode" role="tab" type="button" data-personal-view="month" aria-selected="${uiPreferences.personal.view === 'month'}">Mês</button></div>
     <div class="agenda-list">${eventRows(listEvents) || `<p class="empty-state">${uiPreferences.personal.view === 'upcoming' ? 'Nenhum outro compromisso futuro.' : 'Nenhuma designação neste mês.'}</p>`}</div>
     <details class="form-panel agenda-board-card agenda-personal-panel" data-agenda-panel="calendar" ${uiPreferences.personal.openPanels.includes('calendar') ? 'open' : ''}><summary><strong>Calendário mensal</strong><span>${esc(month)}</span></summary><div class="agenda-board-body"><div class="agenda-toolbar"><button class="btn btn-ghost" id="agendaPrev" type="button" aria-label="Mês anterior">‹</button><label class="sr-only" for="agendaMonth">Mês do calendário pessoal</label><input class="form-input" id="agendaMonth" type="month" value="${month}"><button class="btn btn-ghost" id="agendaNext" type="button" aria-label="Próximo mês">›</button></div><div class="agenda-calendar"><div class="agenda-weekdays">${['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'].map(day => `<strong>${day}</strong>`).join('')}</div><div class="agenda-days">${calendar.map(day => day ? `<div class="agenda-day ${byDay.has(Number(day)) ? 'has-events' : ''}"><span>${day}</span>${(byDay.get(Number(day)) ?? []).slice(0, 3).map(event => `<i class="${event.source}" aria-hidden="true"></i>`).join('')}</div>` : '<div class="agenda-day empty"></div>').join('')}</div></div></div></details>
