@@ -59,6 +59,8 @@ try {
     await page.locator('#speakerSchedulePublish').click()
     await page.getByText('PDF de Oradores publicado no Quadro',{exact:true}).waitFor()
     await page.locator('[data-workspace-tab="oradores"]').last().click()
+    await page.locator('#speakerSearch').waitFor()
+    assert.equal(await page.locator('#speakerResults').getByText('Carlos Oliveira',{exact:true}).count(),0)
     await page.locator('[data-edit-speaker="local"]').click()
     assert.equal(await page.locator('#speakerForm [name="nome"]').count(),0)
     assert.equal(await page.locator('#speakerForm [name="masterId"]').inputValue(),'m1')
@@ -123,6 +125,23 @@ try {
       await page.locator(`[data-workspace-tab="${tab}"]`).last().click()
       await page.waitForFunction(()=>!document.querySelector('#oradoresRoot')?.textContent?.includes('Carregando'))
       assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true,`${tab} sem overflow em ${width}px`)
+      if(tab==='temas'){
+        assert.equal(await page.locator('[data-theme-filter="available"]').getAttribute('aria-pressed'),'true')
+        assert.ok((await page.locator('#themeResults').innerText()).includes('Tema trinta e oito'))
+        assert.ok(!(await page.locator('#themeResults').innerText()).includes('Tema vinte e cinco'))
+        await page.locator('[data-theme-filter="pending"]').click()
+        assert.match(await page.locator('#themeResults').innerText(),/28\/09\/2026/)
+        await page.locator('[data-theme-filter="used"]').click()
+        assert.match(await page.locator('#themeResults').innerText(),/Último uso: 20\/09\/2026/)
+        const download=page.waitForEvent('download');await page.locator('#themesPdf').click()
+        const file=await download;assert.equal(await file.failure(),null)
+        await file.saveAs(new URL(`../output/oradores-review/temas-${width}.pdf`,import.meta.url).pathname.replace(/^\/([A-Z]:)/i,'$1'))
+      }
+      if(tab==='emergencia'){
+        const download=page.waitForEvent('download');await page.locator('#substitutionsPdf').click()
+        const file=await download;assert.equal(await file.failure(),null)
+        await file.saveAs(new URL(`../output/oradores-review/substituicoes-${width}.pdf`,import.meta.url).pathname.replace(/^\/([A-Z]:)/i,'$1'))
+      }
     }
     assert.deepEqual(errors,[])
     console.log(`Oradores: edição, falha de gravação, masterId, repertório, programação e navegação em ${width}px OK`)

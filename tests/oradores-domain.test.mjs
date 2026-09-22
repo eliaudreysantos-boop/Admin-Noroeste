@@ -4,6 +4,21 @@ import { monthBounds, normalizeSpeakersRoot, scheduleStatus, speakerPendingItems
 import { canonicalSpeaker, resolveSpeakerMasterId, repertoireNumbers, parseRepertoire, matchesSpeaker, speakerConflicts } from '../src/modules/oradores-editor-domain.ts'
 import { hasSpeakerAssignment } from '../src/modules/tarefas-domain.ts'
 import { collectAgendaEvents } from '../src/modules/individual-domain.ts'
+import { filteredThemeRows, themeUsageIndex } from '../src/modules/oradores-themes.ts'
+
+test('disponibilidade reúne histórico e agenda: saídas não ocupam, futuro e hoje ocupam',()=>{
+  const root={temas:Object.fromEntries(['free','used','future','out','shared','s1'].map((id,i)=>[id,{numero:i+1,titulo:id,ativo:true}])),
+    historicoTemas:{h:{temaId:'used',data:'2026-08-01'},shared:{temaId:'shared',data:'2025-01-01',secao:'s1',historicoCompartilhado:true}},
+    programacao:{old:{temaId:'used',data:'2026-09-01',tipo:'discurso_local'},next:{temaId:'used',data:'2026-12-01',tipo:'discurso_visitante'},future:{temaId:'future',data:'2026-10-01',tipo:'discurso_local'},far:{temaId:'future',data:'2027-01-01',tipo:'discurso_local'},out:{temaId:'out',data:'2026-11-01',tipo:'saida_orador'},s1:{temaId:'s1',data:'2026-11-01',tipo:'discurso_local',secao:'s1'}}}
+  assert.deepEqual(filteredThemeRows(root,'2026-09-22').map(row=>row.id),['free','out','s1'])
+  const index=themeUsageIndex(root,'2026-09-22')
+  assert.equal(index.get('used').lastPastDate,'2026-09-01')
+  assert.equal(index.get('used').nextDate,'2026-12-01')
+  assert.equal(index.get('future').nextDate,'2026-10-01')
+  assert.equal(themeUsageIndex(root,'2026-10-01').get('future').pending,true)
+  assert.equal(filteredThemeRows(root,'2026-09-22','pending','3')[0].id,'future')
+  assert.equal(filteredThemeRows(root,'2026-09-22','used').length,2)
+})
 
 const catalog={ arbitrary:{numero:25,titulo:'Tema 25',ativo:true}, one:{numero:1,titulo:'Tema 1',ativo:true}, retired:{numero:38,titulo:'Tema 38',ativo:false} }
 test('repertório por números resolve IDs reais, ordena, remove duplicados e permite esvaziar',()=>{

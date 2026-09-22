@@ -1,5 +1,29 @@
 # Revisão de Oradores — 21/09/2026
 
+## Complemento — 22/09/2026
+
+- Cadastro mostra somente oradores locais. Sandro já é visitante no backup;
+  nenhum registro pessoal foi alterado. Visitantes continuam na programação.
+- Temas abre com Disponíveis selecionado, mantém busca/filtro durante a edição
+  e mostra todos os resultados, sem o antigo limite de 30.
+- Histórico e programação usam uma regra única, comparada ao aplicativo antigo:
+  preserva o histórico compartilhado anterior a 16/05/2026, ignora S1 posterior
+  e saídas de oradores. Hoje e datas futuras ocupam o tema.
+- Tela e PDF de temas mostram último uso e próxima data programada. O PDF
+  corresponde ao filtro e à busca aplicados, inclusive quando não há resultados.
+- Emergência oferece PDF de substituições com os oradores e respectivos temas
+  disponíveis exibidos na tela. A disponibilidade pessoal deve ser confirmada no
+  aplicativo; o relatório não afirma que todos estejam livres na data escolhida.
+- Relatórios operacionais em A4 retrato, paginados, com cabeçalho repetido e
+  carregamento do motor PDF sob demanda; não substituem o PDF público do Quadro.
+- Verificação: suíte completa aprovada, navegador em 1280px e 390px e sessão sem
+  Admin; build aprovado. PDFs baixados pelo navegador e exemplos multipágina
+  conferidos por extração de texto e renderização visual de todas as páginas.
+- Testes usam dados simulados e não gravam no banco real. Sugestões adicionais
+  fora deste escopo: indicar conflitos no relatório de substituições, caso se
+  deseje transformá-lo em um relatório administrativo, e oferecer filtro por
+  intervalo de datas de uso.
+
 ## Alterações
 
 - Repertório em um campo de números separados por vírgulas: valida o catálogo,

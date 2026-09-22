@@ -2,6 +2,16 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { PDFDocument } from 'pdf-lib/cjs/index.js'
 import { createSpeakersSchedulePdf, speakersPdfScheduleRows } from '../src/modules/oradores-documents.ts'
+import { createThemesReportPdf, createSubstitutionsReportPdf } from '../src/modules/oradores-reports.ts'
+
+test('relatórios de temas e substituições paginam em A4 sem truncar linhas extensas',async()=>{
+  const rows=Array.from({length:120},(_,i)=>({id:String(i),theme:{numero:i+1,titulo:'Tema de teste com título longo para conferir a paginação',ativo:true},past:true,pending:true,lastPastDate:'2026-08-01',nextDate:'2026-11-15'}))
+  const themes=await PDFDocument.load(await createThemesReportPdf(rows,'Todos','', '2026-09-22'))
+  assert.ok(themes.getPageCount()>1)
+  const emergency=await PDFDocument.load(await createSubstitutionsReportPdf([{name:'Nome comprido '.repeat(100),themes:rows.map(row=>row.theme)}],'2026-09-22'))
+  assert.ok(emergency.getPageCount()>1)
+  for(const pdf of [themes,emergency])for(const page of pdf.getPages()){assert.equal(page.getWidth(),595.28);assert.equal(page.getHeight(),841.89)}
+})
 
 test('saídas incluem o mês selecionado e todos os meses seguintes', () => {
   const rows = speakersPdfScheduleRows({ month:'2026-09', schedule:[
