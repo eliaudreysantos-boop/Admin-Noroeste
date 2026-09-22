@@ -27,14 +27,14 @@ test('mensagem usa endereço e detalhes do destino, nunca mapa, coordenadas ou P
   const root={temas:catalog,congregacoes:{dest:{nome:'Destino',cidade:'Cidade',diaReuniao:'Sábado',horario:'18:00',contato:'Contato',telefone:'79999999999',localizacao:'Rua Um, 10&#x20;',mapa:'4W3V+74G Aracaju, SE'},local:{nome:'Local',tipo:'local',localizacao:'Rua Local, 2',horario:'09:30'}}}
   const item={data:'2026-11-21',tipo:'saida_orador',temaId:'arbitrary',congregacaoDestinoId:'dest'}
   const message=speakerAssignmentMessage(item,root)
-  for(const text of ['Tema 25:','Tema 25','Congregação: Destino','Cidade: Cidade','Reunião: Sábado, 18:00','Contato: Contato','Telefone da congregação: 79999999999','Endereço: Rua Um, 10'])assert.ok(message.includes(text),text)
+  for(const text of ['Tema 25:','Tema 25','Congregação: Destino','Cidade: Cidade','Reunião: Sábado, 18:00','Contato: Contato','Telefone da congregação: 79 99999-9999','Endereço: Rua Um, 10'])assert.ok(message.includes(text),text)
   assert.ok(!message.includes('4W3V'));assert.ok(!message.includes('Localização'))
   for(const location of ['4W3V+74G Aracaju, SE','-10.1, -37.2','https://maps.google.com/test','www.google.com/maps'])assert.equal(messageAddress(location),'')
   root.congregacoes.dest.localizacao='4W3V+74G Aracaju, SE'
-  assert.match(speakerAssignmentMessage(item,root),/Endereço: Não informado/)
+  assert.ok(!speakerAssignmentMessage(item,root).includes('Endereço:'))
   const incoming=speakerAssignmentMessage({...item,tipo:'discurso_visitante',congregacaoOrigemId:'dest',horarioLocal:'10:00'},root)
-  assert.match(incoming,/Endereço: Rua Local, 2/)
-  assert.match(incoming,/Reunião: 10:00/)
+  assert.ok(!incoming.includes('Endereço:'))
+  assert.match(incoming,/— 10:00/)
   assert.equal(root.congregacoes.dest.mapa,'4W3V+74G Aracaju, SE')
 })
 test('repertório por números resolve IDs reais, ordena, remove duplicados e permite esvaziar',()=>{

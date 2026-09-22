@@ -1,3 +1,6 @@
+import { tasksPersonMessage, tasksDayMessage } from './tarefas-messages'
+import { whatsappPhone } from './message-domain'
+import type { LimpezaPeriodoGerado } from '../types'
 import { editorBusy, editorError, editorSaved } from '../ui/editor-feedback'
 import { lockPublicationUi } from '../ui/publication-busy'
 import { renderWorkspaceNav } from '../ui/workspace-nav'
@@ -6,6 +9,7 @@ import {
   get,
   update,
   tarefasRef,
+  agendaConfigRef, child, limpezaPeriodosRef,
   tarefasDiscursosRef,
   tarefasPeopleRef,
   tarefasPlanejamentoRef,
@@ -42,7 +46,7 @@ import {
 } from './tarefas-domain'
 import { formatTaskDate } from './tarefas-output'
 import { publishAgendaModulePdf, unpublishAgendaModulePdf } from './agenda-documents'
-import { mountModuleMessageSettings } from './module-message-settings'
+import { defaultModuleMessageSettings, mountModuleMessageSettings, type ModuleMessageSettings } from './module-message-settings'
 
 type TarefasTab = 'indice' | 'resumo' | 'escala' | 'participantes' | 'pendencias' | 'config'
 
@@ -80,6 +84,8 @@ let periods: Record<string, TarefasPeriod> = {}
 let planning: TarefasPlanning = {}
 let events: Record<string, TaskEvent> = {}
 let discursos: TaskDomainContext['discursos'] = {}
+let taskMessageSettings=defaultModuleMessageSettings('tarefas')
+let cleaningPeriods:Record<string,LimpezaPeriodoGerado>={}
 let congregationName = 'Noroeste'
 let masterPeople: Record<string, { name?: string; whatsapp?: string; active?: boolean }> = {}
 let context: AppContext
@@ -100,6 +106,24 @@ let downloadingPdf = false
 let changingPublication = false
 let loadPromise: Promise<boolean> | null = null
 
+
+function showTaskMessage(message:string,phone?:string):void {
+  if(!message){toast('Nenhuma designação para enviar.');return}
+  document.getElementById('taskMessagePreview')?.remove()
+  const dialog=document.createElement('dialog');dialog.id='taskMessagePreview'
+  dialog.style.cssText='width:min(600px,calc(100vw - 32px));max-height:85vh;border:1px solid var(--border);border-radius:12px;padding:18px'
+  dialog.innerHTML='<h3>Mensagem de Tarefas</h3><p>Confira antes de abrir o WhatsApp. O envio é manual.</p><textarea aria-label="Mensagem de Tarefas" class="form-input" rows="14"></textarea><div class="scale-actions"><button data-open class="btn btn-primary">Abrir no WhatsApp</button><button data-copy class="btn btn-ghost">Copiar</button><button data-close class="btn btn-ghost">Fechar</button></div>'
+  document.body.append(dialog)
+  const field=dialog.querySelector('textarea')!;field.value=message
+  dialog.querySelector('[data-open]')!.addEventListener('click',()=>{
+    const digits=phone===undefined?'':whatsappPhone(phone)
+    if(digits===null){toast('Cadastre um telefone com DDD no Admin ou copie a mensagem.');return}
+    window.open(`https://wa.me/${digits}?text=${encodeURIComponent(field.value)}`,'_blank','noopener,noreferrer')
+  })
+  dialog.querySelector('[data-copy]')!.addEventListener('click',()=>{void navigator.clipboard.writeText(field.value).then(()=>toast('Mensagem copiada')).catch(()=>toast('Não foi possível copiar. Selecione o texto da mensagem.'))})
+  dialog.querySelector('[data-close]')!.addEventListener('click',()=>dialog.close())
+  dialog.addEventListener('close',()=>dialog.remove());dialog.showModal()
+}
 
 function monthNow(): string {
   const date = new Date()
@@ -212,10 +236,12 @@ function ensureLoaded(): Promise<boolean> {
 
 async function loadTarefas(): Promise<boolean> {
   try {
-    const [tarefasSnap, congregacaoSnap, masterPeopleSnap] = await Promise.all([
+    const [tarefasSnap, congregacaoSnap, masterPeopleSnap, messagesSnap, cleaningSnap] = await Promise.all([
       get(tarefasRef),
       get(configCongregacaoRef),
       get(pessoasRef),
+      get<ModuleMessageSettings>(child(agendaConfigRef,'moduleWhatsApp/tarefas')),
+      context.usuario.apps.limpeza||context.usuario.apps.mestre?get<Record<string,LimpezaPeriodoGerado>>(limpezaPeriodosRef):Promise.resolve(null),
     ])
 
     const tarefas = tarefasSnap.exists() ? tarefasSnap.val() as {
@@ -225,6 +251,8 @@ async function loadTarefas(): Promise<boolean> {
       discursos?: TaskDomainContext['discursos']
       events?: Record<string, TaskEvent>
     } : {}
+    taskMessageSettings={...defaultModuleMessageSettings('tarefas'),...(messagesSnap.val()??{})}
+    cleaningPeriods=cleaningSnap?.val()??{}
     pessoas = tarefas.people ?? {}
     periods = tarefas.scale?.periods ?? {}
     planning = tarefas.planning ?? {}
@@ -340,6 +368,7 @@ function renderEscala(): void {
         <div style="display:flex;gap:8px;align-items:center;margin-top:12px"><label class="form-label" for="tarefasPrintFont" style="margin:0;white-space:nowrap">Letra do PDF</label><input id="tarefasPrintFont" class="form-input" type="range" min="${PRINT_MIN_PT}" max="${PRINT_MAX_PT}" step="1" value="${font}" style="padding:0;flex:1"><span id="tarefasPrintFontValue" style="min-width:42px;text-align:right;font-size:.82rem;font-weight:700;color:var(--ink-2)">${font} pt</span></div>
       </details>
     </div>
+    <details class="form-panel"><summary>Mensagem das designações do dia</summary><label class="form-field"><span>Data</span><select id="taskMessageDate">${[...new Set(allPeriodMeetings.map(meeting=>meeting.date).filter(Boolean))].map(date=>`<option value="${escapeHtml(date)}">${escapeHtml(formatDate(date))}</option>`).join('')}</select></label><button id="taskSendDay" class="btn btn-ghost" type="button" ${allPeriodMeetings.length?'':'disabled'}>Ver mensagem do dia</button></details>
     <div class="task-desktop-scale">${taskDesktopTable(allPeriodMeetings)}</div>
     <div class="task-mobile-scale" style="display:flex;flex-direction:column;gap:8px">
       ${allPeriodMeetings.length
@@ -348,6 +377,7 @@ function renderEscala(): void {
     </div>
     ${preservedMeetings.length ? `<details class="form-panel" style="margin-top:12px"><summary>Registros preservados fora do período atual (${preservedMeetings.length})</summary><div class="module-option-list" style="margin-top:10px">${preservedMeetings.map(entry => `<div class="module-list-row"><div><strong>${escapeHtml(formatDate(entry.meeting.date))}</strong><small>${canonicalMeetingType(entry.meeting.type) === 'midweek' ? 'Meio de semana' : 'Fim de semana'} · ${assignmentCount(entry.meeting)} função(ões)</small></div></div>`).join('')}</div></details>` : ''}`
 
+  document.getElementById('taskSendDay')?.addEventListener('click',()=>{const date=(document.getElementById('taskMessageDate') as HTMLSelectElement).value;const cleaning=Object.values(cleaningPeriods).flatMap(period=>Object.values(period.semanas??{})).find(week=>week.dataMeioSemana===date||week.dataFimSemana===date)?.grupoNome||'';showTaskMessage(tasksDayMessage(date,pessoas,allPeriodMeetings,cleaning,taskMessageSettings.meetingText))})
   document.getElementById('tarefasPrintFont')?.addEventListener('input', (event) => {
     const value = Number((event.target as HTMLInputElement).value)
     localStorage.setItem(PRINT_FONT_KEY, String(value))
@@ -585,6 +615,7 @@ function renderParticipantes(): void {
         ? rows.map(([id, p]) => pessoaRow(id, p, usage[id] ?? 0, lastUse[id] ?? '', id === targetPersonId)).join('')
         : emptyState('Nenhum participante. Adicione pelo módulo Admin.')}
     </div>`
+  content.querySelectorAll<HTMLButtonElement>('[data-message-task-person]').forEach(button=>button.addEventListener('click',()=>{const id=button.dataset.messageTaskPerson!;showTaskMessage(tasksPersonMessage(id,pessoas,scaleMeetingEntries().map(entry=>entry.meeting),todayStr(),taskMessageSettings.meetingText),personPhone(pessoas[id]))}))
   document.getElementById('btnAddTaskPerson')?.addEventListener('click', () => openTaskPersonModal(null))
   content.querySelectorAll<HTMLButtonElement>('[data-edit-task-person]').forEach(button => {
     button.addEventListener('click', () => openTaskPersonModal(button.dataset['editTaskPerson'] ?? null))
@@ -643,7 +674,7 @@ function renderTaskConfig(): void {
     const next = dates.filter(date => date !== button.dataset['removeTaskDate'])
     try { await update(tarefasPlanejamentoRef, { excludedDates:next.length ? next : null }); planning.excludedDates = next; renderTaskConfig() } catch { toast('Não foi possível remover a data') }
   }))
-  void mountModuleMessageSettings('taskMessageSettings', 'tarefas', toast)
+  void mountModuleMessageSettings('taskMessageSettings', 'tarefas', toast,settings=>{taskMessageSettings=settings})
 }
 
 async function saveTaskRules(value?: TaskGenerationRules): Promise<void> {
@@ -896,6 +927,7 @@ function pessoaRow(id: string, p: TarefasPessoa, recentUsage: number, lastUse: s
         </div>
         <div style="font-size:.72rem;color:var(--ink-3);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(roles)}</div>
       </div>
+      <button class="btn btn-ghost" type="button" data-message-task-person="${escapeHtml(id)}" style="padding:4px 9px;font-size:.76rem">Mensagem</button>
       <span style="width:9px;height:9px;border-radius:50%;background:${linked ? '#1A6B3C' : '#B3261E'}"></span>
       ${context.usuario.apps.mestre ? `<button class="btn btn-ghost" type="button" data-edit-task-person="${escapeHtml(id)}" style="padding:4px 9px;font-size:.76rem">Editar</button>` : ''}
     </div>`

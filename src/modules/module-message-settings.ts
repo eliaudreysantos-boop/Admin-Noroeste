@@ -1,3 +1,4 @@
+import { SPEAKER_TEMPLATE, TASK_TEMPLATE, resolveMessageTemplate } from './message-domain'
 import { editorBusy, editorSaved, editorError } from '../ui/editor-feedback'
 import type { AgendaConfig, AgendaReminderModule } from '../types'
 import { agendaConfigRef, child, get, set } from '../firebase'
@@ -19,8 +20,8 @@ const MODULE_LABELS: Record<MessageSettingsModule, string> = {
 }
 
 const MEETING_DEFAULTS: Record<MessageSettingsModule, string> = {
-  tarefas:'Olá. Seguem as designações de tarefas da reunião:\n\n{dados_da_reuniao}\n\nAgradecemos pela atenção.',
-  oradores:'Olá. Segue a programação de oradores:\n\n{dados_da_reuniao}\n\nAgradecemos pela atenção.',
+  tarefas:TASK_TEMPLATE,
+  oradores:SPEAKER_TEMPLATE,
   limpeza:'Olá. Segue a programação de limpeza:\n\n{dados_da_reuniao}\n\nAgradecemos pela colaboração.',
   escala:'Olá. Segue a programação da Escala TPL:\n\n{dados_da_reuniao}\n\nAgradecemos pela atenção.',
   servicoCampo:'Olá. Segue a programação do serviço de campo:\n\n{programacao_servico_campo}\n\nSua participação será muito bem recebida. Agradecemos pela atenção.',
@@ -56,6 +57,7 @@ export async function mountModuleMessageSettings(
     return
   }
 
+  if(module==='oradores'||module==='tarefas')current.meetingText=resolveMessageTemplate(module,current.meetingText)
   if (!document.getElementById(containerId)) return
   const prefix = `moduleMessage_${module}`
   container.innerHTML = `

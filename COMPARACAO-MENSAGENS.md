@@ -10,7 +10,7 @@ Comparação em 22/09/2026 com `tarefas-e-oradores s1 s2/src/shared/messaging/bu
 - Localização/mapa permanece no fluxo ICS, que não foi alterado. Nenhuma programação ou cadastro real foi modificado.
 - Templates personalizados existentes são preservados.
 
-## Divergências ainda não implementadas
+## Comparação original (resolvida na implementação abaixo)
 
 | Fluxo | Padrão antigo | Situação no novo |
 | --- | --- | --- |
@@ -33,3 +33,17 @@ Não comparar listas de datas como prova de perda de dados sem usar o mesmo banc
 - Testes de navegador em 1280px e 390px com APIs simuladas, incluindo conteúdo do WhatsApp e consulta sem Admin.
 - Não foi enviada mensagem real. Não houve gravação no banco real.
 - Somente commit local; sem push por orientação do usuário.
+
+## Implementação do padrão antigo
+
+- Designações usam saudação e rodapé antigos, com emojis, segundo orador e substituições da Sentinela em ordem cronológica. Mensagem só de Sentinela não recebe orientação de preparo de discurso.
+- A regra da Sentinela exige exatamente um dirigente e um substituto locais, ativos, distintos e da seção S2/sem seção. O gatilho é discurso local do dirigente, inclusive como segundo orador, como no código antigo; não se inventa substituição por uma saída.
+- Confirmação tem saudação nominal, data/hora, tema, endereço e “Pode confirmar?”. Cadastro sem orador/telefone mostra orientação em vez de falhar silenciosamente.
+- Intercâmbios separam Convites/Saídas e incluem nome, tema e horário da congregação que recebe.
+- Congregações tem “Enviar datas disponíveis”, horizonte de 90/180/365 dias e seleção das datas. O texto usa exatamente a seleção; programação local, datas excluídas e eventos bloqueadores não são oferecidos. Saídas e S1 não ocupam a reunião local.
+- Tarefas tem mensagem por participante (todas as designações futuras) e por dia do período exibido, com prévia editável, copiar e abrir WhatsApp. O usuário escolhe o grupo/destinatário no WhatsApp para a mensagem do dia. A limpeza vem da escala gerada, quando disponível e permitida; não são ampliadas permissões.
+- Telefones brasileiros com DDD recebem 55 quando necessário. Não há alteração automática nos cadastros.
+- Apenas o texto padrão exato anterior é substituído em memória. Personalizações não são sobrescritas. Mensagens específicas usam seu próprio padrão; o template personalizado, quando existente, continua prevalecendo.
+- Campos opcionais vazios são omitidos. Nas designações locais, o horário acompanha a data; os detalhes da congregação ficam nas saídas. Confirmação mantém endereço local quando informado. Mapa/Plus Code/coordenadas continuam fora das mensagens.
+- Nenhum botão foi acrescentado à Minha Agenda. ICS, regras de geração, publicação e programações salvas permanecem inalterados.
+- Testes de mensagens e de navegador cobrem masterId, telefone, datas selecionadas, intercâmbios, personalizações e desktop/celular; sem envio real.
