@@ -138,8 +138,9 @@ async function load(): Promise<boolean> {
   } catch { toast('Não foi possível carregar Oradores'); return false }
 }
 
-async function openScreen(next: Screen): Promise<void> {
+async function openScreen(next: Screen, substitutionDate=''): Promise<void> {
   if (!allowLeave()) return
+  if(next==='emergencia')emergencyDate=substitutionDate
   screen=next; editingId=''; renderNavigation(); root().innerHTML='<p class="empty-state">Carregando dados...</p>'
   loadPromise ??= load()
   const loaded=await loadPromise
@@ -234,7 +235,7 @@ function renderSchedule(): void {
   bindPeriod()
   void showPublicationStatus()
   document.getElementById('clearScheduleFilters')?.addEventListener('click',()=>{if(!allowLeave())return;scheduleQuery='';scheduleFilter='';onlyFuture=false;renderSchedule()})
-  document.querySelectorAll<HTMLButtonElement>('[data-substitute-date]').forEach(button=>button.addEventListener('click',()=>{if(!allowLeave())return;emergencyDate=button.dataset.substituteDate!;void openScreen('emergencia')}))
+  document.querySelectorAll<HTMLButtonElement>('[data-substitute-date]').forEach(button=>button.addEventListener('click',()=>{void openScreen('emergencia',button.dataset.substituteDate!)}))
   document.querySelectorAll<HTMLButtonElement>('[data-schedule-filter]').forEach(button=>button.addEventListener('click',()=>{if(!allowLeave())return;scheduleFilter=button.dataset.scheduleFilter??'';renderSchedule()}))
   document.getElementById('scheduleSearch')?.addEventListener('change',event=>{if(!allowLeave())return;scheduleQuery=(event.target as HTMLInputElement).value;renderSchedule()})
   document.getElementById('scheduleOnlyFuture')?.addEventListener('change',event=>{if(!allowLeave())return;onlyFuture=(event.target as HTMLInputElement).checked;renderSchedule()})
@@ -532,22 +533,22 @@ function renderPending():void {
 function unavailableThemeIds():Set<string>{return new Set([...themeUsageIndex(data,today())].filter(([,use])=>use.past||use.pending).map(([id])=>id))}
 function renderEmergency():void {
   const used=unavailableThemeIds()
+  const existingId=emergencyDate?Object.entries(schedule()).find(([,item])=>item.data===emergencyDate&&item.tipo!=='saida_orador')?.[0]??'':''
   const rows=Object.entries(speakers()).filter(([,item])=>item.tipo==='local'&&item.ativo)
-    .map(([id,item])=>({id,item,conflicts:speakerConflicts(id,emergencyDate,data,masterPeople,taskPeople,taskPeriods),available:item.temaIds.filter(themeId=>themes()[themeId]?.ativo&&!used.has(themeId)).map(themeId=>themes()[themeId]!)}))
+    .map(([id,item])=>({id,item,conflicts:emergencyDate?speakerConflicts(id,emergencyDate,data,masterPeople,taskPeople,taskPeriods,existingId):[],available:item.temaIds.filter(themeId=>themes()[themeId]?.ativo&&!used.has(themeId)).map(themeId=>themes()[themeId]!)}))
     .filter(row=>row.available.length).sort((a,b)=>a.conflicts.length-b.conflicts.length||a.item.nome.localeCompare(b.item.nome,'pt-BR'))
-  root().innerHTML=`${sectionTitle('Substituições')}<button id="substitutionsPdf" class="btn btn-ghost">Baixar PDF de substituições</button>${field('Data do discurso',`<input id="emergencyDate" type="date" value="${esc(emergencyDate)}">`)}<p class="form-help">Oradores ativos com temas que não foram usados nem estão programados.${canReadTasks()?'':' Designações de Tarefas não verificadas com seu acesso.'}</p>
+  root().innerHTML=`${sectionTitle('Substituições')}<button id="substitutionsPdf" class="btn btn-ghost">Baixar PDF de substituições</button>${emergencyDate?`<p class="form-help" id="substitutionContext">Substituição para ${themeDate(emergencyDate)}</p>`:''}<p class="form-help">Oradores ativos com temas que não foram usados nem estão programados.${emergencyDate?(canReadTasks()?'':' Designações de Tarefas não verificadas com seu acesso.'):' A data e os conflitos serão conferidos na programação.'}</p>
     <div class="oradores-list">${rows.map(row=>`<article class="oradores-card"><strong>${esc(row.item.nome)}</strong><small>${row.available.sort((a,b)=>a.numero-b.numero).map(theme=>`${theme.numero} — ${esc(theme.titulo)}`).join('<br>')}</small>
-    ${row.conflicts.map(reason=>`<p class="notice warning">${esc(reason)}</p>`).join('')||'<p>Sem conflitos encontrados nesta data.</p>'}
-    <button class="btn btn-ghost" data-emergency-speaker="${esc(row.id)}" ${row.conflicts.length?'disabled':''}>Programar nesta data</button></article>`).join('')||empty('Nenhum orador tem tema disponível no momento.')}</div>`
+    ${emergencyDate?(row.conflicts.map(reason=>`<p class="notice warning">${esc(reason)}</p>`).join('')||'<p>Sem conflitos encontrados nesta data.</p>'):''}
+    <button class="btn btn-ghost" data-emergency-speaker="${esc(row.id)}" ${row.conflicts.length?'disabled':''}>${emergencyDate?'Programar nesta data':'Escolher data e programar'}</button></article>`).join('')||empty('Nenhum orador tem tema disponível no momento.')}</div>`
   document.getElementById('substitutionsPdf')?.addEventListener('click',event=>{
-    const reportRows=rows.map(row=>({name:row.item.nome,themes:[...row.available].sort((a,b)=>a.numero-b.numero)})),date=emergencyDate
+    const reportRows=rows.map(row=>({name:row.item.nome,themes:[...row.available].sort((a,b)=>a.numero-b.numero)})),date=emergencyDate||today()
     void downloadOperationalReport(event.currentTarget as HTMLButtonElement,async()=>{const {createSubstitutionsReportPdf}=await import('./oradores-reports');return createSubstitutionsReportPdf(reportRows,date)},`substituicoes-${date}.pdf`)
   })
-  document.getElementById('emergencyDate')?.addEventListener('change',event=>{const value=(event.target as HTMLInputElement).value;if(validIsoDate(value)){emergencyDate=value;renderEmergency()}})
   document.querySelectorAll<HTMLButtonElement>('[data-emergency-speaker]').forEach(button=>button.addEventListener('click',()=>{
     const existing=Object.entries(schedule()).find(([,item])=>item.data===emergencyDate&&item.tipo!=='saida_orador')
     if(existing&&!confirm('Já existe uma reunião nesta data. Abrir a edição para substituir o orador?'))return
-    screen='programacao';selectedMonth=emergencyDate.slice(0,7);editingId=existing?.[0]??'new'
+    screen='programacao';if(emergencyDate)selectedMonth=emergencyDate.slice(0,7);editingId=existing?.[0]??'new'
     scheduleDraft={tipo:'discurso_local',data:emergencyDate,oradorId:button.dataset.emergencySpeaker!,themeNumber:'',temaId:''};dirty=true;render()
   }))
 }

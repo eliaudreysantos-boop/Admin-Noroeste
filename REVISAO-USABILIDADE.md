@@ -1,5 +1,17 @@
 # Simplificação do aplicativo — 22/09/2026
 
+## Substituições sem campo de data
+
+- Retirado o campo Data do discurso. A consulta geral mostra repertórios
+  disponíveis sem escolher silenciosamente uma data nem afirmar ausência de
+  conflitos em um dia não informado.
+- Escolher data e programar abre a programação com o orador selecionado e a
+  data obrigatória vazia. O atalho de uma programação existente conserva a data
+  com indicação textual de contexto, sem campo de edição em Substituições.
+- A própria reunião a substituir é excluída da verificação de conflitos.
+- Build, testes de Oradores e navegador em desktop/celular aprovados.
+- Apenas commit local, sem push, conforme a orientação mais recente.
+
 ## Complemento: repertório, Temas e entrada de Oradores
 
 - Card identifica explicitamente “Números dos temas no repertório” e mostra os
