@@ -20,6 +20,8 @@ const source = {
   'tarefas/scale/periods':{},
 }
 source['tarefas/discursos'].oradores.local.pessoaId='p1'
+source['tarefas/discursos'].programacao.nextMonth={data:'2026-10-15',tipo:'discurso_local',status:'por_definir'}
+source['tarefas/discursos'].programacao.far={data:'2027-01-01',tipo:'discurso_local',status:'por_definir'}
 source['tarefas/discursos'].temas.theme25={numero:25,titulo:'Tema vinte e cinco',ativo:true}
 source['tarefas/discursos'].temas.theme38={numero:38,titulo:'Tema trinta e oito',ativo:true}
 
@@ -29,6 +31,7 @@ try {
     let failNext=false
     const context=await browser.newContext({viewport:{width,height:900},serviceWorkers:'block',acceptDownloads:true})
     const page=await context.newPage(), errors=[]
+    await page.clock.setFixedTime(new Date('2026-09-22T12:00:00-03:00'))
     page.on('pageerror',error=>errors.push(error.message))
     await page.route('**/.netlify/functions/**',route=>{
       const url=new URL(route.request().url()),endpoint=url.pathname.split('/').pop()
@@ -48,6 +51,15 @@ try {
     await page.goto(process.env.APP_TEST_URL||'http://127.0.0.1:5191/')
     await page.locator('[data-menu-card="oradores"]').click()
     await page.getByRole('heading',{name:'Oradores',exact:true}).waitFor()
+    assert.equal(await page.locator('[data-workspace-tab="pendencias"]').getAttribute('aria-current'),'page')
+    assert.equal(await page.locator('[data-pending-id="far"]').count(),0)
+    await page.locator('[data-pending-id="nextMonth"]').click()
+    assert.equal(await page.locator('#oradoresMonth').inputValue(),'2026-10')
+    assert.equal(await page.locator('#speakerScheduleForm [name="oradorId"]').evaluate(el=>el===document.activeElement),true)
+    await page.locator('#cancelScheduleEdit').click()
+    await page.locator('[data-workspace-tab="pendencias"]').click()
+    await page.locator('[data-pending-id="p2"]').click()
+    assert.equal(await page.locator('[data-reconfirm-schedule="p2"]').evaluate(el=>el===document.activeElement),true)
     await page.locator('#oradoresMonth').fill('2026-09')
     await page.locator('#oradoresMonth').dispatchEvent('change')
     await page.getByText('Carlos Oliveira',{exact:true}).waitFor()
@@ -97,7 +109,7 @@ try {
     assert.equal(data['tarefas/discursos'].oradores.local.masterId,'m1')
     await page.locator('#speakerSearch').fill('25')
     assert.equal(await page.locator('#speakerResults .oradores-card').count(),1)
-    assert.match(await page.locator('#speakerResults').innerText(),/1, 25, 38/)
+    assert.equal(await page.locator('[data-speaker-repertoire="local"]').innerText(),'1, 25, 38')
     await page.locator('#newSpeaker').click()
     assert.equal(await page.locator('[name="masterId"] option[value="m1"]').count(),0)
     await page.locator('#speakerForm [data-person-search]').fill('Bruno')
@@ -142,6 +154,11 @@ try {
       await page.waitForFunction(()=>!document.querySelector('#oradoresRoot')?.textContent?.includes('Carregando'))
       assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true,`${tab} sem overflow em ${width}px`)
       if(tab==='temas'){
+        assert.equal(await page.locator('#themesPdf').isVisible(),true)
+        assert.equal(await page.getByRole('button',{name:'Livres',exact:true}).isVisible(),true)
+        assert.equal(await page.getByRole('button',{name:'Já usados',exact:true}).isVisible(),true)
+        assert.equal(await page.getByRole('button',{name:'Todos',exact:true}).isVisible(),true)
+        assert.equal(await page.getByRole('button',{name:'Mais opções',exact:true}).isVisible(),true)
         assert.equal(await page.locator('[data-theme-filter="available"]').getAttribute('aria-pressed'),'true')
         assert.ok((await page.locator('#themeResults').innerText()).includes('Tema trinta e oito'))
         assert.ok(!(await page.locator('#themeResults').innerText()).includes('Tema vinte e cinco'))
@@ -174,6 +191,7 @@ try {
     return route.fulfill({json:{results:paths.map(path=>({value:source[path]??{}}))}})
   })
   await page.goto(process.env.APP_TEST_URL||'http://127.0.0.1:5191/')
+  await page.locator('[data-workspace-tab="programacao"]').click()
   await page.locator('#newSchedule').waitFor()
   await page.locator('[data-workspace-tab="oradores"]').last().click()
   await page.locator('#speakerSearch').waitFor()

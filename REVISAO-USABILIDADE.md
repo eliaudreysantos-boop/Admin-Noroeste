@@ -1,5 +1,28 @@
 # Simplificação do aplicativo — 22/09/2026
 
+## Complemento: repertório, Temas e entrada de Oradores
+
+- Card identifica explicitamente “Números dos temas no repertório” e mostra os
+  números separados por vírgulas, nunca a contagem. Teste verifica o texto exato.
+- Apoio passa a Mais opções. Temas mantém Baixar PDF dos temas, com a busca e
+  o filtro aplicados, e filtros Livres, Já usados, Programados/ocupados e Todos.
+- Pendências é a entrada do módulo Oradores. Mostra somente programações de
+  hoje até 90 dias à frente, sem registros S1 nem alertas gerais de cadastro.
+- Uma linha por programação reúne os campos faltantes; resolvidos esses campos,
+  a próxima ação é confirmar, ou reconfirmar na semana do discurso.
+- Ao tocar, o mês correto é selecionado e os filtros são limpos. A pendência
+  abre o campo exato ou focaliza o botão de confirmação/reconfirmação. Nenhuma
+  confirmação é efetuada automaticamente ao navegar.
+- Build, 18 testes de Oradores e navegador desktop/celular aprovados, incluindo
+  troca de mês por pendência, foco da ação e limite dos 90 dias.
+- Diagnóstico somente leitura do site de testes: a publicação consultada ainda
+  apontava para c340675 (21/09/2026), anterior aos commits recentes. O bundle
+  público continha a contagem antiga e não possuía o botão de PDF dos temas.
+  Commit/push não comprovam que o Netlify tenha publicado a nova versão.
+- Causa confirmada pela API do Netlify: os quatro deploys posteriores falharam
+  com “Skipped due to account credit usage exceeded”. Não foi alterado plano,
+  limite, configuração de deploy nem efetuada compra de créditos.
+
 ## Alterações aprovadas
 
 1. Oradores informa data de publicação e compara o conteúdo imprimível carregado

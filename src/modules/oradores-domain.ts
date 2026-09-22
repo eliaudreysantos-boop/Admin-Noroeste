@@ -170,26 +170,26 @@ export function monthBounds(month: string): { start:string; end:string } { const
 export function formatSpeakerDate(value: string): string { if (!validIsoDate(value)) return value || 'Sem data'; return new Intl.DateTimeFormat('pt-BR', { weekday:'short', day:'2-digit', month:'2-digit', year:'numeric', timeZone:'UTC' }).format(new Date(`${value}T12:00:00Z`)).replace('.', '') }
 export function sameMonth(value: string, month: string): boolean { return value.startsWith(`${month}-`) }
 
-export interface SpeakerPendingItem { id:string; severity:'alta'|'media'|'baixa'; title:string; detail:string; screen:'programacao'|'oradores'|'congregacoes'|'temas'; recordId:string }
+export interface SpeakerPendingItem {
+  id:string; severity:'alta'|'media'; title:string; detail:string; date:string
+  screen:'programacao'; recordId:string; action:'oradorId'|'themeNumber'|'congregacaoId'|'confirm'|'reconfirm'
+}
 export function speakerPendingItems(root: SpeakersRoot, today = new Date().toISOString().slice(0,10)): SpeakerPendingItem[] {
   const limit = new Date(`${today}T12:00:00Z`); limit.setUTCDate(limit.getUTCDate()+90); const horizon=limit.toISOString().slice(0,10)
   const items:SpeakerPendingItem[]=[]
-  Object.entries(root.programacao ?? {}).filter(([,item]) => item.data >= today && item.data <= horizon).forEach(([id,item]) => {
-    const prefix = formatSpeakerDate(item.data)
-    if (!item.oradorId && !item.oradorNome) items.push({ id:`schedule-speaker-${id}`, severity:'alta', title:'Sem orador', detail:prefix, screen:'programacao', recordId:id })
-    if (!item.temaId && !item.temaTitulo) items.push({ id:`schedule-theme-${id}`, severity:'media', title:'Sem tema', detail:prefix, screen:'programacao', recordId:id })
-    if (item.tipo !== 'discurso_local' && !scheduleCongregationId(item) && !scheduleCongregationName(item)) items.push({ id:`schedule-congregation-${id}`, severity:'media', title:'Sem congregação', detail:prefix, screen:'programacao', recordId:id })
-    if (scheduleStatus(item) === 'por_confirmar') items.push({ id:`schedule-confirm-${id}`, severity:'media', title:'Aguardando confirmação', detail:`${prefix} · ${item.oradorNome ?? root.oradores?.[item.oradorId ?? '']?.nome ?? 'Orador'}`, screen:'programacao', recordId:id })
-    const days=Math.ceil((Date.parse(`${item.data}T12:00:00Z`)-Date.parse(`${today}T12:00:00Z`))/86400000)
-    if (days >= 0 && days <= 7 && scheduleStatus(item)==='confirmado' && !item.reconfirmacao?.status) items.push({ id:`schedule-reconfirm-${id}`, severity:'alta', title:'Reconfirmar — está perto', detail:`${prefix} · ${item.oradorNome ?? root.oradores?.[item.oradorId ?? '']?.nome ?? 'Orador'}`, screen:'programacao', recordId:id })
-  })
-  Object.entries(root.oradores ?? {}).filter(([,speaker]) => speaker.ativo).forEach(([id,speaker]) => {
-    if(speaker.tipo==='local'&&!speaker.masterId&&!speaker.pessoaId) items.push({id:`speaker-link-${id}`,severity:'media',title:'Orador sem vínculo com Admin',detail:`${speaker.nome} · proteção contra conflitos indisponível`,screen:'oradores',recordId:id})
-    if (!speaker.telefone || !speaker.temaIds.length) items.push({ id:`speaker-${id}`, severity:'baixa', title:'Cadastro incompleto', detail:`${speaker.nome} · ${!speaker.telefone ? 'sem telefone' : 'sem temas'}`, screen:'oradores', recordId:id })
-  })
-  Object.entries(root.congregacoes ?? {}).filter(([,congregation]) => congregation.ativa).forEach(([id,congregation]) => {
-    if (!congregation.telefone || !congregation.horario || !congregation.diaReuniao) items.push({ id:`congregation-${id}`, severity:'baixa', title:'Congregação sem dados', detail:congregation.nome, screen:'congregacoes', recordId:id })
-  })
-  const severityOrder: Record<SpeakerPendingItem['severity'], number> = { alta:0, media:1, baixa:2 }
-  return items.sort((a,b) => severityOrder[a.severity] - severityOrder[b.severity] || a.detail.localeCompare(b.detail,'pt-BR'))
+  for (const [id,item] of Object.entries(root.programacao ?? {})) {
+    if(item.secao==='s1'||item.data<today||item.data>horizon)continue
+    const missing:{label:string;action:SpeakerPendingItem['action']}[]=[]
+    if(!item.oradorId&&!item.oradorNome)missing.push({label:'Sem orador',action:'oradorId'})
+    if(!item.temaId&&!item.temaTitulo)missing.push({label:'Sem tema',action:'themeNumber'})
+    if(item.tipo!=='discurso_local'&&!scheduleCongregationId(item)&&!scheduleCongregationName(item))missing.push({label:'Sem congregação',action:'congregacaoId'})
+    const name=root.oradores?.[item.oradorId??'']?.nome || item.oradorNome || 'Orador a definir'
+    const detail=`${formatSpeakerDate(item.data)} · ${TALK_KIND_LABEL[item.tipo]} · ${name}`
+    const base={id:`schedule-${id}`,screen:'programacao' as const,recordId:id,date:item.data,detail}
+    if(missing.length)items.push({...base,severity:missing[0]!.action==='oradorId'?'alta':'media',title:missing.map(x=>x.label).join(' · '),action:missing[0]!.action})
+    else if(scheduleStatus(item)==='por_confirmar')items.push({...base,severity:'media',title:'Aguardando confirmação',action:'confirm'})
+    else if(Math.ceil((Date.parse(`${item.data}T12:00:00Z`)-Date.parse(`${today}T12:00:00Z`))/86400000)<=7&&scheduleStatus(item)==='confirmado'&&!item.reconfirmacao?.status)
+      items.push({...base,severity:'alta',title:'Reconfirmar — está perto',action:'reconfirm'})
+  }
+  return items.sort((a,b)=>a.date.localeCompare(b.date)||a.title.localeCompare(b.title,'pt-BR'))
 }

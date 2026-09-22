@@ -1,7 +1,7 @@
 import type { SpeakersRoot, TalkTheme } from './oradores-domain.ts'
 
 export type ThemeFilter = 'available' | 'used' | 'pending' | 'all'
-export const THEME_FILTER_LABELS:Record<ThemeFilter,string>={available:'Disponíveis',used:'Já usados',pending:'Programados / ocupados',all:'Todos'}
+export const THEME_FILTER_LABELS:Record<ThemeFilter,string>={available:'Livres',used:'Já usados',pending:'Programados / ocupados',all:'Todos'}
 export interface ThemeUsage { past:boolean; pending:boolean; lastPastDate:string; nextDate:string }
 export interface ThemeRow extends ThemeUsage { id:string; theme:TalkTheme }
 
