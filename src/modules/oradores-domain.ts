@@ -13,6 +13,7 @@ export interface Speaker {
   ativo: boolean
   temaIds: string[]
   pessoaId?: string
+  masterId?: string
   congregacaoId?: string
   origemNome?: string
   aprovadoParaSaida?: boolean
@@ -123,6 +124,7 @@ export function normalizeSpeakersRoot(value: unknown): SpeakersRoot {
     const funcao = ['anciao','servo_ministerial','publicador'].includes(text(item['funcao'])) ? text(item['funcao']) as SpeakerRole : 'publicador'
     return [id, {
       nome:text(item['nome']), tipo, funcao, telefone:text(item['telefone']), ativo:bool(item['ativo'], true), temaIds:stringArray(item['temaIds']),
+      ...(text(item['masterId']) ? { masterId:text(item['masterId']) } : {}),
       ...(text(item['pessoaId']) ? { pessoaId:text(item['pessoaId']) } : {}), ...(text(item['congregacaoId']) ? { congregacaoId:text(item['congregacaoId']) } : {}),
       ...(text(item['origemNome']) ? { origemNome:text(item['origemNome']) } : {}), aprovadoParaSaida:bool(item['aprovadoParaSaida']), podePresidir:bool(item['podePresidir']),
       sentinelaDirigente:bool(item['sentinelaDirigente']), sentinelaSubstituto:bool(item['sentinelaSubstituto']), ...(section(item['secao']) ? { secao:section(item['secao']) } : {}),
@@ -182,7 +184,7 @@ export function speakerPendingItems(root: SpeakersRoot, today = new Date().toISO
     if (days >= 0 && days <= 7 && scheduleStatus(item)==='confirmado' && !item.reconfirmacao?.status) items.push({ id:`schedule-reconfirm-${id}`, severity:'alta', title:'Reconfirmar — está perto', detail:`${prefix} · ${item.oradorNome ?? root.oradores?.[item.oradorId ?? '']?.nome ?? 'Orador'}`, screen:'programacao', recordId:id })
   })
   Object.entries(root.oradores ?? {}).filter(([,speaker]) => speaker.ativo).forEach(([id,speaker]) => {
-    if(speaker.tipo==='local'&&!speaker.pessoaId) items.push({id:`speaker-link-${id}`,severity:'media',title:'Orador sem vínculo com Tarefas',detail:`${speaker.nome} · proteção contra conflitos indisponível`,screen:'oradores',recordId:id})
+    if(speaker.tipo==='local'&&!speaker.masterId&&!speaker.pessoaId) items.push({id:`speaker-link-${id}`,severity:'media',title:'Orador sem vínculo com Admin',detail:`${speaker.nome} · proteção contra conflitos indisponível`,screen:'oradores',recordId:id})
     if (!speaker.telefone || !speaker.temaIds.length) items.push({ id:`speaker-${id}`, severity:'baixa', title:'Cadastro incompleto', detail:`${speaker.nome} · ${!speaker.telefone ? 'sem telefone' : 'sem temas'}`, screen:'oradores', recordId:id })
   })
   Object.entries(root.congregacoes ?? {}).filter(([,congregation]) => congregation.ativa).forEach(([id,congregation]) => {

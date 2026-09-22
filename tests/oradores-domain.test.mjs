@@ -1,6 +1,56 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { monthBounds, normalizeSpeakersRoot, scheduleStatus, speakerPendingItems, scheduleBaseForEdit, isDuplicateSchedule, speakerLinkOptions } from '../src/modules/oradores-domain.ts'
+import { canonicalSpeaker, resolveSpeakerMasterId, repertoireNumbers, parseRepertoire, matchesSpeaker, speakerConflicts } from '../src/modules/oradores-editor-domain.ts'
+import { hasSpeakerAssignment } from '../src/modules/tarefas-domain.ts'
+import { collectAgendaEvents } from '../src/modules/individual-domain.ts'
+
+const catalog={ arbitrary:{numero:25,titulo:'Tema 25',ativo:true}, one:{numero:1,titulo:'Tema 1',ativo:true}, retired:{numero:38,titulo:'Tema 38',ativo:false} }
+test('repertório por números resolve IDs reais, ordena, remove duplicados e permite esvaziar',()=>{
+  assert.deepEqual(parseRepertoire('25, 1, 025',catalog),{ids:['one','arbitrary'],formatted:'1, 25',error:''})
+  assert.deepEqual(parseRepertoire('  ',catalog),{ids:[],formatted:'',error:''})
+  assert.equal(repertoireNumbers(['arbitrary','one','one'],catalog),'1, 25')
+  for(const invalid of ['1 25','1,,25','-1','2.5','1,x','1,'])assert.ok(parseRepertoire(invalid,catalog).error,invalid)
+  assert.match(parseRepertoire('99',catalog).error,/99.*não cadastrado/)
+  assert.match(parseRepertoire('38',catalog).error,/inativo/)
+  assert.equal(parseRepertoire('38',catalog,['retired']).error,'')
+  assert.match(parseRepertoire('1',{...catalog,other:{numero:1,titulo:'Outro',ativo:true}}).error,/duplicado/)
+})
+test('identidade master prevalece, legado resolve por ID e nomes iguais não vinculam',()=>{
+  const master={m:{name:'Nome central',whatsapp:'5585999999999',active:true,role:'servo-ministerial'}}
+  const legacy={nome:'Nome central',pessoaId:'p',tipo:'local',ativo:true,telefone:'antigo',funcao:'anciao',temaIds:[]}
+  assert.equal(resolveSpeakerMasterId(legacy,master,{p:{masterId:'m'}}),'m')
+  assert.equal(resolveSpeakerMasterId({...legacy,pessoaId:''},master,{}),'')
+  const hydrated=canonicalSpeaker(legacy,master,{p:{masterId:'m'}})
+  assert.equal(hydrated.telefone,master.m.whatsapp)
+  assert.equal(hydrated.funcao,'servo_ministerial')
+  assert.equal(canonicalSpeaker(legacy,{m:{...master.m,active:false}},{p:{masterId:'m'}}).ativo,false)
+  assert.equal(resolveSpeakerMasterId({...legacy,masterId:'missing'},master,{p:{masterId:'m'}}),'missing')
+  assert.equal(legacy.telefone,'antigo')
+})
+test('busca de oradores encontra número exato e nome',()=>{
+  const person={nome:'Orador Um',temaIds:['arbitrary']}
+  assert.ok(matchesSpeaker(person,'025',catalog))
+  assert.ok(matchesSpeaker(person,'ORADOR',catalog))
+  assert.equal(matchesSpeaker(person,'2',catalog),false)
+})
+test('conflitos detectam identidade duplicada, segundo orador, tarefas e indisponibilidade',()=>{
+  const person={nome:'Um',tipo:'local',masterId:'m',ativo:true,temaIds:[]}
+  const root={oradores:{a:person,b:{...person}},programacao:{other:{data:'2026-11-01',oradorSecundarioId:'b'}}}
+  const master={m:{name:'Um'}},tasks={p:{masterId:'m',unavailableDates:['2026-11-01']}}
+  const reasons=speakerConflicts('a','2026-11-01',root,master,tasks,{x:{meetings:{d:{date:'2026-11-01',assignments:{leitor:'p'}}}}})
+  assert.equal(reasons.length,3)
+  assert.deepEqual(speakerConflicts('a','2026-11-02',root,master,tasks,{}),[])
+  assert.deepEqual(speakerConflicts('a','2026-11-01',root,master,{}, {},'other'),[])
+})
+test('masterId direto mantém conflitos de Tarefas e Agenda pessoal sem depender de tarefas/people',()=>{
+  const talks={oradores:{o:{nome:'Um',masterId:'m',pessoaId:'outro'}},programacao:{p:{data:'2026-11-01',tipo:'discurso_local',status:'confirmado',oradorId:'o'}}}
+  assert.equal(hasSpeakerAssignment('t','2026-11-01',{people:{t:{masterId:'m'}},discursos:talks}),true)
+  assert.equal(hasSpeakerAssignment('t','2026-11-01',{people:{t:{masterId:'outro'}},discursos:talks}),false)
+  const root={master:{pessoas:{m:{name:'Um',active:true},outro:{name:'Outro',active:true}}},tarefas:{discursos:talks}}
+  assert.equal(collectAgendaEvents(root,'m').filter(x=>x.source==='oradores').length,1)
+  assert.equal(collectAgendaEvents(root,'outro').filter(x=>x.source==='oradores').length,0)
+})
 
 test('saídas distintas compartilham data, mas duplicatas e duas reuniões locais são recusadas', () => {
   const row={data:'2026-11-21',secao:'s2',tipo:'saida_orador',oradorId:'a',congregacaoDestinoId:'c'}

@@ -90,7 +90,7 @@ export interface TaskEvent {
 
 export interface TaskDomainContext {
   discursos?: {
-    oradores?: Record<string, { pessoaId?: string }>
+    oradores?: Record<string, { pessoaId?: string; masterId?: string }>
     programacao?: Record<string, { data?: string; secao?: string; oradorId?: string; oradorSecundarioId?: string }>
   }
   engineRules?: Partial<TaskGenerationRules>
@@ -242,7 +242,9 @@ export function hasSpeakerAssignment(personId:string, date:string|undefined, con
   const person=context.people[personId]
   return Object.values(context.discursos?.programacao ?? {}).some(item => item.secao !== 's1' && item.data === date &&
     [item.oradorId,item.oradorSecundarioId].some(id => {
-      const linked=id ? context.discursos?.oradores?.[id]?.pessoaId : undefined
+      const speaker=id ? context.discursos?.oradores?.[id] : undefined
+      if (speaker?.masterId) return speaker.masterId === (person?.masterId || personId)
+      const linked=speaker?.pessoaId
       if (!linked) return false
       return linked === personId || Boolean(person?.masterId && (linked === person.masterId || context.people[linked]?.masterId === person.masterId))
     }))

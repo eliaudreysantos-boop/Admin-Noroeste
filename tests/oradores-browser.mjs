@@ -1,5 +1,6 @@
 import { createRequire } from 'node:module'
 import assert from 'node:assert/strict'
+import { mkdir } from 'node:fs/promises'
 
 const require = createRequire(process.env.PLAYWRIGHT_PACKAGE_JSON || new URL('../package.json', import.meta.url))
 const { chromium } = require('playwright')
@@ -14,28 +15,42 @@ const source = {
   },
   'tarefas/events':{ e1:{ data:'2026-09-13', titulo:'Assembleia', tipo:'congresso_assembleia', impactoTarefas:{bloqueiaReuniao:true} } },
   'tarefas/planning':{ periodMode:'month', meetingDays:{weekendDow:0}, excludedDates:[], enableSection1:false, s2Time:'18:00' },
-  'tarefas/people':{},
+  'tarefas/people':{p1:{masterId:'m1',name:'Nome desatualizado'}},
+  'master/pessoas':{m1:{name:'André Almeida',whatsapp:'5585999999999',active:true,role:'anciao'},m2:{name:'Bruno Souza',whatsapp:'5585777777777',active:true,role:'anciao'}},
+  'tarefas/scale/periods':{},
 }
+source['tarefas/discursos'].oradores.local.pessoaId='p1'
+source['tarefas/discursos'].temas.theme25={numero:25,titulo:'Tema vinte e cinco',ativo:true}
+source['tarefas/discursos'].temas.theme38={numero:38,titulo:'Tema trinta e oito',ativo:true}
 
 try {
   for (const width of [1280,390]) {
+    const data=structuredClone(source),writes=[]
+    let failNext=false
     const context=await browser.newContext({viewport:{width,height:900},serviceWorkers:'block',acceptDownloads:true})
     const page=await context.newPage(), errors=[]
     page.on('pageerror',error=>errors.push(error.message))
     await page.route('**/.netlify/functions/**',route=>{
       const url=new URL(route.request().url()),endpoint=url.pathname.split('/').pop()
-      if(endpoint==='auth-session')return route.fulfill({json:{uid:'audit',csrf:'a'.repeat(48),usuario:{nome:'Auditoria',ativo:true,apps:{mestre:false,oradores:true}}}})
+      if(endpoint==='auth-session')return route.fulfill({json:{uid:'audit',csrf:'a'.repeat(48),usuario:{nome:'Auditoria',ativo:true,apps:{mestre:true,oradores:true}}}})
       if(endpoint==='auth-users')return route.fulfill({json:{}})
-      if(route.request().method()!=='GET')return route.fulfill({json:endpoint==='storage-file'?{url:'https://example.test/oradores.pdf'}:{ok:true}})
+      if(route.request().method()!=='GET'){
+        const path=url.searchParams.get('path'),body=route.request().postDataJSON()
+        if(failNext){failNext=false;return route.fulfill({status:503,json:{error:'Falha simulada'}})}
+        writes.push({path,body})
+        if(path==='tarefas/discursos/oradores')data['tarefas/discursos'].oradores=body.value
+        return route.fulfill({json:endpoint==='storage-file'?{url:'https://example.test/oradores.pdf'}:{ok:true}})
+      }
       const paths=JSON.parse(url.searchParams.get('paths')||'[]')
-      return route.fulfill({json:{results:paths.map(path=>({value:source[path]??{}}))}})
+      return route.fulfill({json:{results:paths.map(path=>({value:data[path]??{}}))}})
     })
     await page.goto(process.env.APP_TEST_URL||'http://127.0.0.1:5191/')
+    await page.locator('[data-menu-card="oradores"]').click()
     await page.getByRole('heading',{name:'Oradores',exact:true}).waitFor()
     await page.locator('#oradoresMonth').fill('2026-09')
     await page.locator('#oradoresMonth').dispatchEvent('change')
     await page.getByText('Carlos Oliveira',{exact:true}).waitFor()
-    assert.equal(await page.locator('input[placeholder*="Buscar" i], input[type="search"]').count(),0)
+    assert.equal(await page.locator('#scheduleSearch').count(),1)
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true)
     const downloaded=page.waitForEvent('download')
     await page.locator('#speakerSchedulePdf').click()
@@ -43,12 +58,96 @@ try {
     assert.equal(await page.locator('#speakerSchedulePublish').isEnabled(),true)
     await page.locator('#speakerSchedulePublish').click()
     await page.getByText('PDF de Oradores publicado no Quadro',{exact:true}).waitFor()
+    await page.locator('[data-workspace-tab="oradores"]').last().click()
+    await page.locator('[data-edit-speaker="local"]').click()
+    assert.equal(await page.locator('#speakerForm [name="nome"]').count(),0)
+    assert.equal(await page.locator('#speakerForm [name="masterId"]').inputValue(),'m1')
+    assert.equal(await page.locator('#speakerForm [name="masterId"]').isDisabled(),true)
+    const repertoire=page.locator('[name="themeNumbers"]')
+    await repertoire.fill('25, 1, 025, 38')
+    await page.locator('#repertoirePreview').getByText('25 — Tema vinte e cinco',{exact:true}).waitFor()
+    await repertoire.blur()
+    assert.equal(await repertoire.inputValue(),'1, 25, 38')
+    await mkdir(new URL('../output/oradores-review/',import.meta.url),{recursive:true})
+    await page.screenshot({path:new URL(`../output/oradores-review/editor-${width}.png`,import.meta.url).pathname.replace(/^\/([A-Z]:)/i,'$1'),fullPage:true})
+    await repertoire.fill('99')
+    assert.match(await page.locator('#repertoirePreview').innerText(),/99.*não cadastrado/)
+    await repertoire.fill('25, 1, 38')
+    page.once('dialog',dialog=>dialog.dismiss())
+    await page.locator('[data-workspace-tab="programacao"]').click()
+    assert.equal(await repertoire.inputValue(),'1, 25, 38')
+    failNext=true
+    await page.locator('#speakerForm [type="submit"]').click()
+    await page.locator('[data-form-error]').getByText(/Seu preenchimento foi mantido/).waitFor()
+    assert.equal(await repertoire.inputValue(),'1, 25, 38')
+    await page.locator('#speakerForm [type="submit"]').click()
+    await page.getByText('Configuração do orador salva',{exact:true}).waitFor()
+    assert.deepEqual(data['tarefas/discursos'].oradores.local.temaIds,['tema_001','theme25','theme38'])
+    assert.equal(data['tarefas/discursos'].oradores.local.masterId,'m1')
+    await page.locator('#speakerSearch').fill('25')
+    assert.equal(await page.locator('#speakerResults .oradores-card').count(),1)
+    assert.match(await page.locator('#speakerResults').innerText(),/1, 25, 38/)
+    await page.locator('#newSpeaker').click()
+    assert.equal(await page.locator('[name="masterId"] option[value="m1"]').count(),0)
+    await page.locator('[name="masterId"]').selectOption('m2')
+    await repertoire.fill('25')
+    await page.locator('[name="sentinelaDirigente"]').check()
+    await page.locator('[name="sentinelaSubstituto"]').check()
+    await page.locator('#speakerForm [type="submit"]').click()
+    await page.locator('[data-form-error]').getByText(/pessoas diferentes/).waitFor()
+    await page.locator('[name="sentinelaSubstituto"]').uncheck()
+    await page.locator('#speakerForm [type="submit"]').click()
+    await page.locator('#speakerForm').waitFor({state:'detached'})
+    assert.equal(data['tarefas/discursos'].oradores.orador_m2.masterId,'m2')
+    assert.ok(writes.every(write=>!write.path?.startsWith('master/')))
+    await page.locator('[data-workspace-tab="programacao"]').click()
+    await page.locator('#newSchedule').click()
+    await page.locator('[name="data"]').fill('2026-09-28')
+    await page.locator('[name="oradorId"]').selectOption('local')
+    await page.locator('[data-pick-theme="25"]').click()
+    assert.equal(await page.locator('[name="themeNumber"]').inputValue(),'25')
+    assert.equal(await page.locator('[name="temaId"]').inputValue(),'theme25')
+    assert.match(await page.locator('#scheduleThemePreview').innerText(),/vinte e cinco/)
+    await page.locator('#speakerScheduleForm [type="submit"]').click()
+    await page.getByText('Programação criada',{exact:true}).waitFor()
+    const scheduleWrite=writes.find(write=>write.path?.startsWith('tarefas/discursos/programacao/')&&write.body.value?.data==='2026-09-28')
+    assert.equal(scheduleWrite.body.value.temaId,'theme25')
+    await page.locator('[data-workspace-tab="oradores"]').last().click()
+    await page.locator('[data-edit-speaker="local"]').click()
+    await repertoire.fill('')
+    page.once('dialog',dialog=>dialog.accept())
+    await page.locator('#speakerForm [type="submit"]').click()
+    await page.locator('#speakerForm').waitFor({state:'detached'})
+    assert.deepEqual(data['tarefas/discursos'].oradores.local.temaIds,[])
     for(const tab of ['oradores','designacoes','emergencia','congregacoes','intercambios','temas','eventos','pendencias']){
       await page.locator(`[data-workspace-tab="${tab}"]`).last().click()
       await page.waitForFunction(()=>!document.querySelector('#oradoresRoot')?.textContent?.includes('Carregando'))
       assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true,`${tab} sem overflow em ${width}px`)
     }
     assert.deepEqual(errors,[])
+    console.log(`Oradores: edição, falha de gravação, masterId, repertório, programação e navegação em ${width}px OK`)
     await context.close()
   }
+  const context=await browser.newContext({viewport:{width:390,height:900},serviceWorkers:'block'})
+  const page=await context.newPage(),readPaths=[]
+  await page.route('**/.netlify/functions/**',route=>{
+    const url=new URL(route.request().url()),endpoint=url.pathname.split('/').pop()
+    if(endpoint==='auth-session')return route.fulfill({json:{uid:'speaker',csrf:'a'.repeat(48),usuario:{nome:'Oradores',ativo:true,apps:{mestre:false,oradores:true}}}})
+    if(endpoint==='auth-users')return route.fulfill({json:{}})
+    assert.equal(route.request().method(),'GET','Consulta sem permissão Admin não deve gravar cadastros')
+    const paths=JSON.parse(url.searchParams.get('paths')||'[]');readPaths.push(...paths)
+    return route.fulfill({json:{results:paths.map(path=>({value:source[path]??{}}))}})
+  })
+  await page.goto(process.env.APP_TEST_URL||'http://127.0.0.1:5191/')
+  await page.locator('#newSchedule').waitFor()
+  await page.locator('[data-workspace-tab="oradores"]').last().click()
+  await page.locator('#speakerSearch').waitFor()
+  assert.equal(await page.locator('#newSpeaker,[data-edit-speaker]').count(),0)
+  assert.ok(readPaths.includes('master/pessoas'))
+  assert.ok(!readPaths.includes('tarefas/scale/periods'))
+  await page.locator('[data-workspace-tab="programacao"]').click()
+  await page.locator('#newSchedule').click()
+  await page.getByText(/Designações de Tarefas não verificadas/).waitFor()
+  await context.close()
+  console.log('Oradores: consulta sem Admin preserva permissões OK')
 } finally { await browser.close() }

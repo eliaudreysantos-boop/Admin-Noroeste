@@ -145,10 +145,16 @@ function speakerAgendaEvents(root: Row): { event: AgendaEvent; masterIds: string
     if (!validAgendaDate(date) || !validAgendaTime(time)) return []
     const ids = [text(item['oradorId']), text(item['oradorSecundarioId'])]
     const masterIds = ids.map(id => {
+      const directId = text(rows(speakers[id])['masterId'])
+      if (directId) return directId
       const personId = text(rows(speakers[id])['pessoaId'])
       return text(rows(rows(tasks['people'])[personId])['masterId']) || personId
     }).filter(Boolean)
-    const names = ids.map((id, index) => text(rows(speakers[id])['nome']) || text(item[index ? 'oradorSecundarioNome' : 'oradorNome'])).filter(Boolean)
+    const names = ids.map((id, index) => {
+      const speaker=rows(speakers[id]), legacy=text(speaker['pessoaId'])
+      const masterId=text(speaker['masterId']) || text(rows(rows(tasks['people'])[legacy])['masterId']) || legacy
+      return text(rows(rows(rows(root['master'])['pessoas'])[masterId])['name']) || text(speaker['nome']) || text(item[index ? 'oradorSecundarioNome' : 'oradorNome'])
+    }).filter(Boolean)
     const theme = rows(rows(talks['temas'])[text(item['temaId'])])
     const title = text(theme['titulo']) || text(item['temaTitulo'])
     const outgoing = item['tipo'] === 'saida_orador'
