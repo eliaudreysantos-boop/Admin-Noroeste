@@ -1,3 +1,4 @@
+import { focusCorrection, fieldHelp } from '../ui/field-guidance'
 import { tasksPersonMessage, tasksDayMessage } from './tarefas-messages'
 import { whatsappPhone } from './message-domain'
 import type { LimpezaPeriodoGerado } from '../types'
@@ -436,11 +437,15 @@ function renderEscala(): void {
     localStorage.setItem(TAREFAS_PERIOD_KEY, selectedPeriodMonth)
     renderEscala()
   })
+  fieldHelp(content,'#tarefasPeriodMode','Mensal mostra um mês; bimestral reúne dois meses. A troca não apaga escalas.')
   bindAssignmentEditors()
   if (pendingTarget?.meetingId) {
-    document.querySelector<HTMLElement>(`[data-task-meeting-id="${pendingTarget.meetingId}"]`)
-      ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    const target=pendingTarget
+    const controls=[...content.querySelectorAll<HTMLSelectElement>('.tarefas-assignment-select')].filter(control=>control.dataset.meeting===target.meetingId&&(!target.role||control.dataset.role===target.role))
+    focusCorrection(periods[target.periodId??'']?.locked?document.getElementById('btnToggleTaskLock'):controls.find(control=>control.getClientRects().length>0)??null)
+    pendingTarget=null
   }
+
 }
 
 async function toggleTaskLock(periodId: string): Promise<void> {
@@ -624,7 +629,7 @@ function renderParticipantes(): void {
   document.getElementById('taskPersonMeetingFilter')?.addEventListener('change', event => { participantMeetingRule = (event.target as HTMLSelectElement).value; renderParticipantes() })
   document.getElementById('taskPersonRoleFilter')?.addEventListener('change', event => { participantRoleFilter = (event.target as HTMLSelectElement).value; renderParticipantes() })
   document.getElementById('taskClearPersonFilters')?.addEventListener('click', () => { participantSearch = ''; participantMeetingRule = ''; participantRoleFilter = ''; renderParticipantes() })
-  if (targetPersonId && pessoas[targetPersonId] && context.usuario.apps.mestre) openTaskPersonModal(targetPersonId)
+  if(targetPersonId){if(pessoas[targetPersonId]&&context.usuario.apps.mestre){openTaskPersonModal(targetPersonId);focusCorrection(document.getElementById('taskPersonMaster'))}else focusCorrection([...content.querySelectorAll<HTMLElement>('[data-task-person-id]')].find(row=>row.dataset.taskPersonId===targetPersonId)??null);pendingTarget=null}
 }
 
 function planningExcludedDates(): string[] {
@@ -724,7 +729,7 @@ function renderPendencias(): void {
           : `Reunião de ${formatDate(meeting.date)} incompleta`,
         detail: `Funções sem pessoa: ${missing.join(', ')}`,
         tab: 'escala',
-        target: { periodId: entry.periodId, meetingId: entry.meetingId },
+        target: { periodId: entry.periodId, meetingId: entry.meetingId, role: GENERATED_ROLES.find(role=>meetingAllowsRole(meeting,role)&&!assignmentForRole(meeting,role)) },
       })
     }
     GENERATED_ROLES.forEach(role => {
@@ -736,8 +741,8 @@ function renderPendencias(): void {
           level: 'alta',
           title: `${roleLabel(role)} aponta para pessoa inexistente`,
           detail: `${formatDate(meeting.date)} · ID ${personId}.`,
-          tab: 'participantes',
-          target: { personId },
+          tab: 'escala',
+          target: { periodId:entry.periodId, meetingId:entry.meetingId, role },
         })
         return
       }
@@ -746,8 +751,8 @@ function renderPendencias(): void {
           level: 'media',
           title: `${roleLabel(role)} aponta para participante inativo`,
           detail: `${formatDate(meeting.date)} · ${pessoaNome(person, personId)} está inativo em Tarefas.`,
-          tab: 'participantes',
-          target: { personId },
+          tab: 'escala',
+          target: { periodId:entry.periodId, meetingId:entry.meetingId, role },
         })
       }
       const conflict = manualConflictReason(domainContext(), entry, role, personId)
@@ -763,22 +768,16 @@ function renderPendencias(): void {
     })
   })
 
-  const unlinked = Object.values(pessoas).filter(person => isActive(person) && !person.masterId).length
-  if (unlinked) {
-    items.push({
-      level: 'baixa',
-      title: `${unlinked} participante${unlinked === 1 ? '' : 's'} sem vínculo com Admin`,
-      detail: 'Revise os vínculos antes de gerar uma nova escala.',
-      tab: 'participantes',
-    })
-  }
+  Object.entries(pessoas).filter(([,person])=>isActive(person)&&!person.masterId).forEach(([personId,person])=>{
+    items.push({level:'baixa',title:personName(person,personId)+' sem vínculo com Admin',detail:context.usuario.apps.mestre?'Abra o participante e selecione a pessoa do cadastro central.':'Solicite ao Admin o vínculo desta pessoa. Você pode consultar o cadastro.',tab:'participantes',target:{personId}})
+  })
   const counts = items.reduce<Record<PendingLevel, number>>((acc, item) => {
     acc[item.level] += 1
     return acc
   }, { alta: 0, media: 0, baixa: 0 })
 
   content.innerHTML = `
-    ${sectionTitle('Pendências', items.length ? 'Resolva estes itens antes de confirmar a escala.' : 'A escala atual não tem pendências identificadas.')}
+    ${sectionTitle('Pendências', items.length ? 'Pendências de revisão e avisos cadastrais. Toque para abrir a correção; escalas publicadas precisam ser reabertas.' : 'A escala atual não tem pendências identificadas.')}
     ${items.length ? `<div class="pending-summary"><span style="background:#B3261E">Alta: ${counts.alta}</span><span style="background:#8A5B00">Media: ${counts.media}</span><span style="background:#006EB6">Baixa: ${counts.baixa}</span></div>` : ''}
     ${items.length
       ? `<div style="display:flex;flex-direction:column;gap:8px">${items.map((item, index) => `<button class="module-menu-btn" type="button" data-pending-index="${index}" style="border-radius:8px;padding:12px 14px;border-left:4px solid ${pendingLevelColor[item.level]}"><div style="flex:1;min-width:0"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span class="pending-badge" style="background:${pendingLevelColor[item.level]}">${pendingLevelLabel[item.level]}</span><div class="mod-label">${escapeHtml(item.title)}</div></div><div class="mod-desc">${escapeHtml(item.detail)}</div></div><span style="font-size:1.1rem;color:${pendingLevelColor[item.level]}">›</span></button>`).join('')}</div>`
@@ -789,9 +788,11 @@ function renderPendencias(): void {
       const item = items[Number(button.dataset['pendingIndex'])]
       if (!item) return
       pendingTarget = item.target ?? null
-      if (item.target?.periodId) selectedPeriodMonth = item.target.periodId
+      if (item.target?.periodId) { selectedPeriodMonth = item.target.periodId.slice(0,7); selectedPeriodMode=Object.values(periods[item.target.periodId]?.meetings??{}).some(meeting=>meeting.date?.slice(0,7)!==selectedPeriodMonth)?'bimester':'month' }
+      if(item.tab==='participantes'){participantSearch='';participantMeetingRule='';participantRoleFilter=''}
       activeTab = item.tab
       renderContent()
+      if(item.tab==='escala'&&!item.target)focusCorrection(document.getElementById('tarefasPeriodMonth'))
     })
   })
 }

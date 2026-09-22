@@ -68,6 +68,18 @@
 
 ## Verificação
 
+### Melhoria aprovada: pendências, ajuda e celular (22/09/2026)
+
+- Tarefas: falta de pessoa, pessoa removida/inativa e conflito levam à função exata, inclusive na versão móvel. Período correto selecionado; escala bloqueada leva a Reabrir para edição, sem desbloquear automaticamente. Vínculos pendentes são individuais e não ficam ocultos pelos filtros anteriores.
+- Escala TPL: pendência individual de participante/disponibilidade/confirmacão; dupla incompleta abre o horário e o membro ausente. Telefone ausente abre o cadastro central e destaca WhatsApp para usuários Admin. Outros usuários recebem orientação para solicitar a correção ao Admin.
+- Oradores: pendências destacam o controle de correção. Cards preservam números do repertório e recolhem contato/habilitações em detalhes.
+- Campo: saídas sem dirigente ativo e conflitos simultâneos têm atalhos para corrigir; são identificados como impedimentos de publicação conforme as regras já existentes.
+- Limpeza: atalhos revelam configurações recolhidas para ativar rotação, informar início ou gerar o período. Os avisos acompanham salvamento e geração.
+- Ajuda junto aos campos: telefone central, endereço/mapa, seleção cadastral, limite mensal, referência de folga, disponibilidade e rotação. Textos associados por aria-describedby.
+- Celular: controles de toque de pelo menos 44px, campos legíveis, ações com quebra de linha e modais roláveis. Sem nova barra fixa sobrepondo o rodapé.
+- Não foram introduzidos novos bloqueios de publicação, regras de geração, permissões, mensagens automáticas ou alterações no banco real. Não foram implementadas as sugestões 2 a 6.
+- Testes de navegador com APIs simuladas em 1280px/390px: pendências, mestre/telefone, campos em detalhes, repertório, mensagens e navegação. Suíte completa e build aprovados. Commit apenas local, sem push.
+
 - Build TypeScript/Vite e suíte automatizada completa.
 - Navegador com APIs simuladas em 1280px/390px: Oradores, publicação/download
   dos quatro módulos de escalas, falhas de salvamento, busca/homônimos,

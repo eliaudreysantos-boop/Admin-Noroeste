@@ -1,3 +1,4 @@
+import { focusCorrection, fieldHelp } from '../ui/field-guidance'
 import { editorBusy, editorError, editorSaved } from '../ui/editor-feedback'
 import { lockPublicationUi } from '../ui/publication-busy'
 import type {
@@ -171,6 +172,7 @@ function renderContent(): void {
   const content = document.getElementById('limpezaContent')
   if (!content) return
   content.innerHTML = `${renderSectionTitle('Limpeza', '')}
+    <div id="cleaningGuidance"></div>
     <div id="cleaningPdf"></div>
     <div id="cleaningSchedule"></div>
     <details><summary>Gerar escala</summary><div id="cleaningGenerate"></div></details>
@@ -181,7 +183,21 @@ function renderContent(): void {
   renderPdf()
   renderGrupos()
   renderConfig()
+  renderCleaningGuidance()
   void mountModuleMessageSettings('cleaningMessageSettings', 'limpeza', toast)
+}
+
+function renderCleaningGuidance():void {
+  const issues:{selector:string;label:string}[]=[]
+  if(!limpeza.ativa)issues.push({selector:'#lAtiva',label:'Rotação desativada — ative para gerar a escala.'})
+  if(!limpeza.inicioRotacao)issues.push({selector:'#lInicio',label:'Informe a data inicial da rotação.'})
+  if(!Object.keys(periodos).length)issues.push({selector:'#limpezaPeriodAnchor',label:'Nenhuma escala gerada — escolha o período.'})
+  const content=document.getElementById('limpezaContent');if(!content)return
+  const guidance=document.getElementById('cleaningGuidance');if(!guidance)return
+  guidance.innerHTML=issues.map((item,index)=>`<button type="button" class="oradores-pending" data-cleaning-pending="${index}"><span>${escapeHtml(item.label)}</span><span aria-hidden="true">›</span></button>`).join('')
+  guidance.querySelectorAll<HTMLButtonElement>('[data-cleaning-pending]').forEach(button=>button.addEventListener('click',()=>focusCorrection(document.querySelector(issues[Number(button.dataset.cleaningPending)]!.selector))))
+  fieldHelp(content,'#lInicio','Informe a data de início do Grupo 1. Ela é a referência do rodízio semanal.')
+  fieldHelp(content,'#limpezaPeriodAnchor','Escolha o mês que deseja gerar. Alterar cadastros não atualiza uma escala já gerada.')
 }
 
 function formatGeneratedDate(value: string): string {
@@ -253,6 +269,7 @@ async function saveGeneratedPeriod(): Promise<void> {
       console.warn('A escala foi salva, mas não foi possível guardar o formato preferido de Limpeza')
     }
     periodos[generated.id] = generated
+    renderCleaningGuidance()
     selectedPeriodId = generated.id
     toast(`Escala gerada com ${generated.semanas.length} semanas`)
     renderEscala()
@@ -500,7 +517,7 @@ async function saveConfig(): Promise<void> {
     editorSaved(scope)
     configDirty = false
     toast('Configuração salva ✓')
-    if (button.isConnected) { renderConfig(); if (!limpezaChanges.size) renderGrupos() }
+    if (button.isConnected) { renderConfig(); renderCleaningGuidance(); if (!limpezaChanges.size) renderGrupos() }
   } catch (error) {
     editorError(scope, failureMessage(error, 'Erro ao salvar configuração. Seu preenchimento foi mantido.'))
     toast(failureMessage(error, 'Erro ao salvar configuração'))

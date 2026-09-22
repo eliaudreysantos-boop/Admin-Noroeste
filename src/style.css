@@ -1289,6 +1289,22 @@ button:focus-visible, summary:focus-visible { outline:2px solid var(--blue-mid);
 .month-navigation input[type="month"] { min-height:44px; }
 .workspace-heading h1, .module-title h2 { font-size:1.45rem; line-height:1.25; }
 .oradores-card { border-radius:8px; }
+.field-guidance { display:block; margin:6px 0 10px; line-height:1.45; font-weight:400; }
+.correction-target { outline:3px solid var(--blue-mid) !important; outline-offset:3px; scroll-margin-block:100px; }
+@media screen and (max-width:560px) {
+  #appContent .btn, .modal .btn, dialog .btn { min-height:44px; white-space:normal; }
+  #appContent input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  #appContent select, #appContent textarea, .modal input, .modal select, .modal textarea, dialog textarea { font-size:16px !important; }
+  #appContent label:has(> input[type="checkbox"]), .modal label:has(> input[type="checkbox"]) { display:flex; gap:8px; min-height:44px; align-items:center; }
+  #appContent input[type="checkbox"], .modal input[type="checkbox"] { min-width:20px; min-height:20px; }
+  .modal { max-height:calc(100dvh - 32px); overflow-y:auto; }
+  .service-actions > .btn, .scale-actions > .btn { flex:1 1 140px; }
+  .scale-actions { flex-wrap:wrap; gap:8px; }
+  .module-menu-btn, .oradores-pending { overflow-wrap:anywhere; text-align:left; }
+  #appContent .availability-wrap { max-width:100%; overflow-x:auto; }
+  .availability-table input { margin:12px; }
+  .oradores-card .service-actions { margin-top:12px; }
+}
 .service-actions, .module-row-actions { flex-wrap:wrap; gap:8px; }
 @media (max-width:560px) {
   .service-actions > .btn, .module-row-actions > .btn { min-height:44px; }

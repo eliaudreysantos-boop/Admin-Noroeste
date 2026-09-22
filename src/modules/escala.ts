@@ -1,3 +1,5 @@
+import { focusCorrection, fieldHelp, requestMasterCorrection } from '../ui/field-guidance'
+import { navigateTo } from '../router'
 import { editorBusy, editorError, editorSaved } from '../ui/editor-feedback'
 import { lockPublicationUi } from '../ui/publication-busy'
 import type { AppContext, RawPessoas } from '../types'
@@ -275,6 +277,8 @@ function participantModal(id: string): void {
   const overlay = document.createElement('div'); overlay.className = 'modal-overlay'
   overlay.innerHTML = `<div class="modal"><h2>${isNew ? 'Adicionar participante' : esc(name(id))}</h2>${isNew ? `<div class="form-group"><label class="form-label">Pessoa do cadastro Admin</label><select id="pmMaster" class="form-select"><option value="">Selecionar pelo nome ou ID...</option>${masterOptions}</select></div>` : `<div class="form-help" style="margin-bottom:12px">Nome e WhatsApp vêm do cadastro Admin (${esc(phoneOf(id) || 'sem WhatsApp')}) — edite lá se precisar mudar.</div>`}<div class="module-form-grid"><div class="form-group"><label class="form-label">Máximo/mês (0 sem limite)</label><input id="pmCap" class="form-input" type="number" min="0" max="99" value="${Number(p.capPerMonth ?? 0)}"></div><div class="form-group"><label class="form-label">Participa a partir de</label><input id="pmStart" class="form-input" type="date" value="${esc(p.startFromDate ?? '')}"></div><div class="form-group"><label class="form-label">Referência da folga</label><input id="pmFolga" class="form-input" type="date" value="${esc(p.refFolgaDate ?? '')}"></div><div class="form-group"><label class="form-label">Só participa com</label><select id="pmOnly" class="form-select"><option value="">Sem restrição</option>${orderedPeople(true).filter(([other]) => other !== id).map(([other]) => `<option value="${esc(other)}" ${p.onlyWithId === other ? 'selected' : ''}>${esc(name(other))}</option>`).join('')}</select></div></div><div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px"><label><input id="pmActive" type="checkbox" ${p.active !== false ? 'checked' : ''}> Ativo na Escala</label><label><input id="pmPioneer" type="checkbox" ${p.pioneer ? 'checked' : ''}> Pioneiro</label><label><input id="pmChild" type="checkbox" ${p.withChild ? 'checked' : ''}> Acompanha criança</label><label><input id="pmSame" type="checkbox" ${p.sameSexOnly ? 'checked' : ''}> Mesmo sexo</label></div><div class="form-group"><label class="form-label">Observação da Escala</label><textarea id="pmObs" class="form-input">${esc(p.obs ?? '')}</textarea></div><div style="display:flex;gap:8px">${isNew ? '' : '<button id="pmRemove" class="btn btn-danger" type="button">Remover da Escala</button>'}<span style="flex:1"></span><button id="pmCancel" class="btn btn-ghost">Cancelar</button><button id="pmSave" class="btn btn-primary">Salvar</button></div></div>`
   document.body.appendChild(overlay)
+  fieldHelp(overlay,'#pmCap','Ex.: 2 limita a duas participações no mês. Use 0 para não limitar.')
+  fieldHelp(overlay,'#pmFolga','Informe uma data conhecida de folga para a alternância usada na escala.')
   participantBaselines.set(overlay, structuredClone(rawParticipants))
   document.getElementById('pmCancel')!.addEventListener('click', () => overlay.remove())
   document.getElementById('pmSave')!.addEventListener('click', () => void saveParticipant(id, overlay))
@@ -342,6 +346,7 @@ function renderAvailability(): void {
   if (!local || !selectedParticipantId) { root().innerHTML = '<p class="empty-state">Cadastre um local e participantes ativos primeiro.</p>'; return }
   const marked = availability[selectedLocalId]?.[selectedParticipantId] ?? {}, days = local.daysActive ?? [], slots = localSlots(local), labels = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
   root().innerHTML = `${periodControls()}<div class="form-group"><label class="form-label">Participante</label><select id="aPerson" class="form-select">${people.map(([id]) => `<option value="${esc(id)}" ${id === selectedParticipantId ? 'selected' : ''}>${esc(name(id))}</option>`).join('')}</select></div><p class="form-help" style="margin-bottom:10px">Clique no dia ou horário do cabeçalho para marcar uma linha ou coluna inteira.</p><div class="availability-wrap"><table class="availability-table"><thead><tr><th>Dia</th>${slots.map(time => `<th><button class="table-toggle" data-atime="${time}">${time}</button></th>`).join('')}</tr></thead><tbody>${days.map(dow => `<tr><th><button class="table-toggle" data-aday="${dow}">${labels[dow]}</button></th>${slots.map(time => { const key = availabilityKey(dow, time); return `<td><input type="checkbox" data-avail="${key}" ${marked[key] ? 'checked' : ''}></td>` }).join('')}</tr>`).join('')}</tbody></table></div><div style="text-align:right;margin-top:10px"><button id="aConfirm" class="btn btn-primary">Confirmar revisão</button></div>`
+  fieldHelp(root(),'#aPerson','A disponibilidade vale para o local selecionado. Marcar ou desmarcar salva imediatamente.')
   bindPeriod(renderAvailability)
   document.getElementById('aPerson')!.addEventListener('change', e => { selectedParticipantId = (e.target as HTMLSelectElement).value; renderAvailability() })
   document.querySelectorAll<HTMLInputElement>('[data-avail]').forEach(box => box.addEventListener('change', () => void saveAvailability([box.dataset['avail']!], box.checked)))
@@ -538,31 +543,39 @@ async function openWhatsApp(): Promise<void> {
 }
 
 function renderPending(): void {
-  const pending: { level: string; title: string; detail: string; target: Tab; personId?: string; localId?: string }[] = [], active = orderedPeople(true)
+  const pending: { level: string; title: string; detail: string; target: Tab; personId?: string; localId?: string; date?:string; time?:string; field?:string }[] = [], active = orderedPeople(true)
   const stuck = active.filter(([, p]) => p.onlyWithId && (!participants[p.onlyWithId] || participants[p.onlyWithId]?.active === false))
-  if (stuck.length) pending.push({ level: 'high', title: `${stuck.length} participante(s) preso(s) a uma pessoa inativa`, detail: stuck.map(([, p]) => participantName(p)).join(', '), target: 'participantes', personId: stuck[0][0] })
+  stuck.forEach(([id])=>pending.push({level:'high',title:name(id)+' vinculado a uma pessoa inativa',detail:'Revise a restrição Só participa com.',target:'participantes',personId:id,field:'pmOnly'}))
   const noPhone = active.filter(([id]) => !digits(phoneOf(id)))
-  if (noPhone.length) pending.push({ level: 'medium', title: `${noPhone.length} participante(s) sem WhatsApp`, detail: noPhone.slice(0, 6).map(([id]) => name(id)).join(', '), target: 'participantes', personId: noPhone[0][0] })
+  noPhone.forEach(([id])=>pending.push({level:'medium',title:name(id)+' sem WhatsApp',detail:isAdmin()?'Abra o telefone no cadastro Admin.':'Solicite ao Admin o telefone desta pessoa.',target:'participantes',personId:id,field:'masterPhone'}))
   const noAvailability = active.filter(([id]) => !Object.values(availability).some(byPerson => Object.values(byPerson[id] ?? {}).some(Boolean)))
-  if (noAvailability.length) pending.push({ level: 'high', title: `${noAvailability.length} participante(s) sem disponibilidade`, detail: noAvailability.slice(0, 6).map(([id]) => name(id)).join(', '), target: 'disponibilidade', personId: noAvailability[0][0] })
+  noAvailability.forEach(([id])=>pending.push({level:'high',title:name(id)+' sem disponibilidade',detail:'Marque os dias e horários em que pode participar.',target:'disponibilidade',personId:id,field:'aPerson'}))
   const stale = active.filter(([id, p]) => Object.values(availability).some(byPerson => Object.values(byPerson[id] ?? {}).some(Boolean)) && (!p.availabilityUpdatedAt || Date.now() - new Date(p.availabilityUpdatedAt).getTime() > 30 * 86_400_000))
-  if (stale.length) pending.push({ level: 'low', title: `${stale.length} disponibilidade(s) sem revisão há mais de 30 dias`, detail: stale.slice(0, 6).map(([id]) => name(id)).join(', '), target: 'mensagens' })
+  stale.forEach(([id])=>pending.push({level:'low',title:name(id)+' precisa revisar disponibilidade',detail:'Última revisão há mais de 30 dias ou ainda não registrada.',target:'mensagens',personId:id,field:'mText'}))
   for (const [localId, local] of orderedLocals()) {
     const table = tables[localId]?.[selectedMonth]
     if (!table || !Object.values(table.rows ?? {}).some(row => Object.values(row.slots ?? {}).some(cell => cell.p1 || cell.p2))) pending.push({ level: 'medium', title: `${local.name ?? localId} sem escala em ${monthLabel(selectedMonth)}`, detail: 'Gere o mês e revise os horários vagos.', target: 'escalaAtual', localId })
-    const halves = Object.values(table?.rows ?? {}).flatMap(row => Object.values(row.slots ?? {}).filter(cell => Boolean(cell.p1) !== Boolean(cell.p2)))
-    if (halves.length) pending.push({ level: 'high', title: `${local.name ?? localId} tem ${halves.length} dupla(s) incompleta(s)`, detail: 'Abra a escala e complete ou deixe o horário vago.', target: 'escalaAtual', localId })
+    Object.entries(table?.rows??{}).forEach(([date,row])=>Object.entries(row.slots??{}).forEach(([time,cell])=>{
+      if(Boolean(cell.p1)!==Boolean(cell.p2))pending.push({level:'high',title:(local.name??localId)+' · '+dayLabel(date)+' · '+time,detail:'Dupla incompleta. Abra este horário para corrigir.',target:'escalaAtual',localId,date,time})
+    }))
   }
   const counts = { high:pending.filter(item => item.level === 'high').length, medium:pending.filter(item => item.level === 'medium').length, low:pending.filter(item => item.level === 'low').length }
-  const labels: Record<string, string> = { high:'Urgente', medium:'Atenção', low:'Quando puder' }
+  const labels: Record<string, string> = { high:'Revisar escala', medium:'Atenção', low:'Aviso' }
   const colors: Record<string, string> = { high:'#B3261E', medium:'#8A5B00', low:'#006EB6' }
   root().innerHTML = `${periodControls(false)}${pending.length ? `<div class="pending-summary"><span style="background:${colors.high}">Urgentes: ${counts.high}</span><span style="background:${colors.medium}">Atenção: ${counts.medium}</span><span style="background:${colors.low}">Quando puder: ${counts.low}</span></div>` : ''}<div class="module-option-list">${pending.map(item => `<button class="module-menu-btn" data-pending="${item.target}" style="border-left:4px solid ${colors[item.level]}"><div class="mod-icon" style="background:${colors[item.level]}20;color:${colors[item.level]}">!</div><div><div class="mod-label">${esc(item.title)} · ${labels[item.level]}</div><div class="mod-desc">${esc(item.detail)}</div></div></button>`).join('') || '<p class="empty-state">Nenhuma pendência identificada.</p>'}</div>`
   bindPeriod(renderPending); document.querySelectorAll<HTMLButtonElement>('[data-pending]').forEach((button, index) => button.addEventListener('click', () => {
     const item = pending[index]; if (!item) return
-    pendingParticipantId = item.personId ?? ''
+    if(item.field==='masterPhone'&&isAdmin()){requestMasterCorrection(centralId(item.personId!));void navigateTo('mestre');return}
+    pendingParticipantId = item.target==='participantes'?(item.personId??''):''
     if (item.personId) selectedParticipantId = item.personId
     if (item.localId) selectedLocalId = item.localId
-    go(item.target)
+    void go(item.target).then(()=>{
+      if(tab!==item.target)return
+      if(item.date&&item.time){if(monthLocked())focusCorrection(document.getElementById('sUnpublish'));else{pairModal(item.date,item.time);focusCorrection(document.getElementById(tables[selectedLocalId]?.[selectedMonth]?.rows?.[item.date]?.slots?.[item.time]?.p1?'pair2':'pair1'))}}
+      else if(item.target==='mensagens'&&item.personId){const select=document.getElementById('mTarget') as HTMLSelectElement;select.value=item.personId;fillMessage();focusCorrection(document.getElementById('mText'))}
+      else focusCorrection(document.getElementById(item.field==='masterPhone'?'pSearch':item.field||'sGenerateAll'))
+      pendingParticipantId=''
+    })
   }))
 }
 

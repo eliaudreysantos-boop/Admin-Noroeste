@@ -1,3 +1,4 @@
+import { focusCorrection, fieldHelp, takeMasterCorrection } from '../ui/field-guidance'
 import { editorBusy, editorError, editorSaved } from '../ui/editor-feedback'
 import type {
   AppContext,
@@ -157,7 +158,8 @@ export default function mount(_ctx: AppContext): void {
       <div id="mestreContent"></div>
     </div>`
 
-  void switchTab('pessoas')
+  const correction=takeMasterCorrection()
+  void switchTab('pessoas').then(()=>{if(correction&&pessoas[correction]&&document.getElementById('mestreRoot')){openPessoaModal(correction);focusCorrection(document.getElementById('pWpp'))}})
 }
 
 // ─── Tabs ────────────────────────────────────────────────────────────────────
@@ -766,6 +768,7 @@ function openPessoaModal(mid: string | null): void {
     </div>`
 
   document.body.appendChild(overlay)
+  fieldHelp(document,'#pWpp','Informe DDD e número, por exemplo 79 99999-9999. Este telefone é usado pelos módulos vinculados.')
   ;(document.getElementById('pNome') as HTMLInputElement).focus()
 
   const updateSharedWhatsapp = () => {
