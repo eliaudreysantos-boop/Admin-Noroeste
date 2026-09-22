@@ -1,4 +1,5 @@
 import { publicationSource, publicationHash } from '../src/modules/oradores-publication.ts'
+import { messageAddress, speakerAssignmentMessage } from '../src/modules/oradores-messages.ts'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { monthBounds, normalizeSpeakersRoot, scheduleStatus, speakerPendingItems, scheduleBaseForEdit, isDuplicateSchedule, speakerLinkOptions } from '../src/modules/oradores-domain.ts'
@@ -22,6 +23,20 @@ test('disponibilidade reúne histórico e agenda: saídas não ocupam, futuro e 
 })
 
 const catalog={ arbitrary:{numero:25,titulo:'Tema 25',ativo:true}, one:{numero:1,titulo:'Tema 1',ativo:true}, retired:{numero:38,titulo:'Tema 38',ativo:false} }
+test('mensagem usa endereço e detalhes do destino, nunca mapa, coordenadas ou Plus Code',()=>{
+  const root={temas:catalog,congregacoes:{dest:{nome:'Destino',cidade:'Cidade',diaReuniao:'Sábado',horario:'18:00',contato:'Contato',telefone:'79999999999',localizacao:'Rua Um, 10&#x20;',mapa:'4W3V+74G Aracaju, SE'},local:{nome:'Local',tipo:'local',localizacao:'Rua Local, 2',horario:'09:30'}}}
+  const item={data:'2026-11-21',tipo:'saida_orador',temaId:'arbitrary',congregacaoDestinoId:'dest'}
+  const message=speakerAssignmentMessage(item,root)
+  for(const text of ['Tema 25:','Tema 25','Congregação: Destino','Cidade: Cidade','Reunião: Sábado, 18:00','Contato: Contato','Telefone da congregação: 79999999999','Endereço: Rua Um, 10'])assert.ok(message.includes(text),text)
+  assert.ok(!message.includes('4W3V'));assert.ok(!message.includes('Localização'))
+  for(const location of ['4W3V+74G Aracaju, SE','-10.1, -37.2','https://maps.google.com/test','www.google.com/maps'])assert.equal(messageAddress(location),'')
+  root.congregacoes.dest.localizacao='4W3V+74G Aracaju, SE'
+  assert.match(speakerAssignmentMessage(item,root),/Endereço: Não informado/)
+  const incoming=speakerAssignmentMessage({...item,tipo:'discurso_visitante',congregacaoOrigemId:'dest',horarioLocal:'10:00'},root)
+  assert.match(incoming,/Endereço: Rua Local, 2/)
+  assert.match(incoming,/Reunião: 10:00/)
+  assert.equal(root.congregacoes.dest.mapa,'4W3V+74G Aracaju, SE')
+})
 test('repertório por números resolve IDs reais, ordena, remove duplicados e permite esvaziar',()=>{
   assert.deepEqual(parseRepertoire('25, 1, 025',catalog),{ids:['one','arbitrary'],formatted:'1, 25',error:''})
   assert.deepEqual(parseRepertoire('  ',catalog),{ids:[],formatted:'',error:''})
