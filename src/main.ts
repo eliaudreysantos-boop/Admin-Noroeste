@@ -1,4 +1,8 @@
 import './style.css'
+import { installPersonSearch } from './ui/person-search'
+import { installEditorFeedback } from './ui/editor-feedback'
+installPersonSearch()
+installEditorFeedback()
 import { installMonthNavigation } from './ui/month-navigation'
 installMonthNavigation()
 import {

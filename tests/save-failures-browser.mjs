@@ -33,6 +33,7 @@ try {
     await page.getByText('Falha simulada de rede', { exact:true }).waitFor()
     assert.equal(writes.length, 1)
     assert.equal(await page.locator('#pmSave').isEnabled(), true)
+    assert.equal(await page.locator('.modal [data-editor-error]').count(),1)
     await page.locator('#pmCancel').click()
     await page.locator('#pmSave').waitFor({ state:'hidden' })
     mode = 'hold'
@@ -40,15 +41,20 @@ try {
     await page.locator('[data-person="m1"]').click()
     await page.locator('#pmSave').click()
     await waiting
-    await page.locator('#pmCancel').click()
-    await page.locator('[data-person="m1"]').click()
-    await page.locator('#pmCap').fill('12')
+    assert.equal(await page.locator('#pmCancel').isDisabled(),true)
+    assert.equal(await page.locator('#pmCap').isDisabled(),true)
     release()
     await page.getByText('Participante salvo', { exact:true }).waitFor()
-    assert.equal(await page.locator('#pmCap').inputValue(), '12')
+    await page.locator('#pmSave').waitFor({state:'detached'})
+    await page.locator('[data-person="m1"]').click()
+    await page.locator('#pmCap').fill('12')
+    page.once('dialog',dialog=>dialog.dismiss())
+    await page.locator('#pmCancel').click()
+    assert.equal(await page.locator('#pmCap').inputValue(),'12')
+    page.once('dialog',dialog=>dialog.accept())
     await page.locator('#pmCancel').click()
     assert.deepEqual(errors, [])
-    console.log(JSON.stringify({ width, duplicatePrevented:true, cancelAfterFailure:true, lateResponsePreservesEditor:true }))
+    console.log(JSON.stringify({ width, duplicatePrevented:true, cancelAfterFailure:true, navigationBlockedDuringSave:true,discardConfirmation:true }))
     await context.close()
   }
 } finally { await browser.close() }

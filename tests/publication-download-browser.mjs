@@ -93,7 +93,7 @@ try {
       failure = ''
       const before = writes.length
       await publish.evaluate(button => { button.click(); button.click() })
-      await page.getByRole('button', { name:({ limpeza:'Reabrir período', servicoCampo:'Reabrir mês', tarefas:'Reabrir escala', escala:'Despublicar' })[module], exact:true }).waitFor()
+      await page.getByRole('button', { name:'Reabrir para edição', exact:true }).waitFor()
       assert.equal(writes.slice(before).filter(item => item.endpoint === 'storage-file' && item.method === 'POST').length, 1)
       assert.equal(downloads.length, 1)
       const publishedWrites = writes.length
@@ -108,6 +108,7 @@ try {
         await page.locator('[data-edit-service-template]').click()
         assert.equal(await page.locator('#serviceTemplateForm').isVisible(), true)
       } else if (module === 'limpeza') {
+        await page.getByText('Configurações de Limpeza',{exact:true}).click()
         await page.getByText('Grupos e participantes', { exact:true }).click()
         assert.equal(await page.locator('.limpeza-sel').first().isVisible(), false)
         await page.locator('#cleaningGroups summary').first().click()

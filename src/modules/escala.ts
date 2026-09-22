@@ -1,3 +1,4 @@
+import { editorBusy, editorError, editorSaved } from '../ui/editor-feedback'
 import { lockPublicationUi } from '../ui/publication-busy'
 import type { AppContext, RawPessoas } from '../types'
 import { apiJson } from '../secure-api.ts'
@@ -223,7 +224,8 @@ async function saveLocal(id: string, overlay: HTMLElement): Promise<void> {
     active: (document.getElementById('lmActive') as HTMLInputElement).checked,
   }
   const target = id || `loc_${Date.now()}`
-  try { await update(child(escalaRef, `scales/${target}`), local); locals[target] = local; overlay.remove(); toast('Local salvo'); renderLocais() } catch { toast('Não foi possível salvar o local') }
+  const release=editorBusy(overlay)
+  try { await update(child(escalaRef, `scales/${target}`), local); locals[target] = local; overlay.remove(); toast('Local salvo'); renderLocais() } catch { editorError(overlay);toast('Não foi possível salvar o local') } finally { release() }
 }
 async function deleteLocal(id: string, overlay: HTMLElement): Promise<void> {
   const used = Boolean(tables[id] && Object.keys(tables[id]).length)
@@ -290,6 +292,7 @@ async function saveParticipant(id: string, overlay: HTMLElement): Promise<void> 
   const activeNow = (document.getElementById('pmActive') as HTMLInputElement).checked
   const onlyWithId = value('pmOnly') || undefined
   const profile = { ...(target === mid ? {} : { masterId: mid }), capPerMonth: Math.min(99, Math.max(0, Number(value('pmCap')) || 0)), startFromDate: value('pmStart'), refFolgaDate: value('pmFolga'), onlyWithId: onlyWithId ?? null, active: activeNow, pioneer: (document.getElementById('pmPioneer') as HTMLInputElement).checked, withChild: (document.getElementById('pmChild') as HTMLInputElement).checked, sameSexOnly: (document.getElementById('pmSame') as HTMLInputElement).checked, obs: value('pmObs').trim(), updatedAt: now() }
+  const release=editorBusy(overlay)
   button.disabled = true
   if (removeButton) removeButton.disabled = true
   try {
@@ -307,8 +310,8 @@ async function saveParticipant(id: string, overlay: HTMLElement): Promise<void> 
     dependentIds.forEach(otherId => { participants[otherId]!.onlyWithId = undefined; if (rawParticipants[otherId]) rawParticipants[otherId]!.onlyWithId = undefined })
     const stillOpen = overlay.isConnected
     overlay.remove(); toast('Participante salvo'); if (stillOpen && tab === 'participantes') renderParticipants()
-  } catch (error) { toast(error instanceof Error ? error.message : 'Não foi possível salvar') }
-  finally { button.disabled = false; if (removeButton) removeButton.disabled = false }
+  } catch (error) { editorError(overlay);toast(error instanceof Error ? error.message : 'Não foi possível salvar') }
+  finally { release();button.disabled = false; if (removeButton) removeButton.disabled = false }
 }
 async function removeParticipant(id: string, overlay: HTMLElement): Promise<void> {
   const removeButton = overlay.querySelector<HTMLButtonElement>('#pmRemove')!
@@ -380,7 +383,7 @@ function renderScale(): void {
   const dates = table ? Object.keys(table.rows ?? {}).sort() : activeDates(selectedMonth, local.daysActive ?? [], exclusions[selectedMonth] ?? [])
   const slots = table?.slots ?? localSlots(local)
   const activeRules = Object.values(normalizeEscalaGenerationRules(settings.engineRules)).filter(Boolean).length
-  root().innerHTML = `${periodControls()}<span class="admin-badge">${published ? 'Publicado' : 'Rascunho'}</span>${published ? '<div class="notice warning">Este mês está publicado e bloqueado para edição.</div>' : ''}<div class="scale-actions"><button id="sGenerateAll" class="btn btn-primary" ${published ? 'disabled' : ''}>${hasData(selectedMonth) ? 'Completar mês' : 'Gerar mês'} · ${activeRules} regras</button><button id="sPdf" class="btn btn-ghost" ${hasData(selectedMonth) ? '' : 'disabled'}>Baixar PDF</button>${!published ? `<button id="sPublish" class="btn btn-ghost" ${hasData(selectedMonth) ? '' : 'disabled'}>Publicar no Quadro</button>` : ''}${published ? '<button id="sUnpublish" class="btn btn-ghost">Despublicar</button>' : `${hasData(selectedMonth) ? '<button id="sDelete" class="btn btn-danger">Apagar mês</button>' : ''}`}</div><div class="scale-days">${dates.map(date => `<section class="scale-day"><h3>${esc(dayLabel(date))}</h3>${slots.map(time => slotHtml(date, time, table)).join('')}</section>`).join('') || '<p class="empty-state">Este local não tem dias ativos neste mês.</p>'}</div>`
+  root().innerHTML = `${periodControls()}<span class="admin-badge">${published ? 'Publicado' : 'Rascunho'}</span>${published ? '<div class="notice warning">Este mês está publicado e bloqueado para edição.</div>' : ''}<div class="scale-actions"><button id="sGenerateAll" class="btn btn-primary" ${published ? 'disabled' : ''}>${hasData(selectedMonth) ? 'Completar mês' : 'Gerar mês'} · ${activeRules} regras</button><button id="sPdf" class="btn btn-ghost" ${hasData(selectedMonth) ? '' : 'disabled'}>Baixar PDF</button>${!published ? `<button id="sPublish" class="btn btn-ghost" ${hasData(selectedMonth) ? '' : 'disabled'}>Publicar no Quadro</button>` : ''}${published ? '<button id="sUnpublish" class="btn btn-ghost">Reabrir para edição</button>' : `${hasData(selectedMonth) ? '<details><summary>Mais opções</summary><button id="sDelete" class="btn btn-danger">Apagar mês</button></details>' : ''}`}</div><div class="scale-days">${dates.map(date => `<section class="scale-day"><h3>${esc(dayLabel(date))}</h3>${slots.map(time => slotHtml(date, time, table)).join('')}</section>`).join('') || '<p class="empty-state">Este local não tem dias ativos neste mês.</p>'}</div>`
   bindPeriod(renderScale)
   document.getElementById('sGenerateAll')!.addEventListener('click', () => void generate())
   document.getElementById('sPdf')!.addEventListener('click', () => void printPdf())
@@ -422,11 +425,12 @@ function pairModal(date: string, time: string): void {
   document.getElementById('pairCancel')!.addEventListener('click', () => overlay.remove()); document.getElementById('pairSave')!.addEventListener('click', () => void savePair(date, time, overlay))
 }
 async function savePair(date: string, time: string, overlay: HTMLElement): Promise<void> {
-  if (monthLocked() || changingPublication) { toast('Despublique o mês antes de editar'); return }
+  if (monthLocked() || changingPublication) { toast('Reabra o mês para edição antes de alterar'); return }
   const p1 = (document.getElementById('pair1') as HTMLSelectElement).value, p2 = (document.getElementById('pair2') as HTMLSelectElement).value
   const errors = validatePair(input(), date, time, p1, p2)
   if (errors.length && !confirm(`Esta escolha tem conflito:\n\n${errors.join('\n')}\n\nSalvar assim mesmo?`)) return
   const dow = new Date(`${date}T12:00:00`).getDay()
+  const release=editorBusy(overlay)
   try {
     const nextTables=structuredClone(tables)
     nextTables[selectedLocalId]??={}
@@ -438,7 +442,7 @@ async function savePair(date: string, time: string, overlay: HTMLElement): Promi
     await compareAndUpdate(escalaRef,{tables,publishedMonth:publishedMonthBaseline,publishedMonths,[auditPath]:audit.val()},{tables:nextTables,publishedMonth:publishedMonthBaseline,publishedMonths,[auditPath]:{p1,p2,editedAt:now(),editedBy:context.uid,conflicts:errors}})
     tables[selectedLocalId] ??= {}; tables[selectedLocalId][selectedMonth] ??= { slots: localSlots(locals[selectedLocalId]), rows: {} }; tables[selectedLocalId][selectedMonth].rows[date] ??= { dow, slots: {} }; tables[selectedLocalId][selectedMonth].rows[date].slots[time] = { p1, p2 }
     overlay.remove(); toast('Dupla atualizada'); renderScale()
-  } catch (error) { toast(error instanceof Error?error.message:'Não foi possível salvar a dupla') }
+  } catch (error) { editorError(overlay);toast(error instanceof Error?error.message:'Não foi possível salvar a dupla') } finally { release() }
 }
 async function publish(): Promise<void> {
   if (monthLocked() || changingPublication) return
@@ -467,7 +471,7 @@ async function publish(): Promise<void> {
 }
 async function unpublish(): Promise<void> {
   if (!monthLocked() || changingPublication) return
-  if (!confirm(`Despublicar ${monthLabel(selectedMonth)}?`)) return
+  if (!confirm(`Reabrir ${monthLabel(selectedMonth)} para edição? O PDF será retirado do Quadro até publicar novamente.`)) return
   const month = selectedMonth, previousLatest = publishedMonth, previousFlag = publishedMonths[month] ?? null
   const nextLatest = publishedMonth === month ? '' : publishedMonth
   changingPublication = true
@@ -566,9 +570,9 @@ function renderConfig(): void {
   const font = Math.min(18, Math.max(8, Number(settings.printFontPt ?? 12)))
   const hasLocals = orderedLocals().length > 0
   const scope = '__persist__'
-  root().innerHTML = `${periodControls()}<div class="form-group"><label class="form-label">Tamanho máximo no PDF: <strong id="cFontValue">${font}pt</strong></label><input id="cFont" type="range" min="8" max="18" value="${font}" style="width:100%"><p class="form-help">O app reduz a partir deste teto até encontrar a maior letra que caiba sem quebrar nomes.</p></div><div class="form-group"><label class="form-label">Confirmação de disponibilidade</label><textarea id="cConfirm" class="form-input">${esc(greetings.confirm ?? '')}</textarea></div><button id="cSave" class="btn btn-primary">Salvar confirmação e impressão</button><hr style="border:0;border-top:1px solid var(--border);margin:18px 0"><h3 style="font-size:.9rem;margin-bottom:8px">Exceções de ${esc(monthLabel(selectedMonth))}</h3><div style="display:flex;gap:8px;margin-bottom:8px"><input id="cExclusion" class="form-input" type="date" min="${selectedMonth}-01" max="${selectedMonth}-31"><button id="cAddExclusion" class="btn btn-ghost">Adicionar</button></div><div class="module-option-list">${(exclusions[selectedMonth] ?? []).map(date => `<div class="module-menu-btn" style="cursor:default"><div><div class="mod-label">${esc(dayLabel(date))}</div><div class="mod-desc">Sem carrinho em todos os locais</div></div><button class="btn btn-danger" data-remove-exclusion="${date}">Remover</button></div>`).join('') || '<p class="empty-state">Nenhuma data excluída neste mês.</p>'}</div>${hasLocals ? `<hr style="border:0;border-top:1px solid var(--border);margin:18px 0"><div class="module-form-grid" style="margin-bottom:8px"><div class="form-group"><label class="form-label">Bloqueios</label><select id="cBlockScope" class="form-select"><option value="__persist__">Todos os meses</option><option value="${selectedMonth}">Somente este mês</option></select></div><div class="form-group"><label class="form-label">Vale para</label><select id="cBlockTarget" class="form-select"><option value="__all__">Todos os locais</option>${orderedLocals().map(([id, local]) => `<option value="${esc(id)}" ${id === selectedLocalId ? 'selected' : ''}>${esc(local.name ?? id)}</option>`).join('')}</select></div></div><div id="cBlocks">${blockGrid(selectedLocalId, scope)}</div>` : ''}<div id="scaleMessageSettings"></div>`
+  root().innerHTML = `${periodControls()}<div data-editor-scope id="scalePrintSettings"><div class="form-group"><label class="form-label">Tamanho máximo no PDF: <strong id="cFontValue">${font}pt</strong></label><input id="cFont" type="range" min="8" max="18" value="${font}" style="width:100%"><p class="form-help">O app reduz a partir deste teto até encontrar a maior letra que caiba sem quebrar nomes.</p></div><div class="form-group"><label class="form-label">Confirmação de disponibilidade</label><textarea id="cConfirm" class="form-input">${esc(greetings.confirm ?? '')}</textarea></div><button id="cSave" class="btn btn-primary">Salvar confirmação e impressão</button></div><hr style="border:0;border-top:1px solid var(--border);margin:18px 0"><h3 style="font-size:.9rem;margin-bottom:8px">Exceções de ${esc(monthLabel(selectedMonth))}</h3><div style="display:flex;gap:8px;margin-bottom:8px"><input id="cExclusion" class="form-input" type="date" min="${selectedMonth}-01" max="${selectedMonth}-31"><button id="cAddExclusion" class="btn btn-ghost">Adicionar</button></div><div class="module-option-list">${(exclusions[selectedMonth] ?? []).map(date => `<div class="module-menu-btn" style="cursor:default"><div><div class="mod-label">${esc(dayLabel(date))}</div><div class="mod-desc">Sem carrinho em todos os locais</div></div><button class="btn btn-danger" data-remove-exclusion="${date}">Remover</button></div>`).join('') || '<p class="empty-state">Nenhuma data excluída neste mês.</p>'}</div>${hasLocals ? `<hr style="border:0;border-top:1px solid var(--border);margin:18px 0"><div class="module-form-grid" style="margin-bottom:8px"><div class="form-group"><label class="form-label">Bloqueios</label><select id="cBlockScope" class="form-select"><option value="__persist__">Todos os meses</option><option value="${selectedMonth}">Somente este mês</option></select></div><div class="form-group"><label class="form-label">Vale para</label><select id="cBlockTarget" class="form-select"><option value="__all__">Todos os locais</option>${orderedLocals().map(([id, local]) => `<option value="${esc(id)}" ${id === selectedLocalId ? 'selected' : ''}>${esc(local.name ?? id)}</option>`).join('')}</select></div></div><div id="cBlocks">${blockGrid(selectedLocalId, scope)}</div>` : ''}<div id="scaleMessageSettings"></div>`
   const rules = normalizeEscalaGenerationRules(settings.engineRules), canEditRules = isAdmin()
-  root().querySelector('hr')?.insertAdjacentHTML('beforebegin', `<div class="form-panel" style="margin-top:16px"><h3 style="margin-top:0">Regras do motor</h3><p class="form-help">As mudanças valem para a próxima geração. Disponibilidade, vínculos e regras de dupla continuam obrigatórios.</p><div class="engine-rule-list"><label><input id="scaleRulePioneer" type="checkbox" ${rules.prioridadePioneiroRegular ? 'checked' : ''} ${canEditRules ? '' : 'disabled'}> Dar prioridade ao pioneiro regular na formação da dupla</label><label><input id="scaleRuleBalance" type="checkbox" ${rules.equilibrarDesignacoes ? 'checked' : ''} ${canEditRules ? '' : 'disabled'}> Equilibrar o total de designações</label></div>${canEditRules ? '<div class="scale-actions" style="margin-top:12px"><button id="saveScaleRules" class="btn btn-primary">Salvar regras</button><button id="restoreScaleRules" class="btn btn-ghost">Restaurar padrões</button></div>' : '<div class="notice">Somente o Admin pode alterar estas regras.</div>'}</div>`)
+  root().querySelector('hr')?.insertAdjacentHTML('beforebegin', `<div class="form-panel" data-editor-scope style="margin-top:16px"><h3 style="margin-top:0">Regras do motor</h3><p class="form-help">As mudanças valem para a próxima geração. Disponibilidade, vínculos e regras de dupla continuam obrigatórios.</p><div class="engine-rule-list"><label><input id="scaleRulePioneer" type="checkbox" ${rules.prioridadePioneiroRegular ? 'checked' : ''} ${canEditRules ? '' : 'disabled'}> Dar prioridade ao pioneiro regular na formação da dupla</label><label><input id="scaleRuleBalance" type="checkbox" ${rules.equilibrarDesignacoes ? 'checked' : ''} ${canEditRules ? '' : 'disabled'}> Equilibrar o total de designações</label></div>${canEditRules ? '<div class="scale-actions" style="margin-top:12px"><button id="saveScaleRules" class="btn btn-primary">Salvar regras</button><button id="restoreScaleRules" class="btn btn-ghost">Restaurar padrões</button></div>' : '<div class="notice">Somente o Admin pode alterar estas regras.</div>'}</div>`)
   bindPeriod(renderConfig)
   document.getElementById('cFont')!.addEventListener('input', e => { document.getElementById('cFontValue')!.textContent = `${(e.target as HTMLInputElement).value}pt` })
   document.getElementById('cSave')!.addEventListener('click', () => void saveConfig())
@@ -590,8 +594,9 @@ function renderConfig(): void {
 async function saveScaleRules(value?: EscalaGenerationRules): Promise<void> {
   if (!isAdmin()) { toast('Somente o Admin pode alterar as regras'); return }
   const next = value ?? { prioridadePioneiroRegular:(document.getElementById('scaleRulePioneer') as HTMLInputElement).checked, equilibrarDesignacoes:(document.getElementById('scaleRuleBalance') as HTMLInputElement).checked }
+  const scope=document.getElementById('saveScaleRules')!.closest<HTMLElement>('[data-editor-scope]')!,release=editorBusy(scope)
   try { await update(escalaRef, { 'settings/engineRules':{ ...next, version:1 } }); settings.engineRules = next; toast(value ? 'Padrões restaurados' : 'Regras salvas'); renderConfig() }
-  catch { toast('Não foi possível salvar as regras') }
+  catch { editorError(scope);toast('Não foi possível salvar as regras') } finally {release()}
 }
 function blockGrid(target: string, scope: string): string {
   const labels = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
@@ -624,7 +629,8 @@ async function removeExclusion(date: string): Promise<void> {
 async function saveConfig(): Promise<void> {
   const value = (id: string) => (document.getElementById(id) as HTMLInputElement | HTMLTextAreaElement).value.trim()
   const nextSettings = { ...settings, printFontPt: Number(value('cFont')) }, nextGreetings = { ...greetings, confirm: value('cConfirm') }
-  try { await update(escalaRef, { settings: nextSettings, greetings: nextGreetings }); settings = nextSettings; greetings = nextGreetings; toast('Configurações salvas') } catch { toast('Não foi possível salvar') }
+  const scope=document.getElementById('scalePrintSettings')!,release=editorBusy(scope)
+  try { await update(escalaRef, { settings: nextSettings, greetings: nextGreetings }); settings = nextSettings; greetings = nextGreetings; editorSaved(scope);toast('Configurações salvas') } catch { editorError(scope);toast('Não foi possível salvar') } finally {release()}
 }
 
 async function printPdf(): Promise<void> {

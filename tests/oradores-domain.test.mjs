@@ -1,3 +1,4 @@
+import { publicationSource, publicationHash } from '../src/modules/oradores-publication.ts'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { monthBounds, normalizeSpeakersRoot, scheduleStatus, speakerPendingItems, scheduleBaseForEdit, isDuplicateSchedule, speakerLinkOptions } from '../src/modules/oradores-domain.ts'
@@ -121,4 +122,18 @@ test('pendências preservam falta de orador, tema e reconfirmação', () => {
 
 test('limites mensais usam o calendário real', () => {
   assert.deepEqual(monthBounds('2028-02'), { start:'2028-02-01', end:'2028-02-29' })
+})
+
+test('comparação da publicação considera somente dados do PDF e saídas futuras',async()=>{
+  const root={oradores:{a:{nome:'Nome atual'}},temas:{t:{numero:25,titulo:'Tema'}},congregacoes:{c:{nome:'Destino',localizacao:'Rua A'}},programacao:{p:{data:'2026-09-20',tipo:'discurso_local',oradorId:'a',temaId:'t'},s:{data:'2026-12-01',tipo:'saida_orador',oradorId:'a',congregacaoDestinoId:'c'}}}
+  const source=publicationSource(root,'2026-09'),hash=await publicationHash(source)
+  assert.match(hash,/^[a-f0-9]{64}$/)
+  root.programacao.p.status='confirmado';root.programacao.p.observacoes='Só no aplicativo'
+  assert.equal(publicationSource(root,'2026-09'),source)
+  root.oradores.a.nome='Nome corrigido'
+  assert.notEqual(publicationSource(root,'2026-09'),source)
+  root.oradores.a.nome='Nome atual';root.congregacoes.c.localizacao='Rua B'
+  assert.notEqual(publicationSource(root,'2026-09'),source)
+  root.congregacoes.c.localizacao='Rua A';root.programacao.legado={data:'2026-09-21',tipo:'discurso_local',secao:'s1'}
+  assert.equal(publicationSource(root,'2026-09'),source)
 })

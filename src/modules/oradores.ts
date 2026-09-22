@@ -1,6 +1,9 @@
 import { cleanAddress } from './agenda-location'
+import { publicationSource, publicationHash } from './oradores-publication'
+import { officialDocumentId } from './agenda-documents-domain'
+import type { AgendaPublicDocument } from '../types'
 import type { AppContext } from '../types'
-import { agendaConfigRef, child, compareAndSet, get, oradoresCadastroRef, oradoresCongregacoesRef, oradoresEventosRef, oradoresProgramacaoRef, oradoresRef, oradoresTemasRef, set, pessoasRef, tarefasScaleRef, tarefasPeopleRef, tarefasPlanejamentoRef, update } from '../firebase'
+import { agendaDocumentsRef, agendaConfigRef, child, compareAndSet, get, oradoresCadastroRef, oradoresCongregacoesRef, oradoresEventosRef, oradoresProgramacaoRef, oradoresRef, oradoresTemasRef, set, pessoasRef, tarefasScaleRef, tarefasPeopleRef, tarefasPlanejamentoRef, update } from '../firebase'
 import { renderWorkspaceNav } from '../ui/workspace-nav'
 import { moduleBackButton } from '../ui/module-header'
 import { lockPublicationUi } from '../ui/publication-busy'
@@ -20,6 +23,7 @@ import { filteredThemeRows, themeUsageIndex, themeDate, THEME_FILTER_LABELS, typ
 import { downloadPdf } from '../ui/pdf-download'
 let themeFilter:ThemeFilter='available'
 let themeQuery=''
+let publicationVersion=0
 
 type Screen = 'programacao' | 'temas' | 'eventos' | 'oradores' | 'designacoes' | 'congregacoes' | 'intercambios' | 'pendencias' | 'emergencia'
 type Planning = { meetingDays?:{ weekendDow?:number; weekendS1Dow?:number }; excludedDates?:string[]; enableSection1?:boolean; s1Time?:string; s2Time?:string }
@@ -63,12 +67,12 @@ function freezeForm(form:HTMLFormElement):()=>void {
 function installEditGuard():void {
   guardController?.abort(); guardController=new AbortController()
   const options={signal:guardController.signal}
-  document.addEventListener('input',event=>{if((event.target as HTMLElement)?.closest('#oradoresRoot form'))dirty=true},options)
+  document.addEventListener('input',event=>{if((event.target as HTMLElement)?.closest('#oradoresRoot form')&&!(event.target as HTMLElement).matches('[data-person-search]'))dirty=true},options)
   document.addEventListener('change',event=>{if((event.target as HTMLElement)?.closest('#oradoresRoot form'))dirty=true},options)
   document.addEventListener('click',event=>{
     if (!document.getElementById('oradoresRoot')) return
     const button=(event.target as HTMLElement)?.closest('button')
-    if (!button || !button.matches('[data-workspace-tab], [data-module-index], #btnBack, #btnSair, [id^="cancel"], [id^="new"], [data-edit-speaker], [data-edit-schedule], [data-edit-theme], [data-edit-congregation], [data-edit-event], [data-confirm-schedule], [data-reconfirm-schedule], #fillScheduleDates, #oradoresPrev, #oradoresNext')) return
+    if (!button || !button.matches('[data-workspace-tab], [data-module-index], #btnBack, #btnSair, [id^="cancel"], [id^="new"], [data-edit-speaker], [data-edit-schedule], [data-edit-theme], [data-edit-congregation], [data-edit-event], [data-confirm-schedule], [data-reconfirm-schedule], [data-substitute-date], #clearScheduleFilters, #fillScheduleDates, #oradoresPrev, #oradoresNext')) return
     if (!allowLeave()) {event.preventDefault();event.stopImmediatePropagation()}
   },{...options,capture:true})
   window.addEventListener('beforeunload',event=>{if(document.getElementById('oradoresRoot')&&(dirty||saving)){event.preventDefault();event.returnValue=''}},options)
@@ -149,7 +153,7 @@ function renderNavigation(): void {
   const host=document.getElementById('oradoresNav'); if (!host) return
   renderWorkspaceNav(host, 'Oradores', 'programacao', screen, [
     { id:'programacao', label:'Programação' },
-    { id:'oradores', label:'Oradores', children:[{id:'oradores',label:'Cadastro'},{id:'designacoes',label:'Designações'},{id:'emergencia',label:'Emergência'}] },
+    { id:'oradores', label:'Oradores', children:[{id:'oradores',label:'Cadastro'},{id:'designacoes',label:'Designações'},{id:'emergencia',label:'Substituições'}] },
     { id:'congregacoes', label:'Congregações', children:[{id:'congregacoes',label:'Cadastro'},{id:'intercambios',label:'Intercâmbios'}] },
     { id:'temas', label:'Apoio', children:[{id:'temas',label:'Temas'},{id:'eventos',label:'Eventos'},{id:'pendencias',label:'Pendências'}] },
   ], id=>void openScreen(id as Screen))
@@ -177,6 +181,20 @@ function bindPeriod(): void {
   document.getElementById('oradoresMonth')?.addEventListener('change',event=>{ const value=(event.currentTarget as HTMLInputElement).value; if(!allowLeave()){(event.currentTarget as HTMLInputElement).value=selectedMonth;return} if (/^\d{4}-\d{2}$/.test(value)) { selectedMonth=value; localStorage.setItem('noroeste_oradores_month',value); renderSchedule() } })
 }
 
+function themeChoiceLabel(id:string):string {
+  const usage=themeUse(id)
+  return usage.nextDate?`Programado para ${themeDate(usage.nextDate)}`:usage.past?`Já usado em ${themeDate(usage.lastPastDate)}`:'Disponível'
+}
+async function showPublicationStatus():Promise<void> {
+  const version=++publicationVersion, element=document.getElementById('speakerPublicationStatus'), month=selectedMonth
+  if(!element)return
+  try {
+    const [snapshot,hash]=await Promise.all([get<AgendaPublicDocument>(child(agendaDocumentsRef,officialDocumentId('oradores',month))),publicationHash(publicationSource(data,month))])
+    if(version!==publicationVersion||!element.isConnected)return
+    const item=snapshot.val()
+    element.textContent=!item?.criadoEm?'PDF ainda não publicado para este mês.':`PDF publicado em ${new Date(item.criadoEm).toLocaleString('pt-BR',{timeZone:'America/Fortaleza'})}. ${!item.sourceHash?'Versão antiga: publique novamente para habilitar a comparação.':item.sourceHash===hash?'Corresponde aos dados carregados.':'Existem alterações ainda não publicadas no PDF.'}`
+  } catch {if(element.isConnected&&version===publicationVersion)element.textContent='Não foi possível consultar a publicação. Não é possível confirmar se o PDF está atualizado.'}
+}
 function speakerOptions(selected='', kind?:'local'|'visitante'): string {
   return `<option value="">A definir</option>${Object.entries(speakers()).filter(([id,item])=>(item.ativo || id===selected) && (!kind || item.tipo===kind)).sort((a,b)=>a[1].nome.localeCompare(b[1].nome,'pt-BR')).map(([id,item])=>option(id,item.nome,selected)).join('')}`
 }
@@ -193,26 +211,30 @@ function scheduleEditor(): string {
     ${kind==='discurso_visitante' ? field('Nome digitado (se não cadastrado)',`<input name="oradorNome" maxlength="100" value="${esc(draft?.['oradorNome']??item?.oradorNome)}">`) : ''}
     ${kind!=='discurso_local' ? field(kind==='saida_orador'?'Congregação de destino':'Congregação de origem',`<select name="congregacaoId">${congregationOptions(congregationId)}</select>`) : ''}
     ${field('Número do tema',`<input name="themeNumber" type="text" inputmode="numeric" autocomplete="off" value="${esc(draft?.['themeNumber']??themes()[item?.temaId??'']?.numero??item?.temaNumero??'')}" placeholder="Ex.: 25" aria-describedby="scheduleThemePreview"><input name="temaId" type="hidden" value="${esc(draft?.['temaId']??item?.temaId)}">`)}<div id="scheduleThemePreview" class="form-help" aria-live="polite"></div>
+  </div><details ${draft?.['oradorSecundarioId']||item?.oradorSecundarioId||draft?.['horarioLocal']||item?.horarioLocal||draft?.['observacoes']||item?.observacoes?'open':''}><summary>Mais opções</summary><div class="module-form-grid">
     ${kind==='discurso_local' ? field('Segundo orador',`<select name="oradorSecundarioId">${speakerOptions(draft?.['oradorSecundarioId']??item?.oradorSecundarioId,'local')}</select>`) : ''}
     ${kind!=='saida_orador' ? field('Horário local',`<input name="horarioLocal" type="time" value="${esc(draft?.['horarioLocal']??item?.horarioLocal ?? planning.s2Time ?? '')}">`) : ''}
     ${field('Observações',`<textarea name="observacoes" maxlength="500">${esc(draft?.['observacoes']??item?.observacoes)}</textarea>`)}
-  </div><div id="scheduleHints" class="form-help" aria-live="polite"></div><div class="service-actions"><button class="btn btn-primary" type="submit">Salvar</button><button id="cancelScheduleEdit" class="btn btn-ghost" type="button">Cancelar</button>${item?'<button id="deleteSchedule" class="btn btn-danger" type="button">Excluir</button>':''}</div></form>`
+  </div></details><div id="scheduleHints" class="form-help" aria-live="polite"></div><div class="service-actions"><button class="btn btn-primary" type="submit">Salvar</button><button id="cancelScheduleEdit" class="btn btn-ghost" type="button">Cancelar</button>${item?'<button id="deleteSchedule" class="btn btn-danger" type="button">Excluir</button>':''}</div></form>`
 }
 
 function scheduleCard(id:string,item:TalkSchedule): string {
   const speaker=speakers()[item.oradorId??'']?.nome?.trim() || item.oradorNome?.trim() || 'Sem orador', theme=themes()[item.temaId??''], congregation=congregations()[scheduleCongregationId(item)]?.nome ?? scheduleCongregationName(item)
   const status=scheduleStatus(item), section=''
-  return `<article class="oradores-card"><div class="oradores-card-head"><div><strong>${esc(formatSpeakerDate(item.data))}</strong><small>${esc(TALK_KIND_LABEL[item.tipo]+section)}</small></div><span class="status-pill status-${esc(status)}">${esc(TALK_STATUS_LABEL[status])}</span></div><div class="oradores-card-grid"><div><span>Orador</span><strong>${esc(speaker)}</strong></div><div><span>Tema</span><strong>${esc(theme?`${String(theme.numero).padStart(3,'0')} - ${theme.titulo}`:item.temaTitulo||'Sem tema')}</strong></div>${congregation?`<div><span>Congregação</span><strong>${esc(congregation)}</strong></div>`:''}${item.oradorSecundarioNome?`<div><span>Segundo orador</span><strong>${esc(item.oradorSecundarioNome)}</strong></div>`:''}</div><div class="service-actions"><button class="btn btn-ghost" data-edit-schedule="${esc(id)}">${!item.oradorId&&!item.oradorNome?'Definir orador':!item.temaId&&!item.temaTitulo?'Definir tema':'Editar'}</button><button class="btn btn-ghost" data-confirm-schedule="${esc(id)}" ${!item.oradorId&&!item.oradorNome?'disabled':''}>${status==='confirmado'?'Desfazer confirmação':'Confirmar'}</button>${status==='confirmado' ? `<button class="btn btn-ghost" data-reconfirm-schedule="${esc(id)}">${item.reconfirmacao?.status?'Desfazer reconfirmação':'Reconfirmar'}</button>`:''}${id?`<button class="btn btn-ghost" data-notify-schedule="${esc(id)}">${status==='confirmado'?'Abrir WhatsApp':'Pedir confirmação'}</button>`:''}</div></article>`
+  return `<article class="oradores-card"><div class="oradores-card-head"><div><strong>${esc(formatSpeakerDate(item.data))}</strong><small>${esc(TALK_KIND_LABEL[item.tipo]+section)}</small></div><span class="status-pill status-${esc(status)}">${esc(TALK_STATUS_LABEL[status])}</span></div><div class="oradores-card-grid"><div><span>Orador</span><strong>${esc(speaker)}</strong></div><div><span>Tema</span><strong>${esc(theme?`${String(theme.numero).padStart(3,'0')} - ${theme.titulo}`:item.temaTitulo||'Sem tema')}</strong></div>${congregation?`<div><span>Congregação</span><strong>${esc(congregation)}</strong></div>`:''}${item.oradorSecundarioNome?`<div><span>Segundo orador</span><strong>${esc(item.oradorSecundarioNome)}</strong></div>`:''}</div><div class="service-actions"><button class="btn btn-ghost" data-edit-schedule="${esc(id)}">${!item.oradorId&&!item.oradorNome?'Definir orador':!item.temaId&&!item.temaTitulo?'Definir tema':'Editar'}</button><button class="btn btn-ghost" data-confirm-schedule="${esc(id)}" ${!item.oradorId&&!item.oradorNome?'disabled':''}>${status==='confirmado'?'Desfazer confirmação':'Confirmar'}</button>${status==='confirmado' ? `<button class="btn btn-ghost" data-reconfirm-schedule="${esc(id)}">${item.reconfirmacao?.status?'Desfazer reconfirmação':'Reconfirmar'}</button>`:''}${id&&item.tipo!=='saida_orador'?`<button class="btn btn-ghost" data-substitute-date="${esc(item.data)}">Buscar substituto</button>`:''}${id?`<button class="btn btn-ghost" data-notify-schedule="${esc(id)}">${status==='confirmado'?'Abrir WhatsApp':'Pedir confirmação'}</button>`:''}</div></article>`
 }
 
 function renderSchedule(): void {
   const monthRows=Object.entries(schedule()).filter(([,item])=>sameMonth(item.data,selectedMonth))
   const matchesFilter=(item:TalkSchedule,filter:string):boolean=>filter==='speaker'?!item.oradorId&&!item.oradorNome:filter==='theme'?!item.temaId&&!item.temaTitulo:filter==='confirm'?scheduleStatus(item)==='por_confirmar':filter==='reconfirm'?scheduleStatus(item)==='confirmado'&&!item.reconfirmacao?.status&&item.data>=today()&&item.data<=new Date(Date.now()+7*86400000).toISOString().slice(0,10):true
   const rows=monthRows.filter(([,item])=>(!onlyFuture||item.data>=today())&&matchesFilter(item,scheduleFilter)&&[`${speakers()[item.oradorId??'']?.nome??item.oradorNome??''}`,themes()[item.temaId??'']?.titulo??item.temaTitulo??'',String(themes()[item.temaId??'']?.numero??item.temaNumero??'')].some(value=>value.toLocaleLowerCase('pt-BR').includes(scheduleQuery.toLocaleLowerCase('pt-BR')))).sort((a,b)=>a[1].data.localeCompare(b[1].data)||a[1].tipo.localeCompare(b[1].tipo))
-  root().innerHTML=`${sectionTitle('Programação de oradores')}${periodControl()}<div class="service-actions"><button id="newSchedule" class="btn btn-primary" type="button">Nova programação</button><button id="fillScheduleDates" class="btn btn-ghost" type="button">Criar datas do mês</button><button id="speakerSchedulePdf" class="btn btn-ghost" type="button" ${monthRows.length?'':'disabled'}>Baixar PDF A4</button><button id="speakerSchedulePublish" class="btn btn-ghost" type="button" ${monthRows.length?'':'disabled'}>Publicar no Quadro</button></div>${scheduleEditor()}<div class="service-actions">${[['','Todos'],['speaker','Sem orador'],['theme','Sem tema'],['confirm','A confirmar'],['reconfirm','Reconfirmar']].map(([key,label])=>`<button class="btn ${scheduleFilter===key?'btn-primary':'btn-ghost'}" data-schedule-filter="${key}" aria-pressed="${scheduleFilter===key}">${label}: ${monthRows.filter(([,item])=>matchesFilter(item,key!)).length}</button>`).join('')}</div>
+  root().innerHTML=`${sectionTitle('Programação de oradores')}${periodControl()}<div class="service-actions"><button id="newSchedule" class="btn btn-primary" type="button">Nova programação</button><button id="fillScheduleDates" class="btn btn-ghost" type="button">Criar datas do mês</button><button id="speakerSchedulePdf" class="btn btn-ghost" type="button" ${monthRows.length?'':'disabled'}>Baixar PDF</button><button id="speakerSchedulePublish" class="btn btn-ghost" type="button" ${monthRows.length?'':'disabled'}>Publicar no Quadro</button></div><p id="speakerPublicationStatus" class="notice" aria-live="polite">Consultando publicação…</p><p class="form-help">Confirmar registra a resposta do orador. Publicar no Quadro atualiza o PDF; editar a programação não atualiza o arquivo já publicado.</p>${scheduleEditor()}<div class="service-actions">${[['','Todos'],['speaker','Sem orador'],['theme','Sem tema'],['confirm','A confirmar'],['reconfirm','Reconfirmar']].map(([key,label])=>`<button class="btn ${scheduleFilter===key?'btn-primary':'btn-ghost'}" data-schedule-filter="${key}" aria-pressed="${scheduleFilter===key}">${label}: ${monthRows.filter(([,item])=>matchesFilter(item,key!)).length}</button>`).join('')}</div>
     ${field('Buscar na programação',`<input id="scheduleSearch" type="search" value="${esc(scheduleQuery)}" placeholder="Orador, número ou título do tema">`)}
-    <label class="oradores-check"><input id="scheduleOnlyFuture" type="checkbox" ${onlyFuture?'checked':''}> Só o que falta (datas de hoje em diante)</label><div class="oradores-list">${rows.map(([id,item])=>scheduleCard(id,item)).join('')||empty('Nenhuma programação neste mês.')}</div><div id="oradoresMessageSettings"></div>`
+    <label class="oradores-check"><input id="scheduleOnlyFuture" type="checkbox" ${onlyFuture?'checked':''}> Só o que falta (datas de hoje em diante)</label><div class="oradores-list">${rows.map(([id,item])=>scheduleCard(id,item)).join('')||empty(monthRows.length?'Nenhum resultado para esta busca ou filtro.':'Nenhuma programação neste mês.')}</div>${scheduleQuery||scheduleFilter||onlyFuture?'<button id="clearScheduleFilters" class="btn btn-ghost">Limpar filtros</button>':''}<div id="oradoresMessageSettings"></div>`
   bindPeriod()
+  void showPublicationStatus()
+  document.getElementById('clearScheduleFilters')?.addEventListener('click',()=>{if(!allowLeave())return;scheduleQuery='';scheduleFilter='';onlyFuture=false;renderSchedule()})
+  document.querySelectorAll<HTMLButtonElement>('[data-substitute-date]').forEach(button=>button.addEventListener('click',()=>{if(!allowLeave())return;emergencyDate=button.dataset.substituteDate!;void openScreen('emergencia')}))
   document.querySelectorAll<HTMLButtonElement>('[data-schedule-filter]').forEach(button=>button.addEventListener('click',()=>{if(!allowLeave())return;scheduleFilter=button.dataset.scheduleFilter??'';renderSchedule()}))
   document.getElementById('scheduleSearch')?.addEventListener('change',event=>{if(!allowLeave())return;scheduleQuery=(event.target as HTMLInputElement).value;renderSchedule()})
   document.getElementById('scheduleOnlyFuture')?.addEventListener('change',event=>{if(!allowLeave())return;onlyFuture=(event.target as HTMLInputElement).checked;renderSchedule()})
@@ -267,7 +289,7 @@ function bindScheduleFields():void {
     const repertoire=speaker?repertoireNumbers(speaker.temaIds,themes()):''
     const destination=congregations()[congregation?.value??'']
     document.getElementById('scheduleHints')!.innerHTML=`${speaker?`<p>Telefone: ${esc(speaker.telefone||'não informado')}. ${repertoire?'Temas: '+esc(repertoire):'Sem repertório informado.'}</p>`:''}
-      ${speaker?.temaIds.filter(id=>themes()[id]?.ativo).sort((a,b)=>themes()[a]!.numero-themes()[b]!.numero).map(id=>`<button type="button" class="btn btn-ghost" data-pick-theme="${themes()[id]!.numero}" title="${esc(themes()[id]!.titulo)}">${themes()[id]!.numero}</button>`).join('')??''}
+      ${speaker?.temaIds.filter(id=>themes()[id]?.ativo).sort((a,b)=>themes()[a]!.numero-themes()[b]!.numero).map(id=>`<button type="button" class="btn btn-ghost" data-pick-theme="${themes()[id]!.numero}" title="${esc(themes()[id]!.titulo)}">${themes()[id]!.numero} · ${themeChoiceLabel(id)}</button>`).join('')??''}
       ${speaker&&parsed.ids[0]&&!speaker.temaIds.includes(parsed.ids[0])?'<p class="notice warning">Este tema não está no repertório do orador. Confira antes de salvar.</p>':''}
       ${warnings.map(reason=>`<p class="notice warning">${esc(reason)}</p>`).join('')}
       ${destination?`<p>${esc(destination.nome)} · ${esc(destination.horario||'Horário não informado')} · ${esc(destination.localizacao||'Endereço não informado')}</p>`:''}
@@ -323,7 +345,7 @@ async function createMonthSlots(): Promise<void> {
 async function downloadSchedulePdf(): Promise<void> {
   if (downloadingPdf) return; downloadingPdf=true
   const button=document.getElementById('speakerSchedulePdf') as HTMLButtonElement|null; if(button){button.disabled=true;button.textContent='Preparando PDF...'}
-  try { const docs=await import('./oradores-documents'); await docs.downloadSpeakersSchedulePdf({month:selectedMonth,schedule:Object.values(schedule()),speakers:speakers(),themes:themes(),congregations:congregations()}); toast('Download do PDF iniciado') } catch { toast('Não foi possível gerar o PDF') } finally { downloadingPdf=false; if(button){button.disabled=false;button.textContent='Baixar PDF A4'} }
+  try { const docs=await import('./oradores-documents'); await docs.downloadSpeakersSchedulePdf({month:selectedMonth,schedule:Object.values(schedule()),speakers:speakers(),themes:themes(),congregations:congregations()}); toast('Download do PDF iniciado') } catch { toast('Não foi possível gerar o PDF') } finally { downloadingPdf=false; if(button){button.disabled=false;button.textContent='Baixar PDF'} }
 }
 
 async function publishSchedulePdf(): Promise<void> {
@@ -334,8 +356,9 @@ async function publishSchedulePdf(): Promise<void> {
     const [{ createSpeakersSchedulePdf },{ publishAgendaModulePdf }]=await Promise.all([import('./oradores-documents'),import('./agenda-documents')])
     const bytes=await createSpeakersSchedulePdf({month:selectedMonth,schedule:Object.values(schedule()),speakers:speakers(),themes:themes(),congregations:congregations()})
     const {end}=monthBounds(selectedMonth)
-    await publishAgendaModulePdf(bytes,{modulo:'oradores',periodo:selectedMonth,inicio:`${selectedMonth}-01`,fim:end,origemPeriodoId:selectedMonth,nome:`programacao-oradores-${selectedMonth}.pdf`})
-    toast('PDF de Oradores publicado no Quadro')
+    const sourceHash=await publicationHash(publicationSource(data,selectedMonth))
+    await publishAgendaModulePdf(bytes,{sourceHash,modulo:'oradores',periodo:selectedMonth,inicio:`${selectedMonth}-01`,fim:end,origemPeriodoId:selectedMonth,nome:`programacao-oradores-${selectedMonth}.pdf`})
+    toast('PDF de Oradores publicado no Quadro');void showPublicationStatus()
   } catch { toast('Não foi possível publicar o PDF') }
   finally { publishingPdf=false; releaseUi() }
 }
@@ -492,7 +515,7 @@ function renderEmergency():void {
   const rows=Object.entries(speakers()).filter(([,item])=>item.tipo==='local'&&item.ativo)
     .map(([id,item])=>({id,item,conflicts:speakerConflicts(id,emergencyDate,data,masterPeople,taskPeople,taskPeriods),available:item.temaIds.filter(themeId=>themes()[themeId]?.ativo&&!used.has(themeId)).map(themeId=>themes()[themeId]!)}))
     .filter(row=>row.available.length).sort((a,b)=>a.conflicts.length-b.conflicts.length||a.item.nome.localeCompare(b.item.nome,'pt-BR'))
-  root().innerHTML=`${sectionTitle('Emergência')}<button id="substitutionsPdf" class="btn btn-ghost">Baixar PDF de substituições</button>${field('Data do discurso',`<input id="emergencyDate" type="date" value="${esc(emergencyDate)}">`)}<p class="form-help">Oradores ativos com temas que não foram usados nem estão programados.${canReadTasks()?'':' Designações de Tarefas não verificadas com seu acesso.'}</p>
+  root().innerHTML=`${sectionTitle('Substituições')}<button id="substitutionsPdf" class="btn btn-ghost">Baixar PDF de substituições</button>${field('Data do discurso',`<input id="emergencyDate" type="date" value="${esc(emergencyDate)}">`)}<p class="form-help">Oradores ativos com temas que não foram usados nem estão programados.${canReadTasks()?'':' Designações de Tarefas não verificadas com seu acesso.'}</p>
     <div class="oradores-list">${rows.map(row=>`<article class="oradores-card"><strong>${esc(row.item.nome)}</strong><small>${row.available.sort((a,b)=>a.numero-b.numero).map(theme=>`${theme.numero} — ${esc(theme.titulo)}`).join('<br>')}</small>
     ${row.conflicts.map(reason=>`<p class="notice warning">${esc(reason)}</p>`).join('')||'<p>Sem conflitos encontrados nesta data.</p>'}
     <button class="btn btn-ghost" data-emergency-speaker="${esc(row.id)}" ${row.conflicts.length?'disabled':''}>Programar nesta data</button></article>`).join('')||empty('Nenhum orador tem tema disponível no momento.')}</div>`

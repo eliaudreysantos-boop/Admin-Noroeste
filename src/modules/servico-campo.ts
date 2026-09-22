@@ -1,3 +1,4 @@
+import { editorBusy, editorError } from '../ui/editor-feedback'
 import { lockPublicationUi } from '../ui/publication-busy'
 import type { AppContext, ConfigCongregacao, MasterPessoa, RawPessoas } from '../types'
 import { child, compareAndSet, configCongregacaoRef, get, pessoasRef, servicoCampoRef, update } from '../firebase'
@@ -125,7 +126,7 @@ function assignmentRow(assignment: FieldServiceAssignment, locked: boolean): str
 function renderSchedule(): void {
   const period = currentPeriod(), assignments = Object.values(period?.assignments ?? {}).sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time) || a.location.localeCompare(b.location, 'pt-BR')), locked = period?.published === true
   const eligible = new Set(leaderIds()), blank = assignments.filter(item => !item.leaderId || !eligible.has(item.leaderId)).length
-  root().innerHTML = `${sectionTitle('Programação de Serviço de Campo')}<button id="serviceConfig" class="btn btn-ghost" type="button">Configurações</button>${periodControl()}<span class="admin-badge">${locked ? 'Publicado' : 'Rascunho'}</span>${locked ? '<div class="notice">Este mês está publicado no Quadro e bloqueado para edição.</div>' : ''}<div class="service-summary"><div><strong>${assignments.length}</strong><span>Saídas</span></div><div><strong>${new Set(assignments.map(item => item.date)).size}</strong><span>Dias</span></div><div><strong>${blank}</strong><span>Sem dirigente</span></div><div><strong>${leaderIds().length}</strong><span>No rodízio</span></div></div><div class="service-actions"><button id="serviceGenerate" class="btn btn-primary" type="button" ${locked ? 'disabled' : ''}>${assignments.length ? 'Completar mês' : 'Gerar rodízio'}</button><button id="servicePdf" class="btn btn-ghost" type="button" ${assignments.length ? '' : 'disabled'}>Baixar PDF</button>${!locked ? `<button id="servicePublish" class="btn btn-ghost" type="button" ${assignments.length ? '' : 'disabled'}>Publicar no Quadro</button>` : ''}${locked ? '<button id="serviceReopen" class="btn btn-ghost" type="button">Reabrir mês</button>' : ''}</div>${locked ? '' : manualAssignmentForm()}<div class="service-assignment-list">${assignments.map(item => assignmentRow(item, locked)).join('') || '<p class="empty-state">Configure as saídas e gere o rodízio deste mês.</p>'}</div>`
+  root().innerHTML = `${sectionTitle('Programação de Serviço de Campo')}<button id="serviceConfig" class="btn btn-ghost" type="button">Configurações</button>${periodControl()}<span class="admin-badge">${locked ? 'Publicado' : 'Rascunho'}</span>${locked ? '<div class="notice">Este mês está publicado no Quadro e bloqueado para edição.</div>' : ''}<div class="service-summary"><div><strong>${assignments.length}</strong><span>Saídas</span></div><div><strong>${new Set(assignments.map(item => item.date)).size}</strong><span>Dias</span></div><div><strong>${blank}</strong><span>Sem dirigente</span></div><div><strong>${leaderIds().length}</strong><span>No rodízio</span></div></div><div class="service-actions"><button id="serviceGenerate" class="btn btn-primary" type="button" ${locked ? 'disabled' : ''}>${assignments.length ? 'Completar mês' : 'Gerar rodízio'}</button><button id="servicePdf" class="btn btn-ghost" type="button" ${assignments.length ? '' : 'disabled'}>Baixar PDF</button>${!locked ? `<button id="servicePublish" class="btn btn-ghost" type="button" ${assignments.length ? '' : 'disabled'}>Publicar no Quadro</button>` : ''}${locked ? '<button id="serviceReopen" class="btn btn-ghost" type="button">Reabrir para edição</button>' : ''}</div>${locked ? '' : manualAssignmentForm()}<div class="service-assignment-list">${assignments.map(item => assignmentRow(item, locked)).join('') || '<p class="empty-state">Configure as saídas e gere o rodízio deste mês.</p>'}</div>`
   bindPeriod()
   document.getElementById('serviceConfig')?.addEventListener('click', () => void openScreen('configuracao'))
   document.getElementById('servicePublish')?.addEventListener('click', () => void publishPeriod())
@@ -168,7 +169,8 @@ async function addManualAssignment(form: HTMLFormElement): Promise<void> {
   const assignment: FieldServiceAssignment = { id:assignmentId, templateId:'', date, time, location, label:String(values.get('label') ?? '').trim() || 'Saída de campo', leaderId:String(values.get('leaderId') ?? ''), manual:true }
   const current = currentPeriod() ?? { month:selectedMonth, assignments:{}, published:false }
   if(fieldServiceConflicts([...Object.values(current.assignments),assignment]).length){toast('O dirigente já tem uma saída na mesma data e horário');return}
-  try { await compareAndSet(child(servicoCampoRef, `periods/${selectedMonth}`), currentPeriod() ?? null, { ...current, assignments:{ ...current.assignments, [assignmentId]:assignment } }); current.assignments[assignmentId] = assignment; data.periods = { ...periods(), [selectedMonth]:current }; toast('Saída adicionada'); render() } catch (error) { toast(failureMessage(error, 'Não foi possível adicionar a saída')) }
+  const release=editorBusy(form)
+  try { await compareAndSet(child(servicoCampoRef, `periods/${selectedMonth}`), currentPeriod() ?? null, { ...current, assignments:{ ...current.assignments, [assignmentId]:assignment } }); current.assignments[assignmentId] = assignment; data.periods = { ...periods(), [selectedMonth]:current }; toast('Saída adicionada'); render() } catch (error) { editorError(form, failureMessage(error, 'Não foi possível adicionar a saída. Seu preenchimento foi mantido.'));toast(failureMessage(error, 'Não foi possível adicionar a saída')) } finally { release() }
 }
 
 async function deleteAssignment(assignmentId: string): Promise<void> {
@@ -202,7 +204,7 @@ async function publishPeriod(): Promise<void> {
 }
 
 async function reopenPeriod(): Promise<void> {
-  const period = currentPeriod(); if (!period || changingPublication || !confirm(`Reabrir ${monthLabel(selectedMonth)} para edição?`)) return
+  const period = currentPeriod(); if (!period || changingPublication || !confirm(`Reabrir ${monthLabel(selectedMonth)} para edição? O PDF será retirado do Quadro até publicar novamente.`)) return
   const month = selectedMonth
   changingPublication = true
   const releaseUi = lockPublicationUi()
@@ -249,7 +251,7 @@ function renderConfiguration(): void {
       <div class="service-actions"><button class="btn btn-primary" type="submit">Salvar saída</button>${current ? '<button id="cancelServiceTemplate" class="btn btn-ghost" type="button">Cancelar</button>' : ''}</div>
     </form></details>
     <details open><summary>Saídas recorrentes · ${Object.keys(templates()).length}</summary><div class="module-option-list">${templateRows || '<p class="empty-state">Nenhuma saída cadastrada.</p>'}</div></details>
-    <details class="form-panel"><summary>Dirigentes aprovados · ${leaderIds().length}</summary><div class="service-leader-grid">${leaderRows || '<p class="empty-state">Nenhum irmão ativo disponível no cadastro Admin.</p>'}</div><button id="saveServiceLeaders" class="btn btn-primary" type="button">Salvar dirigentes</button></details>
+    <details class="form-panel" data-editor-scope><summary>Dirigentes aprovados · ${leaderIds().length}</summary><div class="service-leader-grid">${leaderRows || '<p class="empty-state">Nenhum irmão ativo disponível no cadastro Admin.</p>'}</div><button id="saveServiceLeaders" class="btn btn-primary" type="button">Salvar dirigentes</button></details>
     <div id="fieldServiceMessageSettings"></div>`
   document.getElementById('serviceSchedule')?.addEventListener('click', () => void openScreen('programacao'))
   const form = document.getElementById('serviceTemplateForm') as HTMLFormElement
@@ -280,7 +282,8 @@ async function saveTemplate(form: HTMLFormElement): Promise<void> {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(`${date}T12:00:00Z`)) || new Date(`${date}T12:00:00Z`).toISOString().slice(0, 10) !== date) { toast('Informe uma data válida'); return }
     item.date = date
   }
-  try { await update(servicoCampoRef, { [`templates/${templateId}`]:item }); data.templates = { ...templates(), [templateId]:item }; editingTemplateId = ''; toast('Saída recorrente salva'); render() } catch { toast('Não foi possível salvar a saída') }
+  const release=editorBusy(form)
+  try { await update(servicoCampoRef, { [`templates/${templateId}`]:item }); data.templates = { ...templates(), [templateId]:item }; editingTemplateId = ''; toast('Saída recorrente salva'); render() } catch { editorError(form);toast('Não foi possível salvar a saída') } finally { release() }
 }
 
 async function deleteTemplate(templateId: string): Promise<void> {
@@ -297,5 +300,6 @@ async function saveLeaders(): Promise<void> {
   const selected = Object.fromEntries([...document.querySelectorAll<HTMLInputElement>('[data-service-eligible]')].filter(input => input.checked).map(input => [input.dataset.serviceEligible!, true]))
   const patch = Object.fromEntries([...new Set([...Object.keys(data.leaders ?? {}), ...Object.keys(selected)])].filter(mid => Boolean(data.leaders?.[mid]) !== Boolean(selected[mid])).map(mid => [`leaders/${mid}`, selected[mid] ?? null]))
   if (!Object.keys(patch).length) { toast('Nenhuma alteração'); return }
-  try { await update(servicoCampoRef, patch); data.leaders = selected; toast('Dirigentes aprovados salvos'); renderConfiguration() } catch { toast('Não foi possível salvar os dirigentes') }
+  const scope=document.getElementById('saveServiceLeaders')!.closest<HTMLElement>('[data-editor-scope]')!,release=editorBusy(scope)
+  try { await update(servicoCampoRef, patch); data.leaders = selected; toast('Dirigentes aprovados salvos'); renderConfiguration() } catch { editorError(scope);toast('Não foi possível salvar os dirigentes') } finally {release()}
 }

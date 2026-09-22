@@ -4,6 +4,7 @@ import type { AgendaPublicDocument } from '../types.ts'
 import { officialDocumentId, safeDocumentKey, type PublicPdfModule } from './agenda-documents-domain.ts'
 
 export interface ModulePdfMetadata {
+  sourceHash?: string
   modulo: PublicPdfModule
   periodo: string
   nome: string

@@ -1,3 +1,4 @@
+import { editorBusy, editorError, editorSaved } from '../ui/editor-feedback'
 import { lockPublicationUi } from '../ui/publication-busy'
 import type {
   AppContext,
@@ -173,9 +174,9 @@ function renderContent(): void {
     <div id="cleaningPdf"></div>
     <div id="cleaningSchedule"></div>
     <details><summary>Gerar escala</summary><div id="cleaningGenerate"></div></details>
-    <details><summary>Grupos e participantes</summary><div id="cleaningGroups"></div></details>
+    <details><summary>Configurações de Limpeza</summary><p class="form-help">Cadastros e regras. A escala do período permanece acima.</p><details><summary>Grupos e participantes</summary><div id="cleaningGroups"></div></details>
     <details><summary>Rotação e responsáveis</summary><div id="cleaningConfig"></div></details>
-    <div id="cleaningMessageSettings"></div>`
+    <div id="cleaningMessageSettings"></div></details>`
   renderEscala()
   renderPdf()
   renderGrupos()
@@ -345,6 +346,8 @@ function updateLimpezaCounters(ativos: [string, MasterPessoa][]): void {
 async function saveGrupos(): Promise<void> {
   if (limpezaChanges.size === 0) { toast('Nenhuma alteração'); return }
 
+  const scope=document.getElementById('cleaningGroups')!
+  const release=editorBusy(scope)
   setLoading('btnSalvarLimpezaGrupos', true, 'Salvar Grupos')
   const groups = Object.fromEntries(limpezaChanges)
 
@@ -356,12 +359,15 @@ async function saveGrupos(): Promise<void> {
     }
     const n = limpezaChanges.size
     toast(`${n} alteraç${n === 1 ? 'ão salva' : 'ões salvas'} ✓`)
+    editorSaved(scope)
     limpezaChanges.clear()
     renderGrupos()
     if (!configDirty) renderConfig()
   } catch {
+    editorError(scope)
     toast('Erro ao salvar grupos')
   } finally {
+    release()
     setLoading('btnSalvarLimpezaGrupos', false, 'Salvar Grupos')
   }
 }
@@ -485,16 +491,21 @@ async function saveConfig(): Promise<void> {
     for (const [field, after] of Object.entries(config)) changed(`${collection}/${gid}/${field}`, (limpeza[collection]?.[gid] as unknown as Record<string, unknown> | undefined)?.[field], after)
   }
   if (!Object.keys(patch).length) { toast('Nenhuma alteração'); return }
+  const scope=document.getElementById('cleaningConfig')!
+  const release=editorBusy(scope)
   setLoading('btnSalvarLimpezaConfig', true, 'Salvar Configuração')
   try {
     await compareAndUpdate(configLimpezaRef, expected, patch)
     limpeza = nextConfig
+    editorSaved(scope)
     configDirty = false
     toast('Configuração salva ✓')
     if (button.isConnected) { renderConfig(); if (!limpezaChanges.size) renderGrupos() }
   } catch (error) {
+    editorError(scope, failureMessage(error, 'Erro ao salvar configuração. Seu preenchimento foi mantido.'))
     toast(failureMessage(error, 'Erro ao salvar configuração'))
   } finally {
+    release()
     button.disabled = false; button.textContent = 'Salvar Configuração'
   }
 }
@@ -510,7 +521,7 @@ function renderPdf(): void {
       <details><summary>Ajustar PDF</summary><label class="form-field"><span>Fonte base: <strong id="pdfLimpezaFonteValor">${fontSize} pt</strong></span><input id="pdfLimpezaFonte" type="range" min="8" max="22" value="${fontSize}"></label></details>
       <span class="admin-badge">${period?.publicado ? 'Publicado' : 'Rascunho'}</span>
       <button id="btnGerarPdfLimpeza" class="btn btn-primary btn-full" type="button" ${period ? '' : 'disabled'}>Baixar PDF</button>
-      <button id="btnPublicarPdfLimpeza" class="btn btn-ghost btn-full" style="margin-top:8px" type="button" ${period ? '' : 'disabled'}>${period?.publicado ? 'Reabrir período' : 'Publicar no Quadro'}</button>
+      <button id="btnPublicarPdfLimpeza" class="btn btn-ghost btn-full" style="margin-top:8px" type="button" ${period ? '' : 'disabled'}>${period?.publicado ? 'Reabrir para edição' : 'Publicar no Quadro'}</button>
     </div>`
   const schedule = document.getElementById('cleaningSchedule')
   if (schedule) schedule.innerHTML = period ? renderPeriodRows(period) : '<p class="empty-state">Nenhuma escala gerada.</p>'
@@ -532,6 +543,7 @@ async function toggleCleaningPublication(): Promise<void> {
   if (changingPublication) return
   const period = generatedPeriod()
   if (!period) return
+  if (period.publicado && !confirm('Reabrir para edição? O PDF será retirado do Quadro até publicar novamente.')) return
   changingPublication = true
   const releaseUi = lockPublicationUi()
   try {

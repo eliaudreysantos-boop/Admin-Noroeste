@@ -1,3 +1,4 @@
+import { editorBusy, editorError, editorSaved } from '../ui/editor-feedback'
 import { lockPublicationUi } from '../ui/publication-busy'
 import { renderWorkspaceNav } from '../ui/workspace-nav'
 import type { AppContext } from '../types'
@@ -326,8 +327,8 @@ function renderEscala(): void {
       <div class="scale-actions" style="margin-top:8px">
         <button id="btnGenerateScale" class="btn btn-primary" type="button" ${locked ? 'disabled' : ''}>Gerar escala · ${activeRules} regras</button>
         <button id="btnTarefasPdf" class="btn btn-ghost" type="button">Baixar PDF</button>
-        <button id="btnToggleTaskLock" class="btn btn-ghost" type="button" ${allPeriodMeetings.length ? '' : 'disabled'}>${locked ? 'Reabrir escala' : 'Publicar no Quadro'}</button>
-        <button id="btnClearTaskScale" class="btn btn-danger" type="button" ${locked || !allPeriodMeetings.length ? 'disabled' : ''}>Limpar escala</button>
+        <button id="btnToggleTaskLock" class="btn btn-ghost" type="button" ${allPeriodMeetings.length ? '' : 'disabled'}>${locked ? 'Reabrir para edição' : 'Publicar no Quadro'}</button>
+        <details><summary>Mais opções</summary><button id="btnClearTaskScale" class="btn btn-danger" type="button" ${locked || !allPeriodMeetings.length ? 'disabled' : ''}>Limpar escala</button></details>
       </div>
       <details style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border)">
         <summary style="cursor:pointer;font-size:.86rem;font-weight:700;color:var(--ink-2)">Refazer uma função ou ajustar a impressão</summary>
@@ -414,6 +415,7 @@ function renderEscala(): void {
 
 async function toggleTaskLock(periodId: string): Promise<void> {
   if (changingPublication) return
+  if (periods[periodId]?.locked && !confirm('Reabrir para edição? O PDF será retirado do Quadro até publicar novamente.')) return
   changingPublication = true
   const releaseUi = lockPublicationUi()
   const locked = periods[periodId]?.locked === true
@@ -607,8 +609,8 @@ function renderTaskConfig(): void {
   const rules = normalizeTaskGenerationRules(planning.engineRules)
   const canEditRules = context.usuario.apps.mestre === true
   content.innerHTML = `${sectionTitle('Configuração', 'Preferências próprias de Tarefas. Dias e horários das reuniões continuam vindo do Admin.')}
-    <div class="form-panel"><div class="module-form-grid"><label class="form-field"><span>Formato padrão</span><select id="taskConfigMode"><option value="month" ${selectedPeriodMode === 'month' ? 'selected' : ''}>Mensal</option><option value="bimester" ${selectedPeriodMode === 'bimester' ? 'selected' : ''}>Bimestral</option></select></label><label class="form-field"><span>Fonte preferida do PDF: <strong id="taskConfigFontValue">${printFont()} pt</strong></span><input id="taskConfigFont" type="range" min="${PRINT_MIN_PT}" max="${PRINT_MAX_PT}" value="${printFont()}"></label></div><button id="saveTaskConfig" class="btn btn-primary" type="button">Salvar preferências</button></div>
-    <div class="form-panel"><h3 style="margin-top:0">Regras do motor</h3><p class="form-help">Estas opções valem apenas para as próximas gerações. Regras de integridade continuam obrigatórias.</p><div class="engine-rule-list"><label><input id="taskRuleSpeakers" type="checkbox" ${rules.evitarConflitosOradores ? 'checked' : ''} ${canEditRules ? '' : 'disabled'}> Evitar designar quem tem discurso ou saída de Oradores na mesma data (S2)</label><label><input id="taskRulePresident" type="checkbox" ${rules.presidenteSegundaTarefa ? 'checked' : ''} ${canEditRules ? '' : 'disabled'}> Aproveitar o presidente em uma segunda tarefa mecânica</label><label><input id="taskRuleBalance" type="checkbox" ${rules.equilibrarDesignacoes ? 'checked' : ''} ${canEditRules ? '' : 'disabled'}> Equilibrar o total de designações</label><label><input id="taskRuleRepeat" type="checkbox" ${rules.evitarRepetirFuncao ? 'checked' : ''} ${canEditRules ? '' : 'disabled'}> Evitar repetir a mesma função</label></div>${canEditRules ? '<div class="scale-actions" style="margin-top:12px"><button id="saveTaskRules" class="btn btn-primary" type="button">Salvar regras</button><button id="restoreTaskRules" class="btn btn-ghost" type="button">Restaurar padrões</button></div>' : '<div class="notice">Somente o Admin pode alterar estas regras.</div>'}</div>
+    <div class="form-panel" data-editor-scope><div class="module-form-grid"><label class="form-field"><span>Formato padrão</span><select id="taskConfigMode"><option value="month" ${selectedPeriodMode === 'month' ? 'selected' : ''}>Mensal</option><option value="bimester" ${selectedPeriodMode === 'bimester' ? 'selected' : ''}>Bimestral</option></select></label><label class="form-field"><span>Fonte preferida do PDF: <strong id="taskConfigFontValue">${printFont()} pt</strong></span><input id="taskConfigFont" type="range" min="${PRINT_MIN_PT}" max="${PRINT_MAX_PT}" value="${printFont()}"></label></div><button id="saveTaskConfig" class="btn btn-primary" type="button">Salvar preferências</button></div>
+    <div class="form-panel" data-editor-scope><h3 style="margin-top:0">Regras do motor</h3><p class="form-help">Estas opções valem apenas para as próximas gerações. Regras de integridade continuam obrigatórias.</p><div class="engine-rule-list"><label><input id="taskRuleSpeakers" type="checkbox" ${rules.evitarConflitosOradores ? 'checked' : ''} ${canEditRules ? '' : 'disabled'}> Evitar designar quem tem discurso ou saída de Oradores na mesma data (S2)</label><label><input id="taskRulePresident" type="checkbox" ${rules.presidenteSegundaTarefa ? 'checked' : ''} ${canEditRules ? '' : 'disabled'}> Aproveitar o presidente em uma segunda tarefa mecânica</label><label><input id="taskRuleBalance" type="checkbox" ${rules.equilibrarDesignacoes ? 'checked' : ''} ${canEditRules ? '' : 'disabled'}> Equilibrar o total de designações</label><label><input id="taskRuleRepeat" type="checkbox" ${rules.evitarRepetirFuncao ? 'checked' : ''} ${canEditRules ? '' : 'disabled'}> Evitar repetir a mesma função</label></div>${canEditRules ? '<div class="scale-actions" style="margin-top:12px"><button id="saveTaskRules" class="btn btn-primary" type="button">Salvar regras</button><button id="restoreTaskRules" class="btn btn-ghost" type="button">Restaurar padrões</button></div>' : '<div class="notice">Somente o Admin pode alterar estas regras.</div>'}</div>
     <div class="form-panel"><h3 style="margin-top:0">Datas sem reunião</h3><div style="display:flex;gap:8px"><input id="taskExcludedDate" class="form-input" type="date"><button id="addTaskExcludedDate" class="btn btn-ghost" type="button">Adicionar</button></div><div class="module-option-list" style="margin-top:10px">${dates.map(date => `<div class="module-list-row"><strong>${escapeHtml(formatDate(date))}</strong><button class="btn btn-danger" data-remove-task-date="${escapeHtml(date)}" type="button">Remover</button></div>`).join('') || '<p class="empty-state">Nenhuma data excluída.</p>'}</div></div><div id="taskMessageSettings"></div>`
   content.querySelectorAll<HTMLElement>(':scope > .form-panel').forEach((panel, index) => {
     const details = document.createElement('details')
@@ -623,9 +625,11 @@ function renderTaskConfig(): void {
   })
   document.getElementById('taskConfigFont')?.addEventListener('input', event => { const value = (event.target as HTMLInputElement).value; document.getElementById('taskConfigFontValue')!.textContent = `${value} pt` })
   document.getElementById('saveTaskConfig')?.addEventListener('click', async () => {
+    const scope=document.getElementById('saveTaskConfig')!.closest<HTMLElement>('[data-editor-scope]')!
     const mode = (document.getElementById('taskConfigMode') as HTMLSelectElement).value === 'month' ? 'month' : 'bimester'
     const font = Number((document.getElementById('taskConfigFont') as HTMLInputElement).value)
-    try { await update(tarefasPlanejamentoRef, { periodMode:mode }); selectedPeriodMode = mode; planning.periodMode = mode; localStorage.setItem(TAREFAS_PERIOD_MODE_KEY, mode); localStorage.setItem(PRINT_FONT_KEY, String(font)); toast('Preferências salvas') } catch { toast('Não foi possível salvar as preferências') }
+    const release=editorBusy(scope)
+    try { await update(tarefasPlanejamentoRef, { periodMode:mode });editorSaved(scope); selectedPeriodMode = mode; planning.periodMode = mode; localStorage.setItem(TAREFAS_PERIOD_MODE_KEY, mode); localStorage.setItem(PRINT_FONT_KEY, String(font)); toast('Preferências salvas') } catch { editorError(scope);toast('Não foi possível salvar as preferências') } finally {release()}
   })
   document.getElementById('saveTaskRules')?.addEventListener('click', () => void saveTaskRules())
   document.getElementById('restoreTaskRules')?.addEventListener('click', () => void saveTaskRules(DEFAULT_TASK_GENERATION_RULES))
@@ -650,8 +654,9 @@ async function saveTaskRules(value?: TaskGenerationRules): Promise<void> {
     equilibrarDesignacoes:(document.getElementById('taskRuleBalance') as HTMLInputElement).checked,
     evitarRepetirFuncao:(document.getElementById('taskRuleRepeat') as HTMLInputElement).checked,
   }
+  const scope=document.getElementById('saveTaskRules')!.closest<HTMLElement>('[data-editor-scope]')!,release=editorBusy(scope)
   try { await update(tarefasPlanejamentoRef, { engineRules:{ ...next, version:1 } }); planning.engineRules = next; toast(value ? 'Padrões restaurados' : 'Regras salvas'); renderTaskConfig() }
-  catch { toast('Não foi possível salvar as regras') }
+  catch {editorError(scope); toast('Não foi possível salvar as regras') } finally {release()}
 }
 
 type PendingLevel = 'alta' | 'media' | 'baixa'
@@ -909,7 +914,7 @@ function openTaskPersonModal(id: string | null): void {
   const masterOptions = Object.entries(masterPeople)
     .filter(([mid, item]) => item.active !== false && (person?.masterId === mid || !Object.values(pessoas).some(candidate => candidate.masterId === mid)))
     .sort(([, a], [, b]) => String(a.name ?? '').localeCompare(String(b.name ?? ''), 'pt-BR'))
-    .map(([mid, item]) => `<option value="${escapeHtml(mid)}" ${person?.masterId === mid ? 'selected' : ''}>${escapeHtml(item.name || mid)} · ID ${escapeHtml(mid)}</option>`)
+    .map(([mid, item]) => `<option value="${escapeHtml(mid)}" ${person?.masterId === mid ? 'selected' : ''}>${escapeHtml(item.name || mid)}${Object.values(masterPeople).filter(other=>other.name===item.name).length>1?' · ID '+escapeHtml(mid):''}</option>`)
     .join('')
   const roles = person?.roles ?? {}
   // Nome canônico vem do Admin — exibir somente leitura
@@ -967,14 +972,16 @@ async function saveTaskPerson(id: string | null, overlay: HTMLElement): Promise<
     [`${finalId}/jovem`]: (document.getElementById('taskPersonYoung') as HTMLInputElement).checked,
   }
   Object.entries(roles).forEach(([role, enabled]) => { patch[`${finalId}/roles/${role}`] = enabled })
+  const release=editorBusy(overlay)
   try {
     await update(tarefasPeopleRef, patch)
     overlay.remove()
     toast('Participante atualizado')
     await loadTarefas()
   } catch {
+    editorError(overlay)
     toast('Não foi possível salvar o participante')
-  }
+  } finally { release() }
 }
 
 function emptyState(text: string): string {

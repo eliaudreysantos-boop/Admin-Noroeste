@@ -1,3 +1,4 @@
+import { editorBusy, editorSaved, editorError } from '../ui/editor-feedback'
 import type { AgendaConfig, AgendaReminderModule } from '../types'
 import { agendaConfigRef, child, get, set } from '../firebase'
 
@@ -58,7 +59,7 @@ export async function mountModuleMessageSettings(
   if (!document.getElementById(containerId)) return
   const prefix = `moduleMessage_${module}`
   container.innerHTML = `
-    <details class="form-panel">
+    <details class="form-panel" data-editor-scope>
       <summary><strong>WhatsApp e mensagens de ${esc(MODULE_LABELS[module])}</strong></summary>
       <p class="form-help" style="margin-top:12px">Estas preferências pertencem somente a este módulo. Os textos são sugestões educadas e podem ser editados.</p>
       <div class="form-group">
@@ -88,15 +89,20 @@ export async function mountModuleMessageSettings(
       documentText:(document.getElementById(`${prefix}_document`) as HTMLTextAreaElement).value.trim() || defaults.documentText,
     }
     const button = document.getElementById(`${prefix}_save`) as HTMLButtonElement
+    const scope=container.querySelector<HTMLElement>('[data-editor-scope]')!
+    const release=editorBusy(scope)
     button.disabled = true
     button.textContent = 'Salvando...'
     try {
       await set(child(agendaConfigRef, `moduleWhatsApp/${module}`), next)
       onSaved?.({ ...defaults, ...next })
+      editorSaved(scope)
       notify('Mensagens do módulo salvas')
     } catch {
+      editorError(scope)
       notify('Não foi possível salvar as mensagens')
     } finally {
+      release()
       button.disabled = false
       button.textContent = 'Salvar mensagens'
     }

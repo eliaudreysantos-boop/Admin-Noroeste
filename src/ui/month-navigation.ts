@@ -19,8 +19,9 @@ export function installMonthNavigation(): void {
           const [year,month]=input.value.split('-').map(Number)
           const date=new Date(Date.UTC(year!,month!-1+step,1)),next=date.toISOString().slice(0,7)
           if((input.min&&next<input.min)||(input.max&&next>input.max)) return
+          const previous=input.value
           input.value=next
-          input.dispatchEvent(new Event('change',{bubbles:true}))
+          if(!input.dispatchEvent(new Event('change',{bubbles:true,cancelable:true})))input.value=previous
         })
         if(step<0) wrapper.prepend(button);else wrapper.append(button)
       }

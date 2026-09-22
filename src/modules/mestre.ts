@@ -1,3 +1,4 @@
+import { editorBusy, editorError, editorSaved } from '../ui/editor-feedback'
 import type {
   AppContext,
   AgendaConfig,
@@ -808,6 +809,7 @@ async function savePessoa(mid: string | null, overlay: HTMLElement): Promise<voi
     limpeza: existing?.limpeza ?? { grupo: null },
   }
 
+  const release=editorBusy(overlay)
   setLoading('btnSalvarPessoa', true)
   try {
     if (existing) {
@@ -831,9 +833,10 @@ async function savePessoa(mid: string | null, overlay: HTMLElement): Promise<voi
     toast(mid ? 'Pessoa atualizada ✓' : 'Pessoa adicionada ✓')
     renderPessoas()
   } catch {
+    editorError(overlay)
     toast('Erro ao salvar — verifique a conexão')
     setLoading('btnSalvarPessoa', false)
-  }
+  } finally { release() }
 }
 
 async function deletePessoa(mid: string): Promise<void> {
@@ -1047,6 +1050,7 @@ async function saveUsuario(uid: string | null, overlay: HTMLElement): Promise<vo
     toast('Mantenha ao menos um usuário Admin ativo', 4000)
     return
   }
+  const release=editorBusy(overlay)
   setLoading('btnSalvarUsuario', true)
 
   try {
@@ -1058,8 +1062,9 @@ async function saveUsuario(uid: string | null, overlay: HTMLElement): Promise<vo
     renderUsuarios()
   } catch {
     toast('Erro ao salvar')
+    editorError(overlay)
     setLoading('btnSalvarUsuario', false)
-  }
+  } finally { release() }
 }
 
 async function deleteUsuario(uid: string): Promise<void> {
@@ -1187,6 +1192,7 @@ function reminderSelect(id: string, selected: string): string {
 
 function renderConfigAgenda(): void {
   const el = document.getElementById('configContent')!
+  editorSaved(el);el.dataset.editorScope='true'
   const reminders = agendaConfig.icsReminders ?? {}
   const moduleWhatsApp = agendaConfig.moduleWhatsApp ?? {}
   const manualDocuments = Object.values(agendaDocuments).filter(item => item.modulo === 'admin').sort((a, b) => b.criadoEm.localeCompare(a.criadoEm))
@@ -1281,6 +1287,7 @@ async function saveConfigAgenda(): Promise<void> {
     icsReminders[module.id] = normalizedReminderValues(values)
   })
   const quadroSettings = moduleWhatsApp.quadro ?? {}
+  const scope=document.getElementById('configContent')!,release=editorBusy(scope)
   setLoading('btnSalvarAgendaConfig', true)
   try {
     await update(agendaConfigRef, {
@@ -1294,10 +1301,13 @@ async function saveConfigAgenda(): Promise<void> {
       moduleWhatsApp:{ ...(agendaConfig.moduleWhatsApp ?? {}), quadro:quadroSettings },
       icsReminders,
     }
+    editorSaved(scope)
     toast('Configurações da Agenda salvas ✓')
   } catch {
+    editorError(scope)
     toast('Erro ao salvar configurações da Agenda')
   } finally {
+    release()
     setLoading('btnSalvarAgendaConfig', false, 'Salvar configurações da Agenda')
   }
 }
@@ -1306,6 +1316,7 @@ async function saveConfigAgenda(): Promise<void> {
 
 function renderConfigCongregacao(): void {
   const el = document.getElementById('configContent')!
+  editorSaved(el);el.dataset.editorScope='true'
   const c  = config.congregacao ?? { nome:'', cidade:'', circuito:'', idioma:'pt-BR' }
   const r  = config.reunioes
 
@@ -1368,6 +1379,7 @@ async function saveConfigCongregacao(): Promise<void> {
     fimDeSemana:   { diaSemana: vi('fsDia'),  horario: v('fsHora')  },
   }
 
+  const scope=document.getElementById('configContent')!,release=editorBusy(scope)
   setLoading('btnSalvarCong', true)
   try {
     await Promise.all([
@@ -1376,10 +1388,13 @@ async function saveConfigCongregacao(): Promise<void> {
     ])
     config.congregacao = congregacao
     config.reunioes    = reunioes
+    editorSaved(scope)
     toast('Congregação salva ✓')
   } catch {
     toast('Erro ao salvar')
+    editorError(scope)
   } finally {
+    release()
     setLoading('btnSalvarCong', false, 'Salvar Congregação')
   }
 }

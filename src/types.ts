@@ -158,6 +158,7 @@ export interface AgendaPublicDocument {
   url: string
   storagePath?: string
   criadoEm: string
+  sourceHash?: string
 }
 
 
