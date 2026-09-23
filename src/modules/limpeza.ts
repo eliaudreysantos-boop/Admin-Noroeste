@@ -1,4 +1,6 @@
+import { renderPublicationStatus } from './module-publication'
 import { focusCorrection, fieldHelp } from '../ui/field-guidance'
+import { fortalezaToday, isValidCivilDate } from './civil-date'
 import { editorBusy, editorError, editorSaved } from '../ui/editor-feedback'
 import { lockPublicationUi } from '../ui/publication-busy'
 import type {
@@ -68,7 +70,7 @@ function escapeHtml(value: string): string {
 }
 
 function todayStr(): string {
-  return new Date().toISOString().slice(0, 10)
+  return fortalezaToday()
 }
 
 function toStringArray(val: string[] | Record<string, string> | undefined | null): string[] {
@@ -496,6 +498,7 @@ async function saveConfig(): Promise<void> {
     inicioRotacao: value('lInicio'),
     gruposConfig: editedConfigs,
   }
+  if (!isValidCivilDate(nextConfig.inicioRotacao)) { toast('Informe uma data válida para o início da rotação'); return }
 
   const patch: Record<string, unknown> = {}, expected: Record<string, unknown> = {}
   const changed = (path: string, before: unknown, after: unknown): void => {
@@ -528,6 +531,7 @@ async function saveConfig(): Promise<void> {
 }
 
 function renderPdf(): void {
+  queueMicrotask(()=>{const period=generatedPeriod();if(period)void renderPublicationStatus(document.getElementById('cleaningPdf'),'limpeza',period.id)})
   const content = document.getElementById('cleaningPdf')
   if (!content) return
   const period = generatedPeriod()
@@ -564,38 +568,11 @@ async function toggleCleaningPublication(): Promise<void> {
   changingPublication = true
   const releaseUi = lockPublicationUi()
   try {
-    const { createCleaningPdf } = await import('./limpeza-documents')
-    const { publishAgendaModulePdf, unpublishAgendaModulePdf } = await import('./agenda-documents')
-    const fontSize = Number(localStorage.getItem('noroeste_limpeza_pdf_font') ?? 15)
-    const label = period.modo === 'bimester' ? `${period.inicio.slice(0, 7)} a ${period.fim.slice(0, 7)}` : period.inicio.slice(0, 7)
-    const metadata = { modulo:'limpeza' as const, periodo:label, inicio:period.inicio, fim:period.fim, origemPeriodoId:period.id, nome:`limpeza-${period.id}.pdf` }
-    if (period.publicado) {
-      const restore = await createCleaningPdf(period, { requestedFontSize:fontSize })
-      await unpublishAgendaModulePdf('limpeza', period.id)
-      try {
-        await compareAndUpdate(limpezaPeriodosRef, { [period.id]:period }, { [period.id]:{ ...period, publicado:false, publicadoEm:null } })
-      } catch (error) {
-        try { await publishAgendaModulePdf(restore.bytes, metadata) }
-        catch { console.warn('Não foi possível restaurar a publicação de Limpeza') }
-        throw error
-      }
-      period.publicado = false; delete period.publicadoEm
-      toast('Período reaberto e retirado do Quadro')
-    } else {
-
-      const result = await createCleaningPdf(period, { requestedFontSize:fontSize })
-      await publishAgendaModulePdf(result.bytes, metadata)
-      const publishedAt = new Date().toISOString()
-      try {
-        await compareAndUpdate(limpezaPeriodosRef, { [period.id]:period }, { [period.id]:{ ...period, publicado:true, publicadoEm:publishedAt } })
-      } catch (error) {
-        try { await unpublishAgendaModulePdf('limpeza', period.id) }
-        catch { console.warn('Não foi possível desfazer a publicação incompleta de Limpeza') }
-        throw error
-      }
-      period.publicado = true; period.publicadoEm = publishedAt
-      toast('Período publicado no Quadro')
-    }
+    const { publishModulePeriod } = await import('./module-publication')
+    const reopening = period.publicado === true
+    await publishModulePeriod('limpeza', period.id, period, Number(localStorage.getItem('noroeste_limpeza_pdf_font') ?? 15), reopening)
+    await loadAll()
+    toast(reopening ? 'Período reaberto e retirado do Quadro' : 'Período publicado no Quadro')
     renderPdf()
   } catch (error) { toast(failureMessage(error, 'Não foi possível alterar a publicação')) }
   finally { changingPublication = false; releaseUi() }

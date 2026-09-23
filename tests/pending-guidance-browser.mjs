@@ -18,6 +18,7 @@ try{
   await page.route('**/.netlify/functions/**',route=>{
    const url=new URL(route.request().url()),endpoint=url.pathname.split('/').pop()
    if(endpoint==='auth-session')return route.fulfill({json:{uid:'audit',csrf:'a'.repeat(48),usuario:{nome:'Auditoria',ativo:true,apps:{mestre:true,tarefas:true,escala:true,limpeza:true}}}})
+   if(endpoint==='module-publication'&&route.request().postDataJSON()?.action==='status')return route.fulfill({json:{hash:'test',document:null}})
    if(endpoint==='auth-users')return route.fulfill({json:{}})
    if(route.request().method()!=='GET'){writes.push(endpoint);return route.fulfill({json:{ok:true}})}
    return route.fulfill({json:{results:JSON.parse(url.searchParams.get('paths')||'[]').map(path=>({value:source[path]??{}}))}})

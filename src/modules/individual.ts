@@ -1,7 +1,8 @@
 import type { AppContext, RawRoot } from '../types'
 import { parseAgendaHistory, updateAgendaHistory, type AgendaHistory } from './agenda-changes'
-import { configRef, escalaSettingsRef } from '../firebase'
-import { agendaConfigRef, agendaDocumentsRef, escalaParticipantsRef, escalaPublishedMonthRef, escalaPublishedMonthsRef, escalaPubSnapshotsRef, escalaScalesRef, escalaTablesRef, get, limpezaPeriodosRef, pessoasRef, servicoCampoRef, tarefasPeopleRef, tarefasScaleRef, tarefasDiscursosRef } from '../firebase'
+import { fortalezaToday, fortalezaCurrentMonth } from './civil-date'
+import { AGENDA_SOURCES, mergeAgendaSources } from './agenda-sync'
+import { get, pessoasRef } from '../firebase'
 import { apiJson } from '../secure-api.ts'
 import { moduleTitle } from '../ui/module-header'
 import { agendaMessage, agendaToIcs, boardCleaningMessage, boardMeetingDates, boardMeetingEvents, boardMeetingMessage, collectAgendaEvents, collectAnnouncementEvents, upcomingAgendaEvents, type AgendaEvent, type AgendaSource, type AgendaStatus, type AnnouncementEvent } from './individual-domain'
@@ -11,7 +12,9 @@ import { groupPublicDocuments, publicDocumentMonths, PUBLIC_PDF_MODULES, type Pu
 
 let ctx: AppContext | null = null
 let data: RawRoot = {}
-let month = new Date().toISOString().slice(0, 7)
+let month = fortalezaCurrentMonth()
+let failedSources:string[]=[]
+let syncGeneration=0
 let screen: 'agenda' | 'geral' | 'quadro' = 'agenda'
 let generalSelectedDate = ''
 let boardDocumentPeriod = month
@@ -37,6 +40,8 @@ interface OfflineAgendaCache {
 }
 
 interface AgendaDataResponse {
+  completedSources?:string[]
+  failedSources?:string[]
   masterId: string
   person?: Pick<MasterPessoa, 'name' | 'active'>
   events: AgendaEvent[]
@@ -48,10 +53,13 @@ const esc = (value: unknown): string => String(value ?? '').replace(/[&<>"']/g, 
 const labelDate = (date: string): string => date.split('-').reverse().join('/')
 const sourceLabels: Record<AgendaSource, string> = { tarefas:'Tarefas', oradores:'Oradores', limpeza:'Limpeza', escala:'Escala TPL', servicoCampo:'Serviço de Campo' }
 const documentSourceLabels: Record<AgendaPublicDocument['modulo'], string> = { tarefas:'Tarefas', oradores:'Oradores', limpeza:'Limpeza', escala:'Escala TPL', servicoCampo:'Serviço de Campo', admin:'Admin' }
-const fortalezaDate = (): string => new Intl.DateTimeFormat('en-CA', { timeZone:'America/Fortaleza', year:'numeric', month:'2-digit', day:'2-digit' }).format(new Date()).replace(/\//g, '-')
+const fortalezaDate = fortalezaToday
 
 export default function mount(context: AppContext): void {
   ctx = context
+  syncGeneration++
+  failedSources=[]
+  data={}
   uiPreferencesKey = ''
   uiPreferences = defaultAgendaUiPreferences(fortalezaDate().slice(0, 7))
   loadingAssignments = true
@@ -164,67 +172,50 @@ function saveOfflineCache(): void {
   catch { /* O app continua online-first se o dispositivo não aceitar o cache. */ }
 }
 
-async function load(): Promise<void> {
-  const previousData = data
-  let synchronized = false
+async function load(retrySources?:string[]):Promise<void> {
+  const generation=++syncGeneration
+  loadingAssignments=true
   try {
-    if (standaloneAgenda() || !isAdmin()) {
-      const response = await apiJson<AgendaDataResponse>('agenda-data')
-      if (!response.masterId || response.masterId !== selectedMasterId()) throw new Error('Identidade da agenda divergente')
-      if (!Array.isArray(response.events) || !Array.isArray(response.announcements)) throw new Error('Agenda inválida')
-      const person = response.person ? { name:response.person.name, active:response.person.active, whatsapp:'', sex:null, role:null, limpeza:{ grupo:null } } satisfies MasterPessoa : undefined
-      data = {
-        master:{ pessoas:person ? { [response.masterId]:person } : {} },
-        agenda:response.agenda,
-      } as RawRoot
-      offlinePersonalEvents = response.events
-      offlineAnnouncementEvents = response.announcements
-      synchronized = true
-      loadingAssignments = false
-      recordAgendaHistory(response.masterId, response.events)
-      saveOfflineCache()
-      render()
-      return
-    }
-    let readsComplete = true
-    const readValue = async (reference: typeof pessoasRef): Promise<unknown> => {
-      try { const snapshot = await get(reference); return snapshot.exists() ? snapshot.val() as unknown : undefined }
-      catch { readsComplete = false; return undefined }
-    }
-    const masterPeople = await readValue(pessoasRef)
-    if (!masterPeople || typeof masterPeople !== 'object') throw new Error('Pessoas indisponíveis')
-    data = { master:{ pessoas:(masterPeople ?? {}) as Record<string, MasterPessoa> } } as RawRoot
-    render()
-
-    const references = [
-      tarefasPeopleRef, tarefasScaleRef, limpezaPeriodosRef,
-      escalaParticipantsRef, escalaScalesRef, escalaTablesRef,
-      escalaPublishedMonthRef, escalaPublishedMonthsRef, escalaPubSnapshotsRef,
-      agendaConfigRef, agendaDocumentsRef, servicoCampoRef, configRef, escalaSettingsRef, tarefasDiscursosRef,
-    ]
-    const values = await Promise.all(references.map(readValue))
-    const value = (index: number): unknown => values[index]
-    data = {
-      master:{ pessoas:masterPeople, config:value(12) },
-      tarefas:{ discursos:value(14), people:value(0), scale:{ periods:value(1) } },
-      limpeza:{ periodos:value(2) },
-      escala:{ participants:value(3), scales:value(4), tables:value(5), publishedMonth:value(6), publishedMonths:value(7), publishedSnapshots:value(8), settings:value(13) },
-      agenda:{ config:value(9), documentos:value(10) }, servicoCampo:value(11),
-    } as RawRoot
-    synchronized = true
-    if (readsComplete) {
+    if(isAdmin()&&!Object.keys(people()).length) {
+      const snapshot=await get< Record<string,MasterPessoa> >(pessoasRef)
+      if(generation!==syncGeneration)return
+      data={master:{pessoas:snapshot.val()??{}}} as RawRoot
       ensureSelectedPerson()
-      recordAgendaHistory(selectedMasterId(), collectAgendaEvents(data, selectedMasterId()))
     }
-  }
-  catch { data = previousData }
-  loadingAssignments = false
-  if (synchronized) saveOfflineCache()
-  render()
+    const masterId=selectedMasterId()
+    if(!masterId)throw new Error('Pessoa não vinculada')
+    const query=new URLSearchParams({masterId,...(standaloneAgenda()?{device:'true'}:{}),...(retrySources?{sources:retrySources.join(',')}:{})})
+    const response=await apiJson<AgendaDataResponse>('agenda-data?'+query)
+    if(generation!==syncGeneration||masterId!==selectedMasterId())return
+    if(response.masterId!==masterId||!Array.isArray(response.events)||!Array.isArray(response.announcements))throw new Error('Agenda inválida')
+    const completed=response.completedSources??[...AGENDA_SOURCES]
+    failedSources=[...new Set([...failedSources.filter(source=>!completed.includes(source)),...(response.failedSources??[])])]
+    offlinePersonalEvents=mergeAgendaSources(offlinePersonalEvents??[],response.events,completed)
+    offlineAnnouncementEvents=mergeAgendaSources(offlineAnnouncementEvents??[],response.announcements,completed)
+    const person=response.person?{name:response.person.name,active:response.person.active,whatsapp:'',sex:null,role:null,limpeza:{grupo:null}} satisfies MasterPessoa:undefined
+    data={...data,master:{pessoas:isAdmin()?people():person?{[masterId]:person}:{}},...(completed.includes('quadro')?{agenda:response.agenda}:{})} as RawRoot
+    if(!failedSources.length) {
+      recordAgendaHistory(masterId,offlinePersonalEvents)
+      saveOfflineCache()
+    }
+  }catch{if(generation===syncGeneration)failedSources=[...new Set([...failedSources,...(retrySources??AGENDA_SOURCES)])]}
+  finally {if(generation===syncGeneration){loadingAssignments=false;render()}}
+}
+
+function renderSyncNotice():void {
+  const host=document.getElementById('individualRoot')
+  if(!host||!failedSources.length)return
+  host.querySelector('[data-sync-failure]')?.remove()
+  const notice=document.createElement('div');notice.className='notice warning';notice.dataset.syncFailure=''
+  const labels:Record<string,string>={...sourceLabels,quadro:'Quadro e documentos'}
+  const message=document.createElement('p');message.textContent='Agenda parcial. Não foi possível atualizar: '+failedSources.map(source=>labels[source]??source).join(', ')+'. Os últimos dados disponíveis foram preservados.'
+  const button=document.createElement('button');button.type='button';button.className='btn btn-ghost';button.textContent=loadingAssignments?'Tentando novamente…':'Tentar novamente';button.disabled=loadingAssignments
+  button.addEventListener('click',()=>{button.disabled=true;void load([...failedSources])})
+  notice.append(message,button);host.prepend(notice)
 }
 
 function isAdmin(): boolean { return ctx?.usuario.apps.mestre === true }
-function selectedMasterId(): string { return ctx?.usuario.masterId ?? (isAdmin() ? selectedPersonId : '') }
+function selectedMasterId(): string { return isAdmin() ? selectedPersonId || ctx?.usuario.masterId || '' : ctx?.usuario.masterId || '' }
 function personalEvents(): AgendaEvent[] { const masterId = selectedMasterId(); return offlinePersonalEvents ?? (masterId ? collectAgendaEvents(data, masterId) : []) }
 function announcementEvents(): AnnouncementEvent[] { return offlineAnnouncementEvents ?? collectAnnouncementEvents(data) }
 function monthEvents(): AgendaEvent[] { return personalEvents().filter(event => event.date.startsWith(month)) }
@@ -233,7 +224,7 @@ function agendaConfig(): AgendaConfig { return (agendaRoot()['config'] ?? {}) as
 function documents(): AgendaPublicDocument[] { return Object.values((agendaRoot()['documentos'] ?? {}) as Record<string, AgendaPublicDocument>) }
 function people(): Record<string, MasterPessoa> { return data.master?.pessoas ?? {} }
 function ensureSelectedPerson(): void {
-  if (ctx?.usuario.masterId) { selectedPersonId = ctx.usuario.masterId; return }
+  if (!isAdmin() && ctx?.usuario.masterId) { selectedPersonId = ctx.usuario.masterId; return }
   const savedAdminPerson = localStorage.getItem(ADMIN_PERSON_KEY) ?? '', savedPerson = people()[savedAdminPerson]
   if (!selectedPersonId && isAdmin() && savedPerson && savedPerson.active !== false) selectedPersonId = savedAdminPerson
   const selectedPerson = people()[selectedPersonId]
@@ -241,11 +232,11 @@ function ensureSelectedPerson(): void {
   selectedPersonId = Object.entries(people()).filter(([, person]) => person.active !== false).sort(([, a], [, b]) => a.name.localeCompare(b.name, 'pt-BR'))[0]?.[0] ?? ''
 }
 function adminPersonPicker(): string {
-  if (!isAdmin() || ctx?.usuario.masterId) return ''
+  if (!isAdmin()) return ''
   const options = Object.entries(people()).filter(([, person]) => person.active !== false).sort(([, a], [, b]) => a.name.localeCompare(b.name, 'pt-BR')).map(([id, person]) => `<option value="${esc(id)}" ${selectedPersonId === id ? 'selected' : ''}>${esc(person.name)}</option>`).join('')
   return `<div class="form-panel agenda-admin-person"><label class="form-field"><span>Visualizar pessoa</span><select id="adminAgendaPerson">${options}</select></label><p class="form-help">O Admin consulta a agenda pelo vínculo permanente.</p></div>`
 }
-function bindAdminPersonPicker(): void { document.getElementById('adminAgendaPerson')?.addEventListener('change', event => { persistUiPreferences(); selectedPersonId = (event.target as HTMLSelectElement).value; localStorage.setItem(ADMIN_PERSON_KEY, selectedPersonId); uiPreferencesKey = ''; render() }) }
+function bindAdminPersonPicker(): void { document.getElementById('adminAgendaPerson')?.addEventListener('change', event => { persistUiPreferences(); selectedPersonId = (event.target as HTMLSelectElement).value; localStorage.setItem(ADMIN_PERSON_KEY, selectedPersonId); uiPreferencesKey = ''; offlinePersonalEvents=null; offlineAnnouncementEvents=null; failedSources=[]; void load(); render() }) }
 function screenTabs(): string { return `<div class="program-period-modes agenda-screen-tabs" role="tablist" aria-label="Minha agenda"><button class="program-period-mode" role="tab" type="button" data-agenda-screen="agenda" aria-selected="${screen === 'agenda'}">Pessoal</button><button class="program-period-mode" role="tab" type="button" data-agenda-screen="geral" aria-selected="${screen === 'geral'}">Geral</button><button class="program-period-mode" role="tab" type="button" data-agenda-screen="quadro" aria-selected="${screen === 'quadro'}">Quadro</button></div>` }
 function bindScreenTabs(): void { document.querySelectorAll<HTMLButtonElement>('[data-agenda-screen]').forEach(button => button.addEventListener('click', () => { captureUiPreferences(); uiPreferences.screen = button.dataset['agendaScreen'] as AgendaScreen; applyScreenPreferences(uiPreferences.screen); persistUiPreferences(); render(); document.getElementById('individualRoot')?.scrollIntoView({ block:'start' }) })) }
 
@@ -263,6 +254,7 @@ function nextCommitment(event?: AgendaEvent): string {
 }
 
 function render(): void {
+  queueMicrotask(renderSyncNotice)
   const root = document.getElementById('individualRoot')
   if (!root || !ctx) return
   ensureSelectedPerson()

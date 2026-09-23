@@ -1,4 +1,5 @@
 import type { Speaker, SpeakersRoot, TalkTheme } from './oradores-domain.ts'
+import { assignmentId } from './tarefas-domain.ts'
 
 export type CentralPerson = { name:string; whatsapp?:string; active?:boolean; role?:string|null }
 export type LinkedPerson = { masterId?:string; unavailableDates?:string[]|Record<string,boolean> }
@@ -51,7 +52,7 @@ export function speakerConflicts(speakerId:string,date:string,root:SpeakersRoot,
   if (taskIds.some(id=>{const dates=tasks[id]?.unavailableDates; return Array.isArray(dates)?dates.includes(date):dates?.[date]===true})) reasons.push('Indisponível nesta data em Tarefas')
   for (const period of Object.values(periods)) {
     const meetings=(period as {meetings?:Record<string,{date?:string;assignments?:Record<string,unknown>}>})?.meetings??{}
-    if (Object.values(meetings).some(meeting=>meeting.date===date && Object.values(meeting.assignments??{}).some(id=>typeof id==='string'&&taskIds.includes(id)))) { reasons.push('Designação em Tarefas nesta data'); break }
+    if (Object.values(meetings).some(meeting=>meeting.date===date && Object.values(meeting.assignments??{}).some(value=>taskIds.includes(assignmentId(value) ?? '')))) { reasons.push('Designação em Tarefas nesta data'); break }
   }
   if (speaker.tipo==='local' && !master) reasons.push('Sem vínculo com Admin; confira a disponibilidade')
   return reasons

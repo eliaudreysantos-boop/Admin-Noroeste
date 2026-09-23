@@ -67,7 +67,7 @@ function renderPeople(): void {
   const active = activePeople()
   select.innerHTML = active.map(([id, person]) => `<option value="${id}">${person.name.replace(/[&<>"']/g, '')}</option>`).join('')
   select.disabled = active.length === 0
-  continueButton.disabled = active.length === 0
+  continueButton.disabled = false
 }
 
 function cachedPeople(): Record<string, MasterPessoa> {
@@ -192,20 +192,24 @@ function openIdentityUnlock(): void {
 }
 
 async function saveSelectedPerson(): Promise<void> {
-  const masterId = select.value, person = people[masterId]
-  if (!person) return
+  const code = (document.getElementById('agendaPairingCode') as HTMLInputElement).value.trim()
+  if (!code) { error.textContent='Informe o código fornecido pelo Admin.'; return }
   continueButton.disabled = true
   continueButton.textContent = 'Salvando...'
   error.textContent = ''
   try {
-    await apiJson('agenda-device', { method:'POST', body:JSON.stringify({ masterId, installationId:installationId() }) })
+    const response=await apiJson<{masterId:string;person:MasterPessoa}>('agenda-device', { method:'POST', body:JSON.stringify({ code, installationId:installationId() }) })
+    const masterId=response.masterId
+    people={[masterId]:response.person}
+    localStorage.setItem(PEOPLE_KEY,JSON.stringify(sanitizeAgendaPeople(people)))
+    localStorage.setItem(PEOPLE_SYNC_KEY,String(Date.now()))
     clearIdentityCache()
     localStorage.setItem(DEVICE_PAIRED_KEY, 'true')
     openAgenda(masterId)
   } catch (reason) {
     error.textContent = reason instanceof Error ? reason.message : 'Não foi possível salvar esta pessoa.'
   } finally {
-    continueButton.disabled = select.disabled
+    continueButton.disabled = false
     continueButton.textContent = 'Salvar'
   }
 }

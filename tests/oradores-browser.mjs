@@ -1,5 +1,6 @@
 import { createRequire } from 'node:module'
 import assert from 'node:assert/strict'
+import { sourceHash } from '../netlify/lib/publication-transition.ts'
 import { mkdir } from 'node:fs/promises'
 
 const require = createRequire(process.env.PLAYWRIGHT_PACKAGE_JSON || new URL('../package.json', import.meta.url))
@@ -28,7 +29,7 @@ source['tarefas/discursos'].temas.theme38={numero:38,titulo:'Tema trinta e oito'
 try {
   for (const width of [1280,390]) {
     const data=structuredClone(source),writes=[]
-    let failNext=false
+    let failNext=false, official=null
     const context=await browser.newContext({viewport:{width,height:900},serviceWorkers:'block',acceptDownloads:true})
     const page=await context.newPage(), errors=[]
     await page.clock.setFixedTime(new Date('2026-09-22T12:00:00-03:00'))
@@ -36,12 +37,19 @@ try {
     await page.route('**/.netlify/functions/**',route=>{
       const url=new URL(route.request().url()),endpoint=url.pathname.split('/').pop()
       if(endpoint==='auth-session')return route.fulfill({json:{uid:'audit',csrf:'a'.repeat(48),usuario:{nome:'Auditoria',ativo:true,apps:{mestre:true,oradores:true}}}})
+      if(endpoint==='module-publication') {
+        const body=route.request().postDataJSON(),root={master:{pessoas:data['master/pessoas']},tarefas:{people:data['tarefas/people'],discursos:data['tarefas/discursos']}},hash=sourceHash(root,'oradores',body.periodId)
+        if(body.action==='status')return route.fulfill({json:{hash,document:official}})
+        if(body.action==='prepare')return route.fulfill({json:{root:{master:{pessoas:data['master/pessoas']},tarefas:{people:data['tarefas/people'],discursos:data['tarefas/discursos']}},hash,version:'test-version',previous:official}})
+        official=body.document;return route.fulfill({json:{ok:true}})
+      }
       if(endpoint==='auth-users')return route.fulfill({json:{}})
       if(route.request().method()!=='GET'){
         const path=url.searchParams.get('path'),body=route.request().postDataJSON()
         if(failNext){failNext=false;return route.fulfill({status:503,json:{error:'Falha simulada'}})}
         writes.push({path,body})
         if(path==='agenda/documentos')for(const [id,value] of Object.entries(body.value))data[`agenda/documentos/${id}`]=value
+        if(path?.startsWith('tarefas/discursos/programacao/'))data['tarefas/discursos'].programacao[path.split('/').pop()]=body.value
         if(path==='tarefas/discursos/oradores')data['tarefas/discursos'].oradores=body.value
         return route.fulfill({json:endpoint==='storage-file'?{url:'https://example.test/oradores.pdf'}:{ok:true}})
       }
@@ -71,7 +79,7 @@ try {
     assert.equal(await page.locator('#speakerSchedulePublish').isEnabled(),true)
     await page.locator('#speakerSchedulePublish').click()
     await page.getByText('PDF de Oradores publicado no Quadro',{exact:true}).waitFor()
-    await page.locator('#speakerPublicationStatus').filter({hasText:'Corresponde aos dados carregados'}).waitFor()
+    await page.locator('#speakerPublicationStatus').filter({hasText:'Publicado e atualizado'}).waitFor()
     await page.locator('#scheduleSearch').fill('inexistente')
     await page.locator('#scheduleSearch').dispatchEvent('change')
     await page.getByText('Nenhum resultado para esta busca ou filtro.',{exact:true}).waitFor()
@@ -157,7 +165,7 @@ try {
     assert.match(await page.locator('#scheduleThemePreview').innerText(),/vinte e cinco/)
     await page.locator('#speakerScheduleForm [type="submit"]').click()
     await page.getByText('Programação criada',{exact:true}).waitFor()
-    await page.locator('#speakerPublicationStatus').filter({hasText:'Existem alterações ainda não publicadas'}).waitFor()
+    await page.locator('#speakerPublicationStatus').filter({hasText:'Publicado, mas os dados mudaram'}).waitFor()
     const scheduleWrite=writes.find(write=>write.path?.startsWith('tarefas/discursos/programacao/')&&write.body.value?.data==='2026-09-28')
     assert.equal(scheduleWrite.body.value.temaId,'theme25')
     await page.locator('[data-workspace-tab="oradores"]').last().click()
@@ -205,6 +213,7 @@ try {
     const url=new URL(route.request().url()),endpoint=url.pathname.split('/').pop()
     if(endpoint==='auth-session')return route.fulfill({json:{uid:'speaker',csrf:'a'.repeat(48),usuario:{nome:'Oradores',ativo:true,apps:{mestre:false,oradores:true}}}})
     if(endpoint==='auth-users')return route.fulfill({json:{}})
+    if(endpoint==='module-publication'&&route.request().postDataJSON()?.action==='status')return route.fulfill({json:{hash:'test',document:null}})
     assert.equal(route.request().method(),'GET','Consulta sem permissão Admin não deve gravar cadastros')
     const paths=JSON.parse(url.searchParams.get('paths')||'[]');readPaths.push(...paths)
     return route.fulfill({json:{results:paths.map(path=>({value:source[path]??{}}))}})
@@ -216,10 +225,10 @@ try {
   await page.locator('#speakerSearch').waitFor()
   assert.equal(await page.locator('#newSpeaker,[data-edit-speaker]').count(),0)
   assert.ok(readPaths.includes('master/pessoas'))
-  assert.ok(!readPaths.includes('tarefas/scale/periods'))
+  assert.ok(readPaths.includes('tarefas/scale/periods'))
   await page.locator('[data-workspace-tab="programacao"]').click()
   await page.locator('#newSchedule').click()
-  await page.getByText(/Designações de Tarefas não verificadas/).waitFor()
+  assert.equal(await page.getByText(/Designações de Tarefas não verificadas/).count(),0)
   await context.close()
   console.log('Oradores: consulta sem Admin preserva permissões OK')
 } finally { await browser.close() }

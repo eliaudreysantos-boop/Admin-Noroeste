@@ -1,5 +1,27 @@
 import { adminDatabase } from './subscription-store.ts'
 
+export const AGENDA_SOURCE_PATHS:Record<string,string[]>={
+  tarefas:['tarefas/people','tarefas/scale/periods'],
+  oradores:['tarefas/people','tarefas/discursos'],
+  limpeza:['limpeza/periodos'],
+  escala:['escala/participants','escala/scales','escala/tables','escala/publishedMonth','escala/publishedMonths','escala/settings'],
+  servicoCampo:['servicoCampo'],
+  quadro:['agenda/config','agenda/documentos'],
+}
+export async function loadPartialAgendaRoot(sources=Object.keys(AGENDA_SOURCE_PATHS),read:(path:string)=>Promise<unknown>=async path=>(await adminDatabase().ref(path).get()).val()) {
+  const root:Record<string,any>={master:{pessoas:await read('master/pessoas')}}
+  const completedSources:string[]=[],failedSources:string[]=[],reads=new Map<string,Promise<unknown>>()
+  await Promise.all(sources.filter(source=>Object.prototype.hasOwnProperty.call(AGENDA_SOURCE_PATHS,source)).map(async source=>{
+    try {
+      const paths=AGENDA_SOURCE_PATHS[source]
+      const values=await Promise.all(paths.map(path=>{if(!reads.has(path))reads.set(path,read(path));return reads.get(path)!}))
+      paths.forEach((path,index)=>{const keys=path.split('/');let parent=root;for(const key of keys.slice(0,-1))parent=(parent[key]??={});parent[keys[keys.length-1]]=values[index]??null})
+      completedSources.push(source)
+    }catch{failedSources.push(source)}
+  }))
+  return {root,completedSources,failedSources}
+}
+
 const PATHS = [
   'master/pessoas', 'master/config', 'tarefas/people', 'tarefas/scale/periods', 'tarefas/discursos',
   'limpeza/periodos', 'escala/participants', 'escala/scales', 'escala/tables',

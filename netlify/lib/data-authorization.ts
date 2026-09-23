@@ -1,12 +1,12 @@
 import { activeData, isRetiredPath } from './retired-data.ts'
 import type { AppPermissions } from '../../src/types.ts'
 
-const PRIVATE_ROOTS = new Set(['appSessoesPrivadas', 'agendaDispositivosPrivados', 'agendaAssinaturasPrivadas', 'autenticacaoTentativasPrivadas', 'pendenciasMigracao'])
+const PRIVATE_ROOTS = new Set(['appSessoesPrivadas', 'agendaDispositivosPrivados', 'agendaPareamentosPrivados', 'agendaAssinaturasPrivadas', 'autenticacaoTentativasPrivadas', 'pendenciasMigracao'])
 
 export function normalizeDataPath(value: string): string | null {
   const path = value.trim().replace(/^\/+|\/+$/g, '')
   if (!path) return ''
-  if (path.length > 240 || path.split('/').some(part => !part || part === '.' || part === '..' || /[.#$\[\]]/.test(part))) return null
+  if (path.length > 240 || path.split('/').some(part => !part || part === '.' || part === '..' || ['__proto__','prototype','constructor'].includes(part) || /[.#$\[\]]/.test(part))) return null
   return path
 }
 
@@ -20,6 +20,7 @@ export function canAccessData(path: string, apps: AppPermissions, write: boolean
   if (root === 'tarefas') {
     if (second === 'discursos' || second === 'events') return apps.oradores === true || (!write && apps.tarefas === true)
     if (second === 'planning' || second === 'people') return apps.tarefas === true || (!write && (apps.oradores === true || apps.limpeza === true))
+    if (!write && apps.oradores === true && second === 'scale' && third === 'periods') return true
     if (apps.tarefas === true) return true
     return !write && apps.limpeza === true && second === 'planning'
   }

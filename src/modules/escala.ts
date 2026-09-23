@@ -19,7 +19,9 @@ import {
   confirmationMessage, dayLabel, monthLabel,
 } from './escala-output'
 import type { createScaleSchedulePdf } from './escala-documents'
-import { publishAgendaModulePdf, unpublishAgendaModulePdf } from './agenda-documents'
+import { publishModulePeriod, renderPublicationStatus } from './module-publication'
+import { fortalezaCurrentMonth, isValidCivilDate } from './civil-date'
+import { publicationPeriod } from './publication-contract'
 import { mountModuleMessageSettings } from './module-message-settings'
 
 type Tab = 'indice' | 'locais' | 'participantes' | 'disponibilidade' | 'escalaAtual' | 'mensagens' | 'pendencias' | 'config'
@@ -71,8 +73,7 @@ const now = () => new Date().toISOString()
 const isAdmin = () => context.usuario.apps.mestre === true
 
 function monthNow(): string {
-  const date = new Date()
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+  return fortalezaCurrentMonth()
 }
 function esc(value: unknown): string {
   return String(value ?? '').replace(/[&<>'"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[c]!)
@@ -292,6 +293,7 @@ async function saveParticipant(id: string, overlay: HTMLElement): Promise<void> 
   const value = (target: string) => (overlay.querySelector(`#${target}`) as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value
   const mid = id ? centralId(id) : (document.getElementById('pmMaster') as HTMLSelectElement).value
   if (!mid || !pessoas[mid]) { toast('Selecione uma pessoa do cadastro Admin'); return }
+  if ([value('pmStart'),value('pmFolga')].some(date=>date&&!isValidCivilDate(date))) { toast('Informe datas válidas'); return }
   const target = id || mid
   const activeNow = (document.getElementById('pmActive') as HTMLInputElement).checked
   const onlyWithId = value('pmOnly') || undefined
@@ -382,6 +384,7 @@ function hasData(month: string): boolean {
   return Object.values(tables).some(byMonth => Object.values(byMonth[month]?.rows ?? {}).some(row => Object.values(row.slots ?? {}).some(cell => cell.p1 || cell.p2)))
 }
 function renderScale(): void {
+  queueMicrotask(()=>void renderPublicationStatus(root(),'escala',selectedMonth))
   const local = locals[selectedLocalId]
   if (!local) { root().innerHTML = '<p class="empty-state">Nenhum local cadastrado.</p>'; return }
   const table = tables[selectedLocalId]?.[selectedMonth], published = monthLocked()
@@ -453,45 +456,25 @@ async function publish(): Promise<void> {
   if (monthLocked() || changingPublication) return
   if (!hasData(selectedMonth)) { toast('Gere e revise a escala antes de publicar'); return }
 
-  const month = selectedMonth
-  const pdfInput = structuredClone(scalePdfInput())
-  const directory = participantDirectory()
-  const snapshot = { publicadoEm:now(), appliedRules:{ ...normalizeEscalaGenerationRules(settings.engineRules), version:1 }, participants:Object.fromEntries(Object.keys(directory).map(id => [id, { name:name(id), masterId:centralId(id) || directory[id]?.masterId || undefined, active:directory[id]?.active !== false }])), nomes:Object.fromEntries(Object.keys(directory).map(id => [id, name(id)])), locais:Object.fromEntries(orderedLocals().map(([id, local]) => [id, local.name ?? id])) }
-  changingPublication = true
-  const releaseUi = lockPublicationUi()
+  const month=selectedMonth
+  changingPublication=true
+  const releaseUi=lockPublicationUi()
   try {
-    const { createScaleSchedulePdf } = await import('./escala-documents')
-    const result = await createScaleSchedulePdf(pdfInput)
-    const lastDay = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate()
-    await publishAgendaModulePdf(result.bytes, { modulo:'escala', periodo:month, inicio:`${month}-01`, fim:`${month}-${lastDay}`, origemPeriodoId:month, nome:`escala-tpl-${month}.pdf` })
-    try { await compareAndUpdate(escalaRef, { tables, publishedMonth:publishedMonthBaseline, publishedMonths, [`publishedSnapshots/${month}`]:historicalSnapshots[month] ?? null }, { tables, publishedMonth:month, publishedMonths:{ ...publishedMonths, [month]:true }, [`publishedSnapshots/${month}`]:snapshot }) }
-    catch (error) {
-      try { await unpublishAgendaModulePdf('escala', month) }
-      catch { toast('Publicação incompleta. Reabra o módulo e confira o PDF no Quadro.'); return }
-      throw error
-    }
-    publishedMonth = month; publishedMonthBaseline=month; publishedMonths[month] = true; historicalSnapshots[month] = snapshot; toast('Mês publicado e bloqueado'); renderScale()
-  } catch { toast('Não foi possível publicar') }
-  finally { changingPublication = false; releaseUi() }
+    await publishModulePeriod('escala',month,publicationPeriod({escala:{tables}},'escala',month),Number(settings.printFontPt??12))
+    await load();toast('Mês publicado e bloqueado');renderScale()
+  } catch(error) {toast(error instanceof Error?error.message:'Não foi possível publicar')}
+  finally {changingPublication=false;releaseUi()}
 }
-async function unpublish(): Promise<void> {
-  if (!monthLocked() || changingPublication) return
-  if (!confirm(`Reabrir ${monthLabel(selectedMonth)} para edição? O PDF será retirado do Quadro até publicar novamente.`)) return
-  const month = selectedMonth, previousLatest = publishedMonth, previousFlag = publishedMonths[month] ?? null
-  const nextLatest = publishedMonth === month ? '' : publishedMonth
-  changingPublication = true
-  const releaseUi = lockPublicationUi()
+async function unpublish():Promise<void> {
+  if(!monthLocked()||changingPublication||!confirm('Reabrir para edição? O PDF será retirado do Quadro.'))return
+  const month=selectedMonth
+  changingPublication=true
+  const releaseUi=lockPublicationUi()
   try {
-    await update(escalaRef, { publishedMonth:nextLatest, [`publishedMonths/${month}`]:null })
-    try { await unpublishAgendaModulePdf('escala', month) }
-    catch (error) {
-      try { await update(escalaRef, { publishedMonth:previousLatest, [`publishedMonths/${month}`]:previousFlag }) }
-      catch { toast('Falha ao restaurar a publicação. Reabra o módulo e confira o período.'); return }
-      throw error
-    }
-    publishedMonth = nextLatest; publishedMonthBaseline=nextLatest; delete publishedMonths[month]; toast('Mês aberto para edição'); renderScale()
-  } catch { toast('Não foi possível despublicar') }
-  finally { changingPublication = false; releaseUi() }
+    await publishModulePeriod('escala',month,publicationPeriod({escala:{tables}},'escala',month),12,true)
+    await load();toast('Mês aberto para edição');renderScale()
+  } catch(error) {toast(error instanceof Error?error.message:'Não foi possível reabrir')}
+  finally {changingPublication=false;releaseUi()}
 }
 
 async function deleteMonth(): Promise<void> {

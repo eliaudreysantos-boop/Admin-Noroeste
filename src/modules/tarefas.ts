@@ -1,4 +1,6 @@
 import { focusCorrection, fieldHelp } from '../ui/field-guidance'
+import { canonicalTaskPerson } from './central-person'
+import { fortalezaToday, fortalezaCurrentMonth, isValidCivilDate } from './civil-date'
 import { tasksPersonMessage, tasksDayMessage } from './tarefas-messages'
 import { whatsappPhone } from './message-domain'
 import type { LimpezaPeriodoGerado } from '../types'
@@ -46,7 +48,7 @@ import {
   type TaskRole,
 } from './tarefas-domain'
 import { formatTaskDate } from './tarefas-output'
-import { publishAgendaModulePdf, unpublishAgendaModulePdf } from './agenda-documents'
+import { publishModulePeriod, renderPublicationStatus } from './module-publication'
 import { defaultModuleMessageSettings, mountModuleMessageSettings, type ModuleMessageSettings } from './module-message-settings'
 
 type TarefasTab = 'indice' | 'resumo' | 'escala' | 'participantes' | 'pendencias' | 'config'
@@ -127,8 +129,7 @@ function showTaskMessage(message:string,phone?:string):void {
 }
 
 function monthNow(): string {
-  const date = new Date()
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+  return fortalezaCurrentMonth()
 }
 
 function toast(msg: string, ms = 2600): void {
@@ -149,8 +150,7 @@ function escapeHtml(v: unknown): string {
 }
 
 function todayStr(): string {
-  const date = new Date()
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+  return fortalezaToday()
 }
 
 function pessoaNome(p: TarefasPessoa, fallback: string): string {
@@ -268,10 +268,7 @@ async function loadTarefas(): Promise<boolean> {
     const congregacao = congregacaoSnap.exists() ? (congregacaoSnap.val() as { nome?: string }) : {}
     congregationName = congregacao.nome?.trim() || 'Noroeste'
     masterPeople = masterPeopleSnap.exists() ? (masterPeopleSnap.val() as Record<string, { name?: string; whatsapp?: string; active?: boolean }>) : {}
-    pessoas = Object.fromEntries(Object.entries(pessoas).map(([id, person]) => {
-      const central = person.masterId ? masterPeople[person.masterId] : undefined
-      return [id, central ? { ...person, name: central.name ?? person.name, phone: central.whatsapp ?? person.phone } : person]
-    }))
+    pessoas = Object.fromEntries(Object.entries(pessoas).map(([id, person]) => [id, canonicalTaskPerson(id, person, masterPeople)]))
   } catch {
     toast('Erro ao carregar Tarefas')
     return false
@@ -332,6 +329,7 @@ function renderIndex(): void {
 }
 
 function renderEscala(): void {
+  queueMicrotask(()=>void renderPublicationStatus(document.getElementById('tarefasContent'),'tarefas',selectedPeriodId))
   const content = document.getElementById('tarefasContent')
   if (!content) return
 
@@ -457,31 +455,13 @@ async function toggleTaskLock(periodId: string): Promise<void> {
   try {
     const period = periods[periodId]
     const meetings = Object.values(period?.meetings ?? {}).filter(meeting => canonicalMeetingType(meeting.type)).sort((a, b) => String(a.date ?? '').localeCompare(String(b.date ?? '')))
-    if (!locked) {
-      if (!meetings.length) { toast('Gere e revise a escala antes de publicar'); return }
-      const font = printFont()
-
-      const first = meetings[0]?.date ?? `${periodId}-01`
-      const last = meetings[meetings.length - 1]?.date ?? first
-      const { createTaskSchedulePdf } = await import('./tarefas-documents')
-      const result = await createTaskSchedulePdf(meetings, congregationName, pessoas, font)
-      await publishAgendaModulePdf(result.bytes, { modulo:'tarefas', periodo:periodId, inicio:first, fim:last, origemPeriodoId:periodId, nome:`tarefas-${periodId}.pdf` })
-      try {
-        await update(tarefasScaleRef, { [`${periodId}/locked`]:true })
-      } catch (error) {
-        try { await unpublishAgendaModulePdf('tarefas', periodId) }
-        catch { console.warn('Não foi possível desfazer a publicação incompleta de Tarefas') }
-        throw error
-      }
-    } else {
-      await unpublishAgendaModulePdf('tarefas', periodId)
-      await update(tarefasScaleRef, { [`${periodId}/locked`]:false })
-    }
+    if (!locked && !meetings.length) { toast('Gere e revise a escala antes de publicar'); return }
+    await publishModulePeriod('tarefas', periodId, period, printFont(), locked)
     periods[periodId] ??= {}
     periods[periodId].locked = !locked
     toast(locked ? 'Escala reaberta para edição' : 'Escala publicada no Minha Agenda')
     renderEscala()
-  } catch { toast('Não foi possível alterar a publicação. Confira o período e tente novamente.') }
+  } catch (error) { toast(error instanceof Error?error.message:'Não foi possível alterar a publicação. Confira o período e tente novamente.') }
   finally { changingPublication = false; releaseUi() }
 }
 
@@ -671,7 +651,7 @@ function renderTaskConfig(): void {
   document.getElementById('restoreTaskRules')?.addEventListener('click', () => void saveTaskRules(DEFAULT_TASK_GENERATION_RULES))
   document.getElementById('addTaskExcludedDate')?.addEventListener('click', async () => {
     const date = (document.getElementById('taskExcludedDate') as HTMLInputElement).value
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { toast('Escolha uma data válida'); return }
+    if (!isValidCivilDate(date)) { toast('Escolha uma data válida'); return }
     const next = [...new Set([...dates, date])].sort()
     try { await update(tarefasPlanejamentoRef, { excludedDates:next }); planning.excludedDates = next; toast('Data excluída'); renderTaskConfig() } catch { toast('Não foi possível excluir a data') }
   })
@@ -987,7 +967,7 @@ async function saveTaskPerson(id: string | null, overlay: HTMLElement): Promise<
   const person = id ? pessoas[id] : undefined
   const input = (elementId: string) => (document.getElementById(elementId) as HTMLInputElement).value.trim()
   const unavailableDates = input('taskPersonUnavailable').split(/[\s,;]+/).filter(Boolean)
-  if (unavailableDates.some(date => !/^\d{4}-\d{2}-\d{2}$/.test(date))) { toast('Revise as datas indisponíveis'); return }
+  if (unavailableDates.some(date => !isValidCivilDate(date))) { toast('Revise as datas indisponíveis'); return }
   const roles: Record<string, boolean> = {}
   document.querySelectorAll<HTMLInputElement>('.task-person-role').forEach(checkbox => { roles[checkbox.value] = checkbox.checked })
   const selectedMasterId = (document.getElementById('taskPersonMaster') as HTMLSelectElement).value || person?.masterId || ''

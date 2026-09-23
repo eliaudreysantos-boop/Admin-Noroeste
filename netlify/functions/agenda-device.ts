@@ -1,12 +1,8 @@
 import type { MasterPessoa } from '../../src/types.ts'
+import { randomBytes } from 'node:crypto'
+import { pairingKey, consumePairing } from '../lib/agenda-pairing.ts'
 import { adminDatabase } from '../lib/subscription-store.ts'
-import { clearDeviceCookie, clearLoginFailures, createDeviceSession, destroyDeviceSession, deviceSession, json, loginAttemptAllowed, objectBody, recordLoginFailure, verifyAdminPassword } from '../lib/secure-session.ts'
-
-async function publicPeople(): Promise<Record<string, Pick<MasterPessoa, 'name' | 'active'>>> {
-  const snapshot = await adminDatabase().ref('master/pessoas').get()
-  const people = snapshot.exists() ? snapshot.val() as Record<string, MasterPessoa> : {}
-  return Object.fromEntries(Object.entries(people).filter(([, person]) => person.active !== false).map(([id, person]) => [id, { name:String(person.name ?? ''), active:true }]))
-}
+import { clearDeviceCookie, clearLoginFailures, destroyDeviceSession, deviceSession, json, loginAttemptAllowed, objectBody, recordLoginFailure, verifyAdminPassword, reservePairingAttempt, renewDeviceCookie, renewDeviceSession, type DeviceSession } from '../lib/secure-session.ts'
 
 async function revokeInstallationSubscriptions(installationId: string): Promise<void> {
   if (!installationId) return
@@ -25,27 +21,40 @@ async function revokeInstallationSubscriptions(installationId: string): Promise<
 export async function agendaDeviceResponse(request: Request, resolveSession = deviceSession): Promise<Response> {
   if (request.method === 'GET') {
     try {
-      const [people, paired] = await Promise.all([publicPeople(), resolveSession(request)])
-      const masterId = paired && people[paired.masterId] ? paired.masterId : ''
-      return json(200, { people, masterId })
+      const paired = await resolveSession(request)
+      if (!paired) return json(200,{people:{},masterId:''})
+      const person = (await adminDatabase().ref(`master/pessoas/${paired.masterId}`).get()).val() as MasterPessoa|null
+      if (!person || person.active === false) return json(200,{people:{},masterId:''})
+      await renewDeviceSession(paired)
+      return json(200, { people:{[paired.masterId]:{name:person.name,active:true}}, masterId:paired.masterId }, {'set-cookie':renewDeviceCookie(paired)})
     } catch { return json(503, { error:'Não foi possível carregar as pessoas.' }) }
   }
   if (request.method === 'POST') {
     const body = await objectBody(request)
     const masterId = String(body['masterId'] ?? ''), installationId = String(body['installationId'] ?? '')
-    if (!/^m_[A-Za-z0-9_-]+$/.test(masterId) || !/^[a-f0-9]{32,64}$/.test(installationId)) return json(400, { error:'Identidade ou instalação inválida.' })
+    if (!/^[a-f0-9]{32,64}$/.test(installationId)) return json(400, { error:'Instalação inválida.' })
     try {
       const previous = await resolveSession(request)
       if (previous) {
         if (previous.masterId === masterId && previous.installationId === installationId) return json(200, { masterId })
         return json(409, { error:'Desbloqueie o aparelho com a senha Admin antes de trocar a pessoa.' })
       }
-      const person = await adminDatabase().ref(`master/pessoas/${masterId}`).get()
-      if (!person.exists() || (person.val() as MasterPessoa).active === false) return json(404, { error:'Pessoa indisponível.' })
-      await revokeInstallationSubscriptions(installationId)
-      await destroyDeviceSession(request)
-      const created = await createDeviceSession(masterId, installationId)
-      return json(200, { masterId }, { 'set-cookie':created.cookie })
+      const code=String(body['code'] ?? '').replace(/[\s-]/g,'').toUpperCase()
+      if (!/^[A-F0-9]{16}$/.test(code)) return json(400,{error:'Informe o código fornecido pelo Admin.'})
+      if (!await reservePairingAttempt(request,installationId)) return json(429,{error:'Muitas tentativas. Aguarde 10 minutos.'})
+      const key=pairingKey(code), token=randomBytes(32).toString('hex'), now=Date.now()
+      let created:DeviceSession|null=null
+      const result=await adminDatabase().ref('/').transaction(current=>{
+        created=null
+        if(current===null)return null // Bootstrap the Firebase transaction's cold cache.
+        const next=consumePairing(current,key,token,installationId,now)
+        if(next)created=next.agendaDispositivosPrivados[token]
+        return next
+      },undefined,false)
+      if (!result.committed || !created) return json(400,{error:'Código inválido, vencido ou já utilizado.'})
+      const session=created as DeviceSession
+      const person=result.snapshot.val().master.pessoas[session.masterId]
+      return json(200,{masterId:session.masterId,person:{name:person.name,active:true}},{'set-cookie':renewDeviceCookie(session)})
     } catch (error) { console.error('Agenda device pairing failed:', error instanceof Error ? error.message : 'Unknown error'); return json(503, { error:'Não foi possível parear o aparelho.' }) }
   }
   if (request.method === 'DELETE') {

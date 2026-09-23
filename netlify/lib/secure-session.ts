@@ -4,7 +4,7 @@ import { adminDatabase } from './subscription-store.ts'
 const APP_COOKIE = 'noroeste_session'
 const DEVICE_COOKIE = 'noroeste_device'
 const APP_SESSION_MS = 12 * 60 * 60 * 1000
-const DEVICE_SESSION_MS = 180 * 24 * 60 * 60 * 1000
+const DEVICE_SESSION_MS = 90 * 24 * 60 * 60 * 1000
 const ATTEMPT_WINDOW_MS = 10 * 60 * 1000
 const ATTEMPT_BLOCK_MS = 30 * 1000
 const MAX_ATTEMPTS = 5
@@ -67,6 +67,29 @@ export async function recordLoginFailure(request: Request, scope: string): Promi
 export async function clearLoginFailures(request: Request, scope: string): Promise<void> {
   const key = await attemptKey(request, scope)
   await adminDatabase().ref(`autenticacaoTentativasPrivadas/${key}`).remove()
+}
+
+/** Reserve an attempt atomically, including successful pairing requests. */
+export async function reservePairingAttempt(request:Request, installation:string):Promise<boolean> {
+  const keys = [await attemptKey(request,'agenda-pairing'), await attemptKey(new Request(request.url),`agenda-installation:${installation}`)]
+  for (const key of keys) {
+    const now=Date.now()
+    const result=await adminDatabase().ref(`autenticacaoTentativasPrivadas/${key}`).transaction(current=>{
+      const previous=(current ?? {}) as Partial<LoginAttempt>
+      if (Number(previous.firstAt)>now-ATTEMPT_WINDOW_MS && Number(previous.count)>=MAX_ATTEMPTS) return undefined
+      return {firstAt:Number(previous.firstAt)>now-ATTEMPT_WINDOW_MS?previous.firstAt:now,count:Number(previous.firstAt)>now-ATTEMPT_WINDOW_MS?Number(previous.count||0)+1:1,expiresAt:now+ATTEMPT_WINDOW_MS}
+    },undefined,false)
+    if (!result.committed) return false
+  }
+  return true
+}
+
+export function renewDeviceCookie(session:DeviceSession):string {
+  return secureCookie(DEVICE_COOKIE,session.token,DEVICE_SESSION_MS)
+}
+
+export async function renewDeviceSession(session:DeviceSession):Promise<void> {
+  await adminDatabase().ref(`agendaDispositivosPrivados/${session.token}/expiresAt`).set(Date.now()+DEVICE_SESSION_MS)
 }
 
 function safeUser(user: Usuario): SafeUser {

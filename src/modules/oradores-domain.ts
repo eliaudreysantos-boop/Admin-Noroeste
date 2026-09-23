@@ -163,7 +163,8 @@ export function scheduleStatus(item: TalkSchedule): TalkStatus {
   return item.status === 'por_definir' ? 'por_confirmar' : item.status
 }
 
-export function validIsoDate(value: string): boolean { return /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(`${value}T12:00:00Z`)) }
+import { isValidCivilDate as validIsoDate, fortalezaToday } from './civil-date.ts'
+export { validIsoDate }
 export function phoneDigits(value: string): string { return value.replace(/\D/g, '').slice(0, 13) }
 export function newSpeakerId(prefix: string): string { return `${prefix}-${Date.now().toString(36)}-${crypto.getRandomValues(new Uint32Array(1))[0]!.toString(36)}` }
 export function monthBounds(month: string): { start:string; end:string } { const [year, number]=month.split('-').map(Number); return { start:`${month}-01`, end:new Date(Date.UTC(year!, number!, 0)).toISOString().slice(0,10) } }
@@ -174,7 +175,7 @@ export interface SpeakerPendingItem {
   id:string; severity:'alta'|'media'; title:string; detail:string; date:string
   screen:'programacao'; recordId:string; action:'oradorId'|'themeNumber'|'congregacaoId'|'confirm'|'reconfirm'
 }
-export function speakerPendingItems(root: SpeakersRoot, today = new Date().toISOString().slice(0,10)): SpeakerPendingItem[] {
+export function speakerPendingItems(root: SpeakersRoot, today = fortalezaToday()): SpeakerPendingItem[] {
   const limit = new Date(`${today}T12:00:00Z`); limit.setUTCDate(limit.getUTCDate()+90); const horizon=limit.toISOString().slice(0,10)
   const items:SpeakerPendingItem[]=[]
   for (const [id,item] of Object.entries(root.programacao ?? {})) {

@@ -1,17 +1,7 @@
-import { agendaDocumentsRef, child, get, update } from '../firebase.ts'
+import { agendaDocumentsRef, update } from '../firebase.ts'
 import { deleteStoredFile, uploadPdf } from '../secure-api.ts'
 import type { AgendaPublicDocument } from '../types.ts'
-import { officialDocumentId, safeDocumentKey, type PublicPdfModule } from './agenda-documents-domain.ts'
-
-export interface ModulePdfMetadata {
-  sourceHash?: string
-  modulo: PublicPdfModule
-  periodo: string
-  nome: string
-  inicio: string
-  fim: string
-  origemPeriodoId: string
-}
+import { safeDocumentKey } from './agenda-documents-domain.ts'
 
 export async function archiveAgendaPdf(
   bytes: Uint8Array,
@@ -25,47 +15,8 @@ export async function archiveAgendaPdf(
     await update(agendaDocumentsRef, { [id]:item })
     return item
   } catch (error) {
-    try { await deleteStoredFile(storagePath) } catch { /* O registro nao foi publicado; a limpeza e melhor esforco. */ }
+    // Preserve uploaded files after an uncertain response: metadata may have committed.
     throw error
-  }
-}
-
-export async function publishAgendaModulePdf(bytes: Uint8Array, metadata: ModulePdfMetadata): Promise<AgendaPublicDocument> {
-  const id = officialDocumentId(metadata.modulo, metadata.origemPeriodoId)
-  const snapshot = await get<AgendaPublicDocument>(child(agendaDocumentsRef, id))
-  const previous = snapshot.exists() ? snapshot.val() ?? undefined : undefined
-  const version = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
-  const storagePath = `agenda/documentos/modulos/${metadata.modulo}/${safeDocumentKey(metadata.origemPeriodoId)}-${version}.pdf`
-  const url = await uploadPdf(storagePath, bytes)
-  try {
-    const item: AgendaPublicDocument = {
-      id,
-      ...metadata,
-      tipo:'modulo',
-      url,
-      storagePath,
-      criadoEm:new Date().toISOString(),
-    }
-    await update(agendaDocumentsRef, { [id]:item })
-    if (previous?.storagePath && previous.storagePath !== storagePath) {
-      try { await deleteStoredFile(previous.storagePath) }
-      catch (error) { console.warn('PDF anterior preservado no armazenamento', error) }
-    }
-    return item
-  } catch (error) {
-    try { await deleteStoredFile(storagePath) } catch { /* Evita mascarar a falha original. */ }
-    throw error
-  }
-}
-
-export async function unpublishAgendaModulePdf(module: PublicPdfModule, originPeriodId: string): Promise<void> {
-  const id = officialDocumentId(module, originPeriodId)
-  const snapshot = await get<AgendaPublicDocument>(child(agendaDocumentsRef, id))
-  const item = snapshot.exists() ? snapshot.val() ?? undefined : undefined
-  await update(agendaDocumentsRef, { [id]:null })
-  if (item?.storagePath) {
-    try { await deleteStoredFile(item.storagePath) }
-    catch (error) { console.warn('Metadado removido; arquivo antigo permaneceu no armazenamento', error) }
   }
 }
 

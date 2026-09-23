@@ -1,4 +1,7 @@
 import { agendaLocation, cleanAddress } from './agenda-location.ts'
+import { isValidCivilDate } from './civil-date.ts'
+import { assignmentId } from './tarefas-domain.ts'
+import { resolveCentralPerson, type CentralIdentity } from './central-person.ts'
 import type { MasterPessoa } from '../types'
 
 export type AgendaSource = 'tarefas' | 'oradores' | 'limpeza' | 'escala' | 'servicoCampo'
@@ -48,10 +51,7 @@ const rows = (value: unknown): Row => value && typeof value === 'object' ? value
 const text = (value: unknown): string => typeof value === 'string' ? value.trim() : ''
 const values = (value: unknown): unknown[] => Array.isArray(value) ? value : Object.values(rows(value))
 export function validAgendaDate(value: string): boolean {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
-  const [year, month, day] = value.split('-').map(Number)
-  const date = new Date(Date.UTC(year, month - 1, day))
-  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
+  return isValidCivilDate(value)
 }
 
 export function validAgendaTime(value: string | undefined): boolean {
@@ -62,7 +62,7 @@ const TASK_LABELS: Record<string, string> = { presidente:'Presidente', operador1
 export function collectAgendaEvents(rootValue: unknown, masterId: string, allowed: Partial<Record<AgendaSource, boolean>> = {}): AgendaEvent[] {
   if (!masterId) return []
   const root = rows(rootValue), tarefas = rows(root['tarefas']), taskPeople = rows(tarefas['people'])
-  const taskIds = new Set(Object.entries(taskPeople).filter(([, person]) => text(rows(person)['masterId']) === masterId).map(([id]) => id))
+  const taskIds = new Set(Object.entries(taskPeople).filter(([id, person]) => (text(rows(person)['masterId']) || id) === masterId).map(([id]) => id))
   const result: AgendaEvent[] = []
   const add = (event: AgendaEvent): void => { if (validAgendaDate(event.date) && validAgendaTime(event.time)) result.push({ ...event, note: text(event.note).slice(0, 250) || undefined }) }
 
@@ -72,7 +72,7 @@ export function collectAgendaEvents(rootValue: unknown, masterId: string, allowe
     Object.entries(rows(period['meetings'])).forEach(([meetingId, meetingValue]) => {
     const meeting = rows(meetingValue), date = text(meeting['date']) || meetingId.split('__')[0]
     Object.entries(rows(meeting['assignments'])).forEach(([role, assignment]) => {
-      const personId = text(rows(assignment)['id']) || text(rows(assignment)['personId']) || text(assignment)
+      const personId = assignmentId(assignment) ?? ''
       if (taskIds.has(personId)) add({ id:`tarefas:${periodId}:${meetingId}:${role}`, source:'tarefas', date, title:TASK_LABELS[role] || role, detail:text(meeting['type']) === 'midweek' ? 'Reunião do meio de semana' : 'Reunião do fim de semana', status:'futuro' })
     })
     })
@@ -90,16 +90,17 @@ export function collectAgendaEvents(rootValue: unknown, masterId: string, allowe
   })
 
   if (allowed.escala !== false) {
-    const escala = rows(root['escala']), participantIds = new Set(Object.entries(rows(escala['participants'])).filter(([, person]) => text(rows(person)['masterId']) === masterId).map(([id]) => id))
-    const publishedMonths = rows(escala['publishedMonths']), snapshots = rows(escala['publishedSnapshots']), currentPublished = text(escala['publishedMonth'])
+    const escala = rows(root['escala']), centralPeople = rows(rows(root['master'])['pessoas']) as Record<string,CentralIdentity>
+    const participantIds = new Set(Object.entries(rows(escala['participants'])).filter(([id, person]) => resolveCentralPerson(id, text(rows(person)['masterId']), centralPeople).masterId === masterId).map(([id]) => id))
+    const publishedMonths = rows(escala['publishedMonths']), currentPublished = text(escala['publishedMonth'])
     const participantName = (id: string): string => {
-      const participant = rows(rows(escala['participants'])[id]), participantMasterId = text(participant['masterId'])
+      const participant = rows(rows(escala['participants'])[id]), participantMasterId = resolveCentralPerson(id, text(participant['masterId']), centralPeople).masterId
       return text(rows(rows(rows(root['master'])['pessoas'])[participantMasterId])['name']) || text(participant['name'])
     }
     Object.entries(rows(escala['tables'])).forEach(([localId, monthsValue]) => {
       const local = rows(escala['scales'])[localId] ?? rows(rows(escala['settings'])['locals'])[localId], location = text(rows(local)['name']) || localId
       Object.entries(rows(monthsValue)).forEach(([month, tableValue]) => {
-        if (currentPublished !== month && publishedMonths[month] !== true && !(month in snapshots)) return
+        if (currentPublished !== month && publishedMonths[month] !== true) return
         Object.entries(rows(rows(tableValue)['rows'])).forEach(([date, rowValue]) => Object.entries(rows(rows(rowValue)['slots'])).forEach(([time, cellValue]) => {
         const cell = rows(cellValue)
         const ids = [text(cell['p1']), text(cell['p2'])]
@@ -141,8 +142,8 @@ function speakerAgendaEvents(root: Row): { event: AgendaEvent; masterIds: string
   return Object.entries(rows(talks['programacao'])).flatMap(([id, raw]) => {
     const item = rows(raw)
     if (item['secao'] === 's1' || (item['status'] !== 'confirmado' && rows(item['confirmacao'])['status'] !== true)) return []
-    const date = text(item['data']), time = text(item['horarioLocal']) || undefined
-    if (!validAgendaDate(date) || !validAgendaTime(time)) return []
+    const date = text(item['data'])
+    if (!validAgendaDate(date)) return []
     const ids = [text(item['oradorId']), text(item['oradorSecundarioId'])]
     const masterIds = ids.map(id => {
       const directId = text(rows(speakers[id])['masterId'])
@@ -158,8 +159,12 @@ function speakerAgendaEvents(root: Row): { event: AgendaEvent; masterIds: string
     const theme = rows(rows(talks['temas'])[text(item['temaId'])])
     const title = text(theme['titulo']) || text(item['temaTitulo'])
     const outgoing = item['tipo'] === 'saida_orador'
-    const congregation = rows(rows(talks['congregacoes'])[text(item[outgoing ? 'congregacaoDestinoId' : 'localCongregacaoId'])])
-    const location = cleanAddress(text(congregation['localizacao'])) || text(item[outgoing ? 'congregacaoDestinoNome' : 'localCongregacaoNome']) || text(rows(rows(talks['congregacoes'])[text(item[outgoing ? 'congregacaoDestinoId' : 'localCongregacaoId'])])['nome'])
+    const congregations=rows(talks['congregacoes']), localId=text(item['localCongregacaoId'])
+    const locals=Object.values(congregations).map(rows).filter(c=>c['tipo']==='local'&&c['secao']!=='s1')
+    const congregation = outgoing ? rows(congregations[text(item['congregacaoDestinoId'])]) : localId ? rows(congregations[localId]) : locals.find(c=>c['secao']==='s2') ?? locals[0] ?? {}
+    const time=text(item['horarioLocal']) || text(congregation['horario']) || undefined
+    if(!validAgendaTime(time))return []
+    const location = cleanAddress(text(congregation['localizacao'])) || text(item[outgoing ? 'congregacaoDestinoNome' : 'localCongregacaoNome']) || text(congregation['nome'])
     const event: AgendaEvent = { id:`oradores:${id}`, source:'oradores', date, ...(time ? { time } : {}), title:outgoing ? 'Saída de orador' : 'Discurso público', detail:[outgoing ? 'Discurso em outra congregação' : 'Reunião do fim de semana', title].filter(Boolean).join(' · '), ...(location ? { location } : {}), ...(text(congregation['mapa']) ? {mapLocation:text(congregation['mapa'])} : {}), status:'futuro' }
     return [{ event, masterIds, names }]
   })

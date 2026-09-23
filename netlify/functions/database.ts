@@ -1,3 +1,4 @@
+import { guardedModulePath, guardedModuleWrite } from '../lib/published-write.ts'
 import { activeData, preserveArchivedTasks } from '../lib/retired-data.ts'
 import { deleteUnreferencedMasterPerson } from '../lib/master-person-delete.ts'
 import { appSession, json, objectBody, validCsrf } from '../lib/secure-session.ts'
@@ -32,6 +33,17 @@ export default async (request: Request): Promise<Response> => {
       const snapshot = await reference.get()
       const value = snapshot.exists() ? snapshot.val() as unknown : null
       return json(200, { value:path ? activeData(path, value) : withoutPrivateRoots(value) })
+    }
+    if (write && guardedModulePath(path)) {
+      const body=request.method==='DELETE'?{}:await objectBody(request),value=body['value']
+      if(!canMutateData(path,request.method,value,session.usuario.apps))return json(403,{error:'Alteração não autorizada.'})
+      let applied=false
+      const result=await adminDatabase().ref('/').transaction(current=>{
+        if(current===null){applied=false;return null}
+        const next=guardedModuleWrite(current,path,request.method,value,Object.prototype.hasOwnProperty.call(body,'expected'),body['expected'])
+        applied=next!==undefined;return next
+      },undefined,false)
+      return result.committed&&applied?json(200,{ok:true}):json(409,{error:'O registro mudou ou o período está publicado. Recarregue os dados e reabra o período antes de editar.'})
     }
     if (request.method === 'DELETE') {
       if (!canMutateData(path, request.method, undefined, session.usuario.apps)) return json(403, { error:'Alteração não autorizada.' })

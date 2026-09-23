@@ -1,4 +1,6 @@
+import { renderPublicationStatus } from './module-publication'
 import { focusCorrection, fieldHelp } from '../ui/field-guidance'
+import { fortalezaCurrentMonth, isValidCivilDate } from './civil-date'
 import { editorBusy, editorError } from '../ui/editor-feedback'
 import { lockPublicationUi } from '../ui/publication-busy'
 import type { AppContext, ConfigCongregacao, MasterPessoa, RawPessoas } from '../types'
@@ -21,7 +23,7 @@ let screen: Screen = 'programacao'
 let data: ServiceRoot = {}
 let people: RawPessoas = {}
 let congregation: ConfigCongregacao = { nome:'Noroeste', cidade:'', circuito:'', idioma:'pt-BR' }
-let selectedMonth = localStorage.getItem(MONTH_KEY) ?? new Date().toISOString().slice(0, 7)
+let selectedMonth = localStorage.getItem(MONTH_KEY) ?? fortalezaCurrentMonth()
 let editingTemplateId = ''
 let changingPublication = false
 let downloadingPdf = false
@@ -46,7 +48,7 @@ const personName = (masterId: string): string => people[masterId]?.name ?? 'Cada
 const ROLE_LABELS: Record<string, string> = { anciao:'Ancião', 'servo-ministerial':'Servo ministerial', pioneiro:'Pioneiro', batizado:'Batizado', publicador:'Publicador' }
 const roleLabel = (person: MasterPessoa): string => ROLE_LABELS[person.role ?? ''] ?? 'Sem função'
 const dateLabel = (date: string): string => new Intl.DateTimeFormat('pt-BR', { weekday:'long', day:'2-digit', month:'2-digit', timeZone:'UTC' }).format(new Date(`${date}T12:00:00Z`))
-const monthLabel = (month: string): string => new Intl.DateTimeFormat('pt-BR', { month:'long', year:'numeric', timeZone:'UTC' }).format(new Date(`${month}-15T12:00:00Z`))
+
 
 function toast(message: string): void { const element = document.getElementById('toast'); if (!element) return; element.textContent = message; element.classList.add('show'); setTimeout(() => element.classList.remove('show'), 2800) }
 function root(): HTMLElement { return document.getElementById('servicoCampoRoot')! }
@@ -92,6 +94,7 @@ async function openScreen(next: Screen): Promise<void> {
 }
 
 function render(): void {
+  if(screen==='programacao')queueMicrotask(()=>void renderPublicationStatus(root(),'servicoCampo',selectedMonth))
   renderNavigation()
   if (screen === 'configuracao') renderConfiguration()
   else renderSchedule()
@@ -174,7 +177,7 @@ async function changeLeader(assignmentId: string, leaderId: string): Promise<voi
 async function addManualAssignment(form: HTMLFormElement): Promise<void> {
   if(currentPeriod()?.published) { toast('Reabra o mês antes de editar'); return }
   const values = new FormData(form), date = String(values.get('date') ?? ''), time = String(values.get('time') ?? ''), location = String(values.get('location') ?? '').trim(), assignmentId = id('saida')
-  if (!date.startsWith(`${selectedMonth}-`) || !location || !validFieldServiceTime(time)) { toast('Preencha uma saída válida dentro do mês selecionado'); return }
+  if (!isValidCivilDate(date) || !date.startsWith(`${selectedMonth}-`) || !location || !validFieldServiceTime(time)) { toast('Preencha uma saída válida dentro do mês selecionado'); return }
   if (Object.values(currentPeriod()?.assignments ?? {}).some(item => item.date === date && item.time === time && item.location.trim().localeCompare(location, 'pt-BR', { sensitivity:'base' }) === 0)) { toast('Esta saída já existe na programação'); return }
   const assignment: FieldServiceAssignment = { id:assignmentId, templateId:'', date, time, location, label:String(values.get('label') ?? '').trim() || 'Saída de campo', leaderId:String(values.get('leaderId') ?? ''), manual:true }
   const current = currentPeriod() ?? { month:selectedMonth, assignments:{}, published:false }
@@ -196,35 +199,30 @@ async function publishPeriod(): Promise<void> {
   if (!period || !assignments.length || assignments.some(item => !item.leaderId || !eligible.has(item.leaderId))) { toast('Defina um dirigente ativo para todas as saídas'); return }
   if(fieldServiceConflicts(assignments).length){toast('Há dirigentes em saídas simultâneas. Corrija antes de publicar.');return}
 
-  const month = selectedMonth, pdfInput = structuredClone(fieldServicePdfInput(assignments))
-  const publishedAt = new Date().toISOString()
-  changingPublication = true
-  const releaseUi = lockPublicationUi()
-  try {
-    const { createFieldServicePdf } = await import('./servico-campo-documents')
-    const { publishAgendaModulePdf, unpublishAgendaModulePdf } = await import('./agenda-documents')
-    const bytes = await createFieldServicePdf(pdfInput)
-    const lastDay = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate()
-    await publishAgendaModulePdf(bytes, { modulo:'servicoCampo', periodo:month, inicio:`${month}-01`, fim:`${month}-${lastDay}`, origemPeriodoId:month, nome:`servico-de-campo-${month}.pdf` })
-    try { await update(servicoCampoRef, { [`periods/${month}/published`]:true, [`periods/${month}/publishedAt`]:publishedAt }) }
-    catch (error) { try { await unpublishAgendaModulePdf('servicoCampo', month) } catch { toast('Publicação incompleta. Confira o PDF no Quadro.'); return } throw error }
-    period.published = true; period.publishedAt = publishedAt; toast('Mês publicado na Minha Agenda e no Quadro'); render()
-  } catch (error) { toast(failureMessage(error, 'Não foi possível publicar o mês')) }
-  finally { changingPublication = false; releaseUi() }
-}
-
-async function reopenPeriod(): Promise<void> {
-  const period = currentPeriod(); if (!period || changingPublication || !confirm(`Reabrir ${monthLabel(selectedMonth)} para edição? O PDF será retirado do Quadro até publicar novamente.`)) return
   const month = selectedMonth
   changingPublication = true
   const releaseUi = lockPublicationUi()
   try {
-    await update(servicoCampoRef, { [`periods/${month}/published`]:false, [`periods/${month}/publishedAt`]:null })
-    try { const { unpublishAgendaModulePdf } = await import('./agenda-documents'); await unpublishAgendaModulePdf('servicoCampo', month) }
-    catch (error) { try { await update(servicoCampoRef, { [`periods/${month}/published`]:true, [`periods/${month}/publishedAt`]:period.publishedAt ?? true }) } catch { toast('Falha ao restaurar a publicação. Confira o período.'); return } throw error }
-    period.published = false; delete period.publishedAt; toast('Mês reaberto'); render()
-  } catch { toast('Não foi possível reabrir o mês') }
-  finally { changingPublication = false; releaseUi() }
+    const { publishModulePeriod } = await import('./module-publication')
+    await publishModulePeriod('servicoCampo',month,period)
+    await load()
+    toast('Mês publicado na Minha Agenda e no Quadro'); render()
+  } catch (error) { toast(failureMessage(error,'Não foi possível publicar')) }
+  finally { changingPublication=false;releaseUi() }
+}
+
+async function reopenPeriod():Promise<void> {
+  const period=currentPeriod()
+  if(!period||changingPublication||!confirm('Reabrir para edição? O PDF será retirado do Quadro.'))return
+  const month=selectedMonth
+  changingPublication=true
+  const releaseUi=lockPublicationUi()
+  try {
+    const { publishModulePeriod }=await import('./module-publication')
+    await publishModulePeriod('servicoCampo',month,period,12,true)
+    await load();toast('Mês reaberto');render()
+  } catch(error) {toast(failureMessage(error,'Não foi possível reabrir o mês'))}
+  finally {changingPublication=false;releaseUi()}
 }
 
 async function openPdf(): Promise<void> {

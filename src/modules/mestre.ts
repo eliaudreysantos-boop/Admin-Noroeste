@@ -1,3 +1,4 @@
+import { auditIntegrations } from './integration-audit'
 import { focusCorrection, fieldHelp, takeMasterCorrection } from '../ui/field-guidance'
 import { editorBusy, editorError, editorSaved } from '../ui/editor-feedback'
 import type {
@@ -44,7 +45,9 @@ import {
   sharedWhatsappPeople,
   stableUserMasterId,
 } from './mestre-domain'
+import { fortalezaCurrentMonth } from './civil-date'
 import { navigateTo } from '../router'
+import { apiJson } from '../secure-api'
 
 // ─── Estado do módulo ────────────────────────────────────────────────────────
 
@@ -404,6 +407,17 @@ function renderVinculos(): void {
     return
   }
 
+  const auditRoot=rootData
+  queueMicrotask(async()=>{
+    const panel=document.createElement('section');panel.className='form-panel';panel.dataset.integrationAudit=''
+    mc.prepend(panel);panel.textContent='Conferindo integração dos módulos…'
+    try {
+      const rows=await auditIntegrations(auditRoot)
+      if(!panel.isConnected)return
+      panel.innerHTML='<h3>Integração dos módulos</h3><p>'+rows.length+' ponto(s) para conferir</p>'+rows.map(item=>'<article class="notice"><strong>'+escapeHtml(item.module)+' · '+escapeHtml(item.id)+'</strong><p>'+escapeHtml(item.detail)+'</p><button type="button" class="btn btn-ghost" data-audit-module="'+item.module+'">Abrir módulo</button></article>').join('')
+      panel.querySelectorAll<HTMLButtonElement>('[data-audit-module]').forEach(button=>button.addEventListener('click',()=>void navigateTo(button.dataset.auditModule as ModuleName)))
+    }catch{panel.textContent='Não foi possível concluir a auditoria. Use Atualizar para tentar novamente.'}
+  })
   const issues = collectLinkIssues(rootData)
   const configIssues = collectAgendaConfigIssues()
   const orphanCount = issues.filter(item => item.kind === 'orfao').length
@@ -780,6 +794,22 @@ function openPessoaModal(mid: string | null): void {
   }
   document.getElementById('pWpp')?.addEventListener('input', updateSharedWhatsapp)
   updateSharedWhatsapp()
+
+  if (mid && pessoas[mid]?.active !== false) {
+    const pairing=document.createElement('div')
+    pairing.className='form-panel'
+    const button=document.createElement('button');button.type='button';button.className='btn btn-ghost';button.textContent='Gerar código para Minha Agenda'
+    const result=document.createElement('p');result.className='form-help';result.setAttribute('aria-live','polite')
+    pairing.append(button,result);overlay.querySelector('.modal')!.append(pairing)
+    button.addEventListener('click',async()=>{
+      button.disabled=true
+      try {
+        const response=await apiJson<{code:string;name:string}>('agenda-pairing',{method:'POST',body:JSON.stringify({masterId:mid})})
+        result.textContent=`${response.name}: ${response.code.match(/.{1,4}/g)!.join('-')} — válido por 10 minutos, uso único. Digite este código na Minha Agenda do aparelho.`
+      } catch { result.textContent='Não foi possível gerar o código. Tente novamente.' }
+      finally { button.disabled=false }
+    })
+  }
 
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove() })
   document.getElementById('btnCancelPessoa')!.addEventListener('click', () => overlay.remove())
@@ -1226,7 +1256,7 @@ function renderConfigAgenda(): void {
       <div class="module-form-grid">
         <label class="form-field"><span>Arquivo PDF</span><input id="agendaPdfFile" type="file" accept="application/pdf,.pdf"></label>
         <label class="form-field"><span>Nome exibido</span><input id="agendaPdfName" maxlength="100" placeholder="Usar nome do arquivo"></label>
-        <label class="form-field"><span>Período</span><input id="agendaPdfPeriod" type="month" value="${new Date().toISOString().slice(0, 7)}"></label>
+        <label class="form-field"><span>Período</span><input id="agendaPdfPeriod" type="month" value="${fortalezaCurrentMonth()}"></label>
       </div>
       <div class="service-actions"><button id="uploadAgendaPdf" class="btn btn-primary" type="button">Publicar no Quadro</button></div>
       <div class="module-option-list" style="margin-top:12px">${manualDocuments.map(item => `<div class="module-list-row"><div><strong>${escapeHtml(item.nome)}</strong><small>${escapeHtml(item.periodo)} · ${escapeHtml(item.criadoEm.slice(0, 10).split('-').reverse().join('/'))}</small></div><a class="btn btn-ghost" href="${escapeHtml(item.url)}" download="${escapeHtml(item.nome)}">Baixar PDF</a><button class="btn btn-danger" type="button" data-delete-agenda-pdf="${escapeHtml(item.id)}" title="Remover PDF">✕</button></div>`).join('') || '<p class="empty-state">Nenhum PDF enviado manualmente.</p>'}</div>

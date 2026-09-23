@@ -1,3 +1,4 @@
+import { fortalezaCurrentMonth } from './civil-date.ts'
 import { validAgendaDate } from './individual-domain.ts'
 
 export type AgendaScreen = 'agenda' | 'geral' | 'quadro'
@@ -37,7 +38,7 @@ const dateValue = (value: unknown): string => typeof value === 'string' && valid
 const stringList = <T extends string>(value: unknown, allowed: readonly T[]): T[] => Array.isArray(value) ? [...new Set(value.filter((item): item is T => typeof item === 'string' && allowed.includes(item as T)))] : []
 
 export function defaultAgendaUiPreferences(currentMonth: string): AgendaUiPreferences {
-  const safeMonth = monthValue(currentMonth, new Date().toISOString().slice(0, 7))
+  const safeMonth = monthValue(currentMonth, fortalezaCurrentMonth())
   return {
     screen:'agenda',
     personal:{ month:safeMonth, view:'upcoming', openPanels:[] },
