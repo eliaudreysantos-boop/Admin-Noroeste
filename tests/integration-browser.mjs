@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { chromium } from 'playwright'
 import { sourceHash, publicationVersion, transitionPublication } from '../netlify/lib/publication-transition.ts'
 import { officialDocumentId } from '../src/modules/agenda-documents-domain.ts'
+import { periodIsPublished } from '../src/modules/publication-contract.ts'
 const browser=await chromium.launch({channel:process.env.PLAYWRIGHT_CHANNEL||'msedge',headless:true})
 const month='2026-09'
 const fixture=()=>({
@@ -15,18 +16,20 @@ try {
   for(const width of [1280,390]) {
     const page=await browser.newPage({viewport:{width,height:900},serviceWorkers:'block'})
     const errors=[],uploads=[],requests=[]
-    let root=fixture(),conflict=false
+    let root=fixture(),conflict=false,lostCommitResponse=false
     page.on('pageerror',error=>errors.push(error.message))
     await page.route('**/.netlify/functions/**',async route=>{
       const request=route.request(),url=new URL(request.url()),endpoint=url.pathname.split('/').pop()
       requests.push({endpoint,method:request.method(),sources:url.searchParams.get('sources')})
       if(endpoint==='module-publication') {
         const b=request.postDataJSON(),key=officialDocumentId(b.module,b.periodId)
-        if(b.action==='status')return route.fulfill({json:{hash:sourceHash(root,b.module,b.periodId),document:root.agenda?.documentos?.[key]??null}})
+        if(b.action==='status')return route.fulfill({json:{hash:sourceHash(root,b.module,b.periodId),document:root.agenda?.documentos?.[key]??null,published:periodIsPublished(root,b.module,b.periodId)}})
         if(b.action==='prepare')return route.fulfill({json:{root,hash:sourceHash(root,b.module,b.periodId),version:publicationVersion(root,b.module,b.periodId),previous:root.agenda?.documentos?.[key]??null}})
         const next=transitionPublication(root,b.module,b.periodId,b.hash,b.previous,b.document,b.version)
         if(!next)return route.fulfill({status:409,json:{error:'Conflito simulado'}})
-        root=next;return route.fulfill({json:{ok:true}})
+        root=next
+        if(lostCommitResponse){lostCommitResponse=false;return route.abort('failed')}
+        return route.fulfill({json:{ok:true}})
       }
       if(endpoint==='storage-file') {
         assert.equal(request.method(),'POST','não excluir arquivo após resposta incerta')
@@ -54,6 +57,41 @@ try {
       assert.match(await page.locator('#status').innerText(),/Publicado e atualizado/)
     }
     assert.equal(uploads.length,5)
+    const beforeDownloadRequests=requests.length
+    const download=page.waitForEvent('download')
+    await page.evaluate(async({month,root})=>{
+      const {publicationInput}=await import('/src/modules/publication-contract.ts')
+      const {downloadTaskSchedulePdf}=await import('/src/modules/tarefas-documents.ts')
+      const input=publicationInput(root,'tarefas',month)
+      await downloadTaskSchedulePdf(input.meetings,input.congregation,input.people,12,month)
+    },{month,root})
+    assert.equal(await (await download).failure(),null)
+    assert.equal(requests.length,beforeDownloadRequests,'baixar PDF não consulta nem altera a publicação')
+    const oldTaskPath=root.agenda.documentos[officialDocumentId('tarefas',month)].storagePath
+    lostCommitResponse=true
+    const reconciled=await page.evaluate(async({month,root})=>{
+      const {publishModulePeriod}=await import('/src/modules/module-publication.ts')
+      await publishModulePeriod('tarefas',month,root.tarefas.scale.periods[month])
+      return true
+    },{month,root})
+    assert.equal(reconciled,true)
+    assert.notEqual(root.agenda.documentos[officialDocumentId('tarefas',month)].storagePath,oldTaskPath)
+    lostCommitResponse=true
+    await page.evaluate(async({month,root})=>{
+      const {publishModulePeriod,renderPublicationStatus}=await import('/src/modules/module-publication.ts')
+      await publishModulePeriod('tarefas',month,root.tarefas.scale.periods[month],12,true)
+      await renderPublicationStatus(document.querySelector('#status'),'tarefas',month)
+    },{month,root})
+    assert.equal(root.tarefas.scale.periods[month].locked,false)
+    assert.equal(root.agenda.documentos[officialDocumentId('tarefas',month)],undefined)
+    assert.match(await page.locator('#status').innerText(),/Ainda não publicado/)
+    await page.evaluate(async({month,root})=>{
+      const {publishModulePeriod,renderPublicationStatus}=await import('/src/modules/module-publication.ts')
+      await publishModulePeriod('tarefas',month,root.tarefas.scale.periods[month])
+      await renderPublicationStatus(document.querySelector('#status'),'tarefas',month)
+    },{month,root})
+    assert.equal(root.tarefas.scale.periods[month].locked,true)
+    assert.match(await page.locator('#status').innerText(),/Publicado e atualizado/)
     const before=structuredClone(root.agenda.documentos)
     conflict=true
     const failed=await page.evaluate(async({month,root})=>{
@@ -62,7 +100,7 @@ try {
     },{month,root})
     assert.equal(failed,true)
     assert.deepEqual(root.agenda.documentos,before)
-    assert.equal(new Set(uploads).size,6)
+    assert.equal(new Set(uploads).size,8)
     await page.goto(new URL('agenda/',origin).href)
     await page.locator('#agendaPairingCode').waitFor()
     assert.equal(await page.locator('#agendaPerson').isVisible(),false)

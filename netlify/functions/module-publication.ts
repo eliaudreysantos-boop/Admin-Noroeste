@@ -3,7 +3,7 @@ import { activityEntry,appendActivity } from '../lib/activity.ts'
 import { appSession,json,objectBody,validCsrf } from '../lib/secure-session.ts'
 import { adminDatabase } from '../lib/subscription-store.ts'
 import { sourceHash,publicationVersion,transitionPublication } from '../lib/publication-transition.ts'
-import { publicationPeriod,publicationIssues,stableValue } from '../../src/modules/publication-contract.ts'
+import { publicationPeriod,periodIsPublished,publicationIssues,stableValue } from '../../src/modules/publication-contract.ts'
 import { PUBLIC_PDF_MODULES,officialDocumentId,type PublicPdfModule } from '../../src/modules/agenda-documents-domain.ts'
 import { validStoragePath } from './storage-file.ts'
 
@@ -26,7 +26,7 @@ export default async(request:Request):Promise<Response>=>{
       }))
       if(module==='tarefas')root.tarefas={people:root.tarefas?.people??{},scale:root.tarefas?.scale??{}}
       if(module==='oradores')root.tarefas={people:root.tarefas?.people??{},discursos:root.tarefas?.discursos??{}}
-      if(action==='status')return json(200,{hash:sourceHash(root,module,id),document:root.agenda?.documentos?.[key]??null})
+      if(action==='status')return json(200,{hash:sourceHash(root,module,id),document:root.agenda?.documentos?.[key]??null,published:periodIsPublished(root,module,id)})
       if(stableValue(publicationPeriod(root,module,id))!==stableValue(body['expectedPeriod']))return json(409,{error:'O período mudou. Reabra o módulo e confira os dados antes de publicar.'})
       const issues=body['reopen']?[]:publicationIssues(root,module,id)
       if(issues.length)return json(409,{error:issues.join(' ')})

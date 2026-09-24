@@ -14,6 +14,7 @@ export async function auditIntegrations(root:PublicationRoot,today=fortalezaToda
       const mid=module==='oradores'?resolveSpeakerMasterId(p,people,tasks):resolveCentralPerson(id,p.masterId,people).masterId
       if(!mid||!people[mid])issues.push({module,id,kind:'vinculo',detail:'Vínculo central ausente ou inexistente.'})
       else {
+        if(module==='escala'&&(!String(people[mid].name??'').trim()||String(people[mid].name).trim()===id))issues.push({module,id,kind:'vinculo',detail:'Nome ausente ou preenchido apenas com o ID. Corrija no Admin antes de imprimir.'})
         if(seen.has(mid))issues.push({module,id,kind:'vinculo',detail:`Vínculo duplicado com ${seen.get(mid)}.`})
         seen.set(mid,id)
         if(people[mid].active===false&&p.active!==false&&p.ativo!==false)issues.push({module,id,kind:'inativo',detail:'Pessoa inativa no Admin ainda habilitada no cadastro do módulo.'})

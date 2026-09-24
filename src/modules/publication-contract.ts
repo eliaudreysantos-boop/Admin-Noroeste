@@ -1,6 +1,6 @@
 import { canonicalTaskPerson, resolveCentralPerson } from './central-person.ts'
 import { assignmentId, assignmentForRole, canonicalMeetingType, TASK_ROLES, roleApplies, personName } from './tarefas-domain.ts'
-import { printRowsForLocal } from './escala-output.ts'
+import { hasScaleAssignments, printRowsForLocal } from './escala-output.ts'
 import { localSlots } from './escala-domain.ts'
 import { canonicalSpeaker } from './oradores-editor-domain.ts'
 import { normalizeSpeakersRoot, selectSecondSection } from './oradores-domain.ts'
@@ -49,7 +49,14 @@ export function publicationIssues(root:PublicationRoot,module:PublicPdfModule,id
     const pid=assignmentId(value), person=input.people[pid??'']
     if(pid&&(!person||person.active===false))issues.push(`${meeting.date}: participante inativo ou sem vínculo com Admin.`)
   }
-  if(module==='escala')for(const months of Object.values(input.tables) as any[])for(const row of Object.values(months[id]?.rows??{}) as any[])for(const cell of Object.values(row.slots??{}) as any[])for(const pid of [cell.p1,cell.p2].filter(Boolean))if(!input.participants[pid]?.active)issues.push('TPL: participante inativo ou sem vínculo com Admin.')
+  if(module==='escala') {
+    const tables=Object.values(input.tables) as any[]
+    if(!tables.some(months=>hasScaleAssignments(months[id])))issues.push('TPL: nenhuma designação neste período.')
+    for(const months of tables)for(const row of Object.values(months[id]?.rows??{}) as any[])for(const cell of Object.values(row.slots??{}) as any[])for(const pid of [cell.p1,cell.p2].filter(Boolean)) {
+      const person=input.participants[pid]
+      if(!person?.active||!person.name||String(person.name).trim()===pid)issues.push('TPL: participante inativo ou sem nome/vínculo com Admin.')
+    }
+  }
   if(module==='servicoCampo') {
     for(const item of input.assignments) {
       requirePerson(item.leaderId,item.date)
@@ -70,7 +77,7 @@ export function publicationSourceValue(root:PublicationRoot,module:PublicPdfModu
   if(module==='tarefas')return stableValue([input.congregation,input.meetings.map((meeting:any)=>[meeting.date,meeting.type,TASK_ROLES.filter(role=>roleApplies(role,meeting)).map(role=>{const pid=assignmentForRole(meeting,role);return [role,pid?personName(input.people[pid],pid):'']})])])
   if(module==='servicoCampo')return stableValue([id,input.congregation,[...input.assignments].sort((a,b)=>a.date.localeCompare(b.date)||a.time.localeCompare(b.time)||a.location.localeCompare(b.location,'pt-BR')).map(item=>[item.date,item.time,item.location,input.people[item.leaderId]?.name??'A definir'])])
   if(module==='limpeza')return stableValue([input.inicio,input.fim,input.congregacao,(input.semanas??[]).map((week:any)=>[week.grupo,week.grupoNome,week.dataMeioSemana,week.dataFimSemana])])
-  return stableValue([id,Object.entries(input.locals).filter(([key,local]:any)=>local.active!==false||input.tables[key]?.[id]).sort((a:any,b:any)=>Number(a[1].sortOrder??0)-Number(b[1].sortOrder??0)).map(([key,local]:any)=>[local.name??key,input.tables[key]?.[id]?.slots??localSlots(local),printRowsForLocal(key,id,local,input.tables,input.participants,input.exclusions)])])
+  return stableValue([id,Object.entries(input.locals).filter(([key]:any)=>hasScaleAssignments(input.tables[key]?.[id])).sort((a:any,b:any)=>Number(a[1].sortOrder??0)-Number(b[1].sortOrder??0)).map(([key,local]:any)=>[local.name??key,input.tables[key]?.[id]?.slots??localSlots(local),printRowsForLocal(key,id,local,input.tables,input.participants,input.exclusions)])])
 }
 export function periodIsPublished(root:PublicationRoot,module:PublicPdfModule,id:string):boolean {
   const p=publicationPeriod(root,module,id)

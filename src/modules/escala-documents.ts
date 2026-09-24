@@ -1,5 +1,5 @@
-import { localSlots, type EscalaLocal, type EscalaParticipant, type EscalaTables } from './escala-domain.ts'
-import { dayLabel, monthLabel, printRowsForLocal } from './escala-output.ts'
+import { localSlots, participantName, type EscalaLocal, type EscalaParticipant, type EscalaTables } from './escala-domain.ts'
+import { dayLabel, hasScaleAssignments, monthLabel, printRowsForLocal } from './escala-output.ts'
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf-lib/cjs/index.js'
 import { downloadPdf } from '../ui/pdf-download.ts'
 import { A4_LANDSCAPE, PDF_INK, PDF_LINE, drawPublicPdfHeader } from '../ui/public-pdf-layout.ts'
@@ -11,7 +11,7 @@ export interface PreparedScalePrint { html: string; fontPt: number }
 
 export function scalePrintHtml(input: Omit<ScalePrintInput, 'requestedFontPt'>): string {
   const allowed = input.localIds ? new Set(input.localIds) : null
-  return Object.entries(input.locals).filter(([id]) => !allowed || allowed.has(id)).sort((a, b) => Number(a[1].sortOrder ?? 0) - Number(b[1].sortOrder ?? 0)).map(([localId, local]) => {
+  return Object.entries(input.locals).filter(([id]) => (!allowed || allowed.has(id)) && hasScaleAssignments(input.tables[id]?.[input.month])).sort((a, b) => Number(a[1].sortOrder ?? 0) - Number(b[1].sortOrder ?? 0)).map(([localId, local]) => {
     const slots = input.tables[localId]?.[input.month]?.slots ?? localSlots(local), rows = printRowsForLocal(localId, input.month, local, input.tables, input.participants, input.exclusions)
     return `<section class="escala-print-page"><header><strong>${esc(local.name ?? localId)}</strong><span>${esc(monthLabel(input.month))}</span></header><table><thead><tr><th>Dia</th>${slots.map(time => `<th>${time}</th>`).join('')}</tr></thead><tbody>${rows.map(row => `<tr><th>${esc(dayLabel(row.date))}</th>${row.cells.map(names => `<td>${names.map(person => `<span>${esc(person)}</span>`).join('') || '&nbsp;'}</td>`).join('')}</tr>`).join('')}</tbody></table></section>`
   }).join('')
@@ -104,10 +104,17 @@ export async function createScaleSchedulePdf(input: ScalePrintInput): Promise<Sc
   const regular = await pdf.embedFont(StandardFonts.Helvetica)
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold)
   const allowed = input.localIds ? new Set(input.localIds) : null
-  const selectedLocals = Object.entries(input.locals).filter(([id, local]) => (!allowed || allowed.has(id)) && (local.active !== false || Boolean(input.tables[id]?.[input.month]))).sort((a, b) => Number(a[1].sortOrder ?? 0) - Number(b[1].sortOrder ?? 0))
+  const selectedLocals = Object.entries(input.locals).filter(([id]) => (!allowed || allowed.has(id)) && hasScaleAssignments(input.tables[id]?.[input.month])).sort((a, b) => Number(a[1].sortOrder ?? 0) - Number(b[1].sortOrder ?? 0))
+  if (!selectedLocals.length) throw new Error('Nenhuma designação na Escala TPL para este período.')
   const requested = Number.isFinite(input.requestedFontPt) ? input.requestedFontPt : 12
   let effectiveFontSize = Math.min(11, Math.max(7, requested))
   for (const [localId, local] of selectedLocals) {
+    for (const row of Object.values(input.tables[localId]?.[input.month]?.rows ?? {})) {
+      for (const cell of Object.values(row.slots ?? {})) for (const id of [cell.p1, cell.p2].filter(Boolean)) {
+        const name = participantName(input.participants[id], id)
+        if (!name || name === id) throw new Error(`A Escala TPL contém participante sem nome cadastrado (${id}). Corrija o vínculo antes de gerar o PDF.`)
+      }
+    }
     const allSlots = input.tables[localId]?.[input.month]?.slots ?? localSlots(local)
     const allRows = printRowsForLocal(localId, input.month, local, input.tables, input.participants, input.exclusions)
     const occupied = allSlots.map((_, index) => index).filter(index => allRows.some(row => row.cells[index]?.length))
@@ -123,7 +130,6 @@ export async function createScaleSchedulePdf(input: ScalePrintInput): Promise<Sc
     effectiveFontSize = Math.min(effectiveFontSize, fontSize)
     drawScaleTable(page, regular, bold, slots, rows, y, fontSize)
   }
-  if (!selectedLocals.length) pdf.addPage(A4_LANDSCAPE).drawText('Nenhum local disponível.', { x:30, y:540, size:11, font:regular })
   return { bytes:Uint8Array.from(await pdf.save()), pages:pdf.getPageCount(), effectiveFontSize }
 }
 

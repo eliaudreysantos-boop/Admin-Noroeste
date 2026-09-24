@@ -7,7 +7,7 @@ import { loadPartialAgendaRoot } from '../netlify/lib/agenda-root.ts'
 import { consumePairing, pairingKey } from '../netlify/lib/agenda-pairing.ts'
 import { transitionPublication, sourceHash, publicationVersion } from '../netlify/lib/publication-transition.ts'
 import { guardedModuleWrite } from '../netlify/lib/published-write.ts'
-import { publicationPeriod, periodIsPublished } from '../src/modules/publication-contract.ts'
+import { publicationIssues, publicationPeriod, periodIsPublished } from '../src/modules/publication-contract.ts'
 import { officialDocumentId } from '../src/modules/agenda-documents-domain.ts'
 import { auditIntegrations } from '../src/modules/integration-audit.ts'
 import { collectAgendaEvents } from '../src/modules/individual-domain.ts'
@@ -49,6 +49,19 @@ test('mudança central durante upload impede commit sem alterar dados',()=>{
   const root=fixture(),hash=sourceHash(root,'tarefas',month),version=publicationVersion(root,'tarefas',month)
   const changed=structuredClone(root);changed.master.pessoas.m.active=false
   assert.equal(transitionPublication(changed,'tarefas',month,hash,null,{},version),undefined)
+})
+test('TPL não publica PDF vazio nem ID de participante sem nome',()=>{
+  const root=fixture()
+  root.escala.scales.empty={name:'Sem designações'}
+  assert.deepEqual(publicationIssues(root,'escala',month),[])
+  const originalHash=sourceHash(root,'escala',month)
+  root.escala.scales.empty.name='Outro nome sem designações'
+  assert.equal(sourceHash(root,'escala',month),originalHash)
+  root.escala.participants.m.name='m'
+  root.master.pessoas.m.name='m'
+  assert.match(publicationIssues(root,'escala',month).join(' '),/sem nome\/vínculo/)
+  root.escala.tables={}
+  assert.match(publicationIssues(root,'escala',month).join(' '),/nenhuma designação/)
 })
 test('confirmação não muda PDF de Oradores, mas protege a versão durante publicação',()=>{
   const root=fixture(),changed=structuredClone(root);changed.tarefas.discursos.programacao.a.status='confirmado'
@@ -105,6 +118,12 @@ test('auditoria detecta vínculo quebrado e PDF ausente sem alterar backup',asyn
   assert.ok(issues.some(i=>i.kind==='vinculo'&&i.module==='tarefas'))
   assert.ok(issues.some(i=>i.kind==='publicacao'&&i.module==='tarefas'))
   assert.deepEqual(root,before)
+})
+test('auditoria identifica nome de participante TPL preenchido somente pelo ID',async()=>{
+  const root=fixture()
+  root.master.pessoas.m.name='m'
+  const issues=await auditIntegrations(root,'2026-09-01')
+  assert.ok(issues.some(issue=>issue.module==='escala'&&issue.id==='m'&&issue.detail.includes('apenas com o ID')))
 })
 test('Oradores usa endereço e horário do local, nunca a origem visitante',()=>{
   const root=fixture()

@@ -1,6 +1,6 @@
 import {
   activeDates, availabilityKey, localSlots, participantName,
-  type EscalaAvailability, type EscalaLocal, type EscalaParticipant, type EscalaTables,
+  type EscalaAvailability, type EscalaLocal, type EscalaParticipant, type EscalaTable, type EscalaTables,
 } from './escala-domain.ts'
 
 const MONTHS = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro']
@@ -15,6 +15,11 @@ export function monthLabel(month: string): string {
 export function dayLabel(date: string): string {
   const parsed = new Date(`${date}T12:00:00`)
   return `${SHORT_DAYS[parsed.getDay()]} ${date.slice(8, 10)}/${date.slice(5, 7)}`
+}
+
+export function hasScaleAssignments(table?: EscalaTable): boolean {
+  return Object.values(table?.rows ?? {}).some(row =>
+    Object.values(row.slots ?? {}).some(cell => Boolean(cell.p1 || cell.p2)))
 }
 
 export function assignmentsForPerson(personId: string, month: string, tables: EscalaTables, locals: Record<string, EscalaLocal>, participants: Record<string, EscalaParticipant>) {

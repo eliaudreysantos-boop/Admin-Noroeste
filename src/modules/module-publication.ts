@@ -3,14 +3,21 @@ import { officialDocumentId,type PublicPdfModule } from './agenda-documents-doma
 import { publicationInput,type PublicationRoot } from './publication-contract.ts'
 import type { AgendaPublicDocument } from '../types.ts'
 
+interface PublicationStatus { hash:string; document:AgendaPublicDocument|null; published?:boolean }
+
+function commitReachedOfficialState(status:PublicationStatus,module:PublicPdfModule,document:AgendaPublicDocument|null):boolean {
+  if(document)return (module==='oradores'||status.published===true)&&status.document?.storagePath===document.storagePath&&status.document?.sourceHash===document.sourceHash
+  return status.published===false&&status.document===null
+}
+
 export async function renderPublicationStatus(host:HTMLElement|null,module:PublicPdfModule,periodId:string):Promise<void> {
   if(!host)return
   host.querySelector('[data-publication-state]')?.remove()
   const label=document.createElement('p');label.className='notice';label.dataset.publicationState='';label.setAttribute('aria-live','polite');label.textContent='Consultando publicação…';const period=host.querySelector('.task-period-toolbar .module-form-grid,.agenda-toolbar,.module-form-grid');if(period)period.after(label);else host.prepend(label)
   try {
-    const response=await apiJson<{hash:string;document:AgendaPublicDocument|null}>('module-publication',{method:'POST',body:JSON.stringify({action:'status',module,periodId})})
+    const response=await apiJson<PublicationStatus>('module-publication',{method:'POST',body:JSON.stringify({action:'status',module,periodId})})
     if(!label.isConnected)return
-    label.textContent=!response.document?'Ainda não publicado no Quadro.':!response.document.sourceHash?'Publicação anterior: publique novamente para verificar a versão.':response.document.sourceHash===response.hash?'Publicado e atualizado.':'Publicado, mas os dados mudaram. Confira e publique novamente.'
+    label.textContent=module!=='oradores'&&response.published===true&&!response.document?'Período bloqueado, mas sem PDF no Quadro. Reabra e publique novamente.':module!=='oradores'&&response.published===false&&response.document?'PDF no Quadro com período aberto. Confira antes de editar.':!response.document?'Ainda não publicado no Quadro.':!response.document.sourceHash?'Publicação anterior: publique novamente para verificar a versão.':response.document.sourceHash===response.hash?'Publicado e atualizado.':'Publicado, mas os dados mudaram. Confira e publique novamente.'
   }catch{if(label.isConnected)label.textContent='Não foi possível conferir a publicação. Reabra o módulo para tentar novamente.'}
 }
 
@@ -34,5 +41,15 @@ export async function publishModulePeriod(module:PublicPdfModule,periodId:string
   }
   // Never delete a candidate after an uncertain response: it may be the committed PDF.
   // Superseded files remain recoverable; the official pointer and lock change atomically.
-  await apiJson('module-publication',{method:'POST',body:JSON.stringify({action:'commit',module,periodId,hash:prepared.hash,version:prepared.version,previous:prepared.previous,document})})
+  try {
+    await apiJson('module-publication',{method:'POST',body:JSON.stringify({action:'commit',module,periodId,hash:prepared.hash,version:prepared.version,previous:prepared.previous,document})})
+  } catch (error) {
+    // A lost response does not prove the transaction failed. Check the official
+    // pointer before reporting failure, but never delete the uploaded candidate.
+    try {
+      const status=await apiJson<PublicationStatus>('module-publication',{method:'POST',body:JSON.stringify({action:'status',module,periodId})})
+      if(commitReachedOfficialState(status,module,document))return
+    } catch { /* Keep the original commit error when verification is unavailable. */ }
+    throw error
+  }
 }
