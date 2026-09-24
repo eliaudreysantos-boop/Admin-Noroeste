@@ -5,6 +5,8 @@ import { operationsSummary } from '../modules/operations-domain'
 import { activityAllowed,ACTIVITY_MODULES,MODULE_LABELS,type ActivityEntry } from '../modules/activity-domain'
 import { fortalezaCurrentMonth } from '../modules/civil-date'
 import type { PublicationRoot } from '../modules/publication-contract'
+import { periodKeyForDate } from '../modules/tarefas-domain'
+import type { PublicPdfModule } from '../modules/agenda-documents-domain'
 
 const esc=(v:unknown)=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!))
 const actions={alterar:'Alteração salva',remover:'Registro removido',publicar:'Período publicado',reabrir:'Período reaberto'}
@@ -13,10 +15,10 @@ const area=(path:string)=>{
   const label=/programacao|period|tables|scale/.test(path)?'Programação':/people|pessoas|participants|oradores/.test(path)?'Cadastro':/config|settings|planning/.test(path)?'Configurações':'Dados do módulo'
   return label+(date?' · '+date:'')
 }
-export function mountOperationsOverview(host:HTMLElement,ctx:AppContext,open:(module:ModuleName,month:string)=>void):void {
+export function mountOperationsOverview(host:HTMLElement,ctx:AppContext,open:(module:ModuleName,month:string)=>void,fullAccess=false):void {
   const modules=ACTIVITY_MODULES.filter(m=>m!=='mestre'&&activityAllowed(ctx.usuario.apps,m))
   if(!modules.length&&!ctx.usuario.apps.mestre)return
-  host.innerHTML='<section class="form-panel operations-overview"><h2>O que precisa de atenção</h2><label>Mês <input data-operation-month class="form-input" type="month"></label><div data-operation-body aria-live="polite">Carregando resumo…</div><details data-operation-history><summary>Histórico de alterações</summary><div data-history-body></div></details></section>'
+  host.innerHTML=`<section class="form-panel operations-overview ${fullAccess?'operations-overview-admin':''}"><div class="operations-heading"><div><h1>${fullAccess?'Painel de trabalho':'O que precisa de atenção'}</h1>${fullAccess?'<p class="form-help">Prioridades e publicações em um só lugar.</p>':''}</div><label>Período <input data-operation-month class="form-input" type="month"></label></div><div data-operation-body aria-live="polite">Carregando resumo…</div><details data-operation-history><summary>Histórico de alterações</summary><div data-history-body></div></details></section>`
   const monthInput=host.querySelector<HTMLInputElement>('[data-operation-month]')!,body=host.querySelector<HTMLElement>('[data-operation-body]')!
   monthInput.value=fortalezaCurrentMonth()
   let data:PublicationRoot={},failed:ModuleName[]=[],loadId=0
@@ -54,13 +56,50 @@ export function mountOperationsOverview(host:HTMLElement,ctx:AppContext,open:(mo
     const apps={...ctx.usuario.apps,mestre:false}
     for(const module of modules)apps[module]=!failed.includes(module)
     const summary=operationsSummary(data,apps,monthInput.value)
+    if(fullAccess){
+      const available=modules.filter(m=>!failed.includes(m))
+      const pending=summary.issues.filter(i=>available.includes(i.module))
+      const dated=pending.filter(i=>i.date).sort((a,b)=>a.date.localeCompare(b.date))
+      const undated=pending.filter(i=>!i.date)
+      const priority=[...dated,...undated]
+      const shown=priority.slice(0,5)
+      body.innerHTML=`${failed.length?`<p class="notice warning">Resumo incompleto: ${failed.map(m=>esc(MODULE_LABELS[m])).join(', ')} indisponível.</p><button data-retry class="btn btn-ghost">Tentar novamente</button>`:''}<section class="home-priorities" aria-labelledby="home-priorities-title"><div class="home-section-heading"><h2 id="home-priorities-title">Próximas ações</h2><span>${pending.length} para conferir</span></div>${shown.length?`<ol class="home-action-list">${shown.map(item=>`<li><div><strong>${esc(item.title)}</strong><small>${esc(MODULE_LABELS[item.module])}${item.date?' · '+esc(item.date.split('-').reverse().join('/')):''}</small></div><button type="button" class="btn btn-ghost" data-operation-open="${item.module}">Resolver</button></li>`).join('')}</ol>${pending.length>shown.length?`<details class="home-more-issues"><summary>Ver mais ${pending.length-shown.length} pendências</summary><ol class="home-action-list">${priority.slice(shown.length).map(item=>`<li><div><strong>${esc(item.title)}</strong><small>${esc(MODULE_LABELS[item.module])}${item.date?' · '+esc(item.date.split('-').reverse().join('/')):''}</small></div><button type="button" class="btn btn-ghost" data-operation-open="${item.module}">Resolver</button></li>`).join('')}</ol></details>`:''}`:'<p class="form-help">Nenhuma pendência identificada nas datas futuras deste período.</p>'}</section><section class="home-publications" aria-labelledby="home-publications-title"><div class="home-section-heading"><h2 id="home-publications-title">Publicações do período</h2></div><div class="home-publication-list">${available.map(module=>`<div class="home-publication-row"><div><strong>${esc(MODULE_LABELS[module])}</strong><small data-home-publication="${module}">Consultando publicação…</small></div><button type="button" class="btn btn-ghost" data-publication-open="${module}">Abrir</button></div>`).join('')}</div><p class="form-help">A situação da publicação é conferida no registro oficial. Pendências acima são apenas um resumo para revisão.</p></section><details data-workload><summary>Distribuição de tarefas no mês</summary><p class="form-help">Contagem de funções em Tarefas, discursos em Oradores, horários em TPL, saídas em Campo e semanas em Limpeza. Não equivale a horas de trabalho; disponibilidade e habilitações variam.</p><label>Módulo <select class="form-select" data-workload-module>${available.map(m=>`<option value="${m}">${esc(MODULE_LABELS[m])}</option>`).join('')}</select></label><label>Buscar pessoa <input class="form-input" data-workload-search type="search"></label><div data-workload-rows></div></details>`
+      bindSummaryControls(summary)
+      void loadPublicationStates(available,monthInput.value,requestMarker())
+      return
+    }
     body.innerHTML=`<p class="form-help">Pendências das datas futuras deste mês. Abra o módulo para corrigir. Contagens de distribuição incluem todo o mês.</p>${failed.length?`<p class="notice warning">Resumo incompleto: ${failed.map(m=>esc(MODULE_LABELS[m])).join(', ')} indisponível.</p><button data-retry class="btn btn-ghost">Tentar novamente</button>`:''}<div class="operations-grid">${modules.filter(m=>!failed.includes(m)).map(module=>{
       const pending=summary.issues.filter(i=>i.module===module)
       return `<article><h3>${esc(MODULE_LABELS[module])}</h3><p>${pending.length?`${pending.length} ponto(s) para conferir`:'Nenhuma pendência identificada'}</p>${pending.length?`<ul>${pending.slice(0,3).map(item=>`<li>${esc(item.date?item.date.split('-').reverse().join('/')+' · ':'')}${esc(item.title)}</li>`).join('')}</ul>${pending.length>3?`<p>Mais ${pending.length-3} no resumo do módulo.</p>`:''}`:''}<button class="btn btn-ghost" data-operation-open="${module}">Abrir ${esc(MODULE_LABELS[module])}</button></article>`
     }).join('')}</div><details data-workload><summary>Distribuição de tarefas no mês</summary><p class="form-help">Contagem de funções em Tarefas, discursos em Oradores, horários em TPL, saídas em Campo e semanas em Limpeza. Não equivale a horas de trabalho; disponibilidade e habilitações variam.</p><label>Módulo <select class="form-select" data-workload-module>${modules.filter(m=>!failed.includes(m)).map(m=>`<option value="${m}">${esc(MODULE_LABELS[m])}</option>`).join('')}</select></label><label>Buscar pessoa <input class="form-input" data-workload-search type="search"></label><div data-workload-rows></div></details>`
+    bindSummaryControls(summary)
+  }
+  function requestMarker():string { return monthInput.value }
+  function periodId(module:PublicPdfModule,month:string):string|null {
+    if(module==='tarefas')return periodKeyForDate(`${month}-01`,data.tarefas?.planning?.periodMode==='month'?'month':'bimester')
+    if(module==='limpeza')return Object.entries(data.limpeza?.periodos??{}).find(([,period])=>{const value=period as {inicio:string;fim:string};return value.inicio<=`${month}-01`&&value.fim>=`${month}-01`})?.[0]??null
+    return month
+  }
+  async function loadPublicationStates(available:ModuleName[],month:string,marker:string):Promise<void> {
+    await Promise.all(available.map(async module=>{
+      const target=body.querySelector<HTMLElement>(`[data-home-publication="${module}"]`)
+      if(!target)return
+      const id=periodId(module as PublicPdfModule,month)
+      if(!id){target.textContent='Sem período gerado';return}
+      try {
+        const response=await apiJson<{hash:string;document:{sourceHash?:string}|null;published?:boolean}>('module-publication',{method:'POST',body:JSON.stringify({action:'status',module,periodId:id})})
+        if(!target.isConnected||monthInput.value!==marker)return
+        target.textContent=response.published===true&&!response.document?'Bloqueado sem PDF — conferir':response.published===false&&response.document?'PDF publicado com período aberto — conferir':!response.document?'Ainda não publicado':!response.document.sourceHash?'Publicado — versão não verificada':response.document.sourceHash===response.hash?'Publicado e atualizado':'Publicado — dados alterados'
+        target.dataset.state=!response.document?'unpublished':response.document.sourceHash===response.hash?'current':'attention'
+      }catch{if(target.isConnected&&monthInput.value===marker)target.textContent='Situação indisponível — abra o módulo'}
+    }))
+  }
+  function bindSummaryControls(summary:ReturnType<typeof operationsSummary>):void {
     body.querySelector('[data-retry]')?.addEventListener('click',()=>void load())
     body.querySelectorAll<HTMLButtonElement>('[data-operation-open]').forEach(button=>button.addEventListener('click',()=>open(button.dataset.operationOpen as ModuleName,monthInput.value)))
-    const filter=body.querySelector<HTMLSelectElement>('[data-workload-module]')!,search=body.querySelector<HTMLInputElement>('[data-workload-search]')!,list=body.querySelector<HTMLElement>('[data-workload-rows]')!
+    body.querySelectorAll<HTMLButtonElement>('[data-publication-open]').forEach(button=>button.addEventListener('click',()=>open(button.dataset.publicationOpen as ModuleName,monthInput.value)))
+    const filter=body.querySelector<HTMLSelectElement>('[data-workload-module]'),search=body.querySelector<HTMLInputElement>('[data-workload-search]'),list=body.querySelector<HTMLElement>('[data-workload-rows]')
+    if(!filter||!search||!list)return
     const renderRows=()=>{
       const all=summary.workload.filter(row=>row.module===filter.value),query=search.value.trim().toLocaleLowerCase('pt-BR'),rows=all.filter(row=>(row.name+' '+row.id).toLocaleLowerCase('pt-BR').includes(query))
       list.innerHTML=`<p>${all.reduce((sum,r)=>sum+r.count,0)} designações · ${all.filter(r=>r.active&&r.count===0).length} participantes ativos sem designação.</p>${rows.length?rows.map(row=>`<div class="module-list-row"><div><strong>${esc(row.name)}</strong><small>${esc(row.id)}${row.active?'':' · inativo/sem cadastro'}</small></div><strong>${row.count}</strong></div>`).join(''):'<p>Nenhum participante encontrado.</p>'}`
