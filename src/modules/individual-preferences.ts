@@ -3,7 +3,7 @@ import { validAgendaDate } from './individual-domain.ts'
 
 export type AgendaScreen = 'agenda' | 'geral' | 'quadro'
 export type AgendaUiContext = 'standalone' | 'admin'
-export type PersonalView = 'upcoming' | 'month'
+export type PersonalView = 'week' | 'month'
 export type PersonalPanel = 'calendar' | 'sharing'
 export type BoardPanel = 'meetings' | 'moduleDocuments' | 'adminDocuments'
 
@@ -12,11 +12,13 @@ export interface AgendaUiPreferences {
   personal: {
     month: string
     view: PersonalView
+    weekDate: string
     openPanels: PersonalPanel[]
   }
   general: {
     month: string
     selectedDate: string
+    view: PersonalView
   }
   board: {
     meetingDate: string
@@ -27,7 +29,7 @@ export interface AgendaUiPreferences {
 }
 
 const SCREENS: AgendaScreen[] = ['agenda', 'geral', 'quadro']
-const PERSONAL_VIEWS: PersonalView[] = ['upcoming', 'month']
+const PERSONAL_VIEWS: PersonalView[] = ['week', 'month']
 const PERSONAL_PANELS: PersonalPanel[] = ['calendar', 'sharing']
 const BOARD_PANELS: BoardPanel[] = ['meetings', 'moduleDocuments', 'adminDocuments']
 
@@ -41,8 +43,8 @@ export function defaultAgendaUiPreferences(currentMonth: string): AgendaUiPrefer
   const safeMonth = monthValue(currentMonth, fortalezaCurrentMonth())
   return {
     screen:'agenda',
-    personal:{ month:safeMonth, view:'upcoming', openPanels:[] },
-    general:{ month:safeMonth, selectedDate:'' },
+    personal:{ month:safeMonth, view:'week', weekDate:'', openPanels:[] },
+    general:{ month:safeMonth, selectedDate:'', view:'week' },
     board:{ meetingDate:'', documentPeriod:safeMonth, openPanels:['meetings'] },
     updatedAt:0,
   }
@@ -58,11 +60,13 @@ export function parseAgendaUiPreferences(raw: string | null, currentMonth: strin
       personal:{
         month:monthValue(personal['month'], fallback.personal.month),
         view:oneOf(personal['view'], PERSONAL_VIEWS, fallback.personal.view),
+        weekDate:dateValue(personal['weekDate']),
         openPanels:stringList(personal['openPanels'], PERSONAL_PANELS),
       },
       general:{
         month:monthValue(general['month'], fallback.general.month),
         selectedDate:dateValue(general['selectedDate']),
+        view:oneOf(general['view'], PERSONAL_VIEWS, fallback.general.view),
       },
       board:{
         meetingDate:dateValue(board['meetingDate']),

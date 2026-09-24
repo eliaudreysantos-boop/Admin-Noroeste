@@ -21,6 +21,13 @@ test('json corrompido e valor excessivo nao quebram a agenda', () => {
   assert.deepEqual(parseAgendaUiPreferences('x'.repeat(20_001), '2026-09'), defaultAgendaUiPreferences('2026-09'))
 })
 
+test('visualizacao antiga migra para semana e preserva data valida',()=>{
+  const old=parseAgendaUiPreferences(JSON.stringify({personal:{view:'upcoming',weekDate:'2026-09-24'},general:{view:'month',selectedDate:'2026-09-24'}}),'2026-09')
+  assert.equal(old.personal.view,'week')
+  assert.equal(old.personal.weekDate,'2026-09-24')
+  assert.equal(old.general.view,'month')
+})
+
 test('preferencias ficam isoladas por pessoa e contexto', () => {
   assert.notEqual(agendaUiStorageKey('pessoa-a', 'standalone'), agendaUiStorageKey('pessoa-b', 'standalone'))
   assert.notEqual(agendaUiStorageKey('pessoa-a', 'standalone'), agendaUiStorageKey('pessoa-a', 'admin'))

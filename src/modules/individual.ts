@@ -1,6 +1,6 @@
 import type { AppContext, RawRoot } from '../types'
 import { parseAgendaHistory, updateAgendaHistory, type AgendaHistory } from './agenda-changes'
-import { fortalezaToday, fortalezaCurrentMonth } from './civil-date'
+import { addCivilDays, fortalezaToday, fortalezaCurrentMonth } from './civil-date'
 import { AGENDA_SOURCES, mergeAgendaSources } from './agenda-sync'
 import { get, pessoasRef } from '../firebase'
 import { apiJson } from '../secure-api.ts'
@@ -17,6 +17,7 @@ let failedSources:string[]=[]
 let syncGeneration=0
 let screen: 'agenda' | 'geral' | 'quadro' = 'agenda'
 let generalSelectedDate = ''
+let personalWeekDate = fortalezaToday()
 let boardDocumentPeriod = month
 let boardMeetingDate = ''
 let uiPreferences = defaultAgendaUiPreferences(month)
@@ -108,14 +109,14 @@ function historyPanel():string {
 
 function captureUiPreferences(): void {
   uiPreferences.screen = screen
-  if (screen === 'agenda') Object.assign(uiPreferences.personal, { month })
+  if (screen === 'agenda') Object.assign(uiPreferences.personal, { month, weekDate:personalWeekDate })
   if (screen === 'geral') Object.assign(uiPreferences.general, { month, selectedDate:generalSelectedDate })
   Object.assign(uiPreferences.board, { meetingDate:boardMeetingDate, documentPeriod:boardDocumentPeriod })
 }
 
 function applyScreenPreferences(nextScreen: AgendaScreen): void {
   screen = nextScreen
-  if (screen === 'agenda') month = uiPreferences.personal.month
+  if (screen === 'agenda') { month = uiPreferences.personal.month; personalWeekDate = uiPreferences.personal.weekDate || fortalezaDate() }
   if (screen === 'geral') { month = uiPreferences.general.month; generalSelectedDate = uiPreferences.general.selectedDate }
 }
 
@@ -257,6 +258,16 @@ function nextCommitment(event?: AgendaEvent): string {
   return `<section class="agenda-next"><span>Próximo compromisso</span><div><time>${esc(labelDate(event.date))}${event.time ? ` · ${esc(event.time)}` : ''}</time><span class="agenda-source ${event.source}">${esc(sourceLabels[event.source])}</span></div><strong>${esc(event.title)}</strong><p>${esc(event.detail)}${event.location ? ` · ${esc(event.location)}` : ''}</p></section>`
 }
 
+function weekStart(date: string): string {
+  const day = new Date(`${date}T12:00:00Z`).getUTCDay()
+  return addCivilDays(date, -day)
+}
+function weekDates(date: string): string[] { const first = weekStart(date); return Array.from({length:7}, (_, index) => addCivilDays(first, index)) }
+function weekNavigation(date: string, scope: 'personal' | 'general'): string {
+  const days = weekDates(date)
+  return `<div class="agenda-week-nav"><button class="btn btn-ghost" type="button" data-week-move="-7" aria-label="Semana anterior">‹</button><strong>${esc(labelDate(days[0]!))} – ${esc(labelDate(days[6]!))}</strong><button class="btn btn-ghost" type="button" data-week-move="7" aria-label="Próxima semana">›</button><button class="btn btn-ghost" type="button" data-week-today="${scope}">Hoje</button></div>`
+}
+
 function render(): void {
   queueMicrotask(renderSyncNotice)
   const root = document.getElementById('individualRoot')
@@ -271,24 +282,40 @@ function render(): void {
   const firstDow = new Date(year, monthNumber - 1, 1).getDay(), totalDays = new Date(year, monthNumber, 0).getDate()
   const byDay = new Map<number, AgendaEvent[]>(); events.forEach(event => { const day = Number(event.date.slice(-2)); byDay.set(day, [...(byDay.get(day) ?? []), event]) })
   const calendar = [...Array(firstDow).fill(''), ...Array.from({ length:totalDays }, (_, index) => String(index + 1))]
-  const listEvents = uiPreferences.personal.view === 'upcoming' ? future.slice(1, 9) : events
+  const week = weekDates(personalWeekDate)
+  const listEvents = uiPreferences.personal.view === 'week' ? personalEvents().filter(event => week.includes(event.date)).sort((a,b) => `${a.date} ${a.time ?? ''}`.localeCompare(`${b.date} ${b.time ?? ''}`)) : events
   root.innerHTML = `${moduleTitle('Minha agenda')}${screenTabs()}${loadingAssignments ? '<div class="notice">Atualizando designações dos módulos...</div>' : ''}${adminPersonPicker()}
     <span class="admin-badge">${loadingAssignments ? 'Sincronizando' : lastSuccessfulSync ? 'Última sincronização: '+esc(new Intl.DateTimeFormat('pt-BR',{dateStyle:'short',timeStyle:'short',timeZone:'America/Fortaleza'}).format(lastSuccessfulSync)) : 'Sincronização ainda não concluída'}</span>${nextCommitment(future[0])}
-    <div class="program-period-modes agenda-view-modes" role="tablist" aria-label="Visualização dos compromissos"><button class="program-period-mode" role="tab" type="button" data-personal-view="upcoming" aria-selected="${uiPreferences.personal.view === 'upcoming'}">Próximos</button><button class="program-period-mode" role="tab" type="button" data-personal-view="month" aria-selected="${uiPreferences.personal.view === 'month'}">Mês</button></div>
-    <div class="agenda-list">${eventRows(listEvents) || `<p class="empty-state">${uiPreferences.personal.view === 'upcoming' ? 'Nenhum outro compromisso futuro.' : 'Nenhuma designação neste mês.'}</p>`}</div>
+    <div class="program-period-modes agenda-view-modes" role="tablist" aria-label="Visualização dos compromissos"><button class="program-period-mode" role="tab" type="button" data-personal-view="week" aria-selected="${uiPreferences.personal.view === 'week'}">Semana</button><button class="program-period-mode" role="tab" type="button" data-personal-view="month" aria-selected="${uiPreferences.personal.view === 'month'}">Mês</button></div>
+    ${uiPreferences.personal.view === 'week' ? weekNavigation(personalWeekDate, 'personal') : ''}
+    <div class="agenda-list">${eventRows(listEvents) || `<p class="empty-state">${uiPreferences.personal.view === 'week' ? 'Nenhuma designação nesta semana.' : 'Nenhuma designação neste mês.'}</p>`}</div>
     <details class="form-panel agenda-board-card agenda-personal-panel" data-agenda-panel="calendar" ${uiPreferences.personal.openPanels.includes('calendar') ? 'open' : ''}><summary><strong>Calendário mensal</strong><span>${esc(month)}</span></summary><div class="agenda-board-body"><div class="agenda-toolbar"><button class="btn btn-ghost" id="agendaPrev" type="button" aria-label="Mês anterior">‹</button><label class="sr-only" for="agendaMonth">Mês do calendário pessoal</label><input class="form-input" id="agendaMonth" type="month" value="${month}"><button class="btn btn-ghost" id="agendaNext" type="button" aria-label="Próximo mês">›</button></div><div class="agenda-calendar"><div class="agenda-weekdays">${['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'].map(day => `<strong>${day}</strong>`).join('')}</div><div class="agenda-days">${calendar.map(day => day ? `<div class="agenda-day ${byDay.has(Number(day)) ? 'has-events' : ''}"><span>${day}</span>${(byDay.get(Number(day)) ?? []).slice(0, 3).map(event => `<i class="${event.source}" aria-hidden="true"></i>`).join('')}</div>` : '<div class="agenda-day empty"></div>').join('')}</div></div></div></details>
     ${calendarExportPanel()}${historyPanel()}`
   bind()
 }
 
 function moveMonth(delta: number): void { const [year, value] = month.split('-').map(Number), date = new Date(Date.UTC(year, value - 1 + delta, 1)); month = date.toISOString().slice(0, 7); persistUiPreferences(); render() }
+function bindWeekNavigation(scope: 'personal' | 'general'): void {
+  document.querySelectorAll<HTMLButtonElement>('[data-week-move]').forEach(button => button.addEventListener('click', () => {
+    const delta = Number(button.dataset['weekMove'])
+    if (scope === 'personal') personalWeekDate = addCivilDays(personalWeekDate, delta)
+    else { generalSelectedDate = addCivilDays(generalSelectedDate || fortalezaDate(), delta); month=generalSelectedDate.slice(0,7) }
+    persistUiPreferences(); render()
+  }))
+  document.querySelector('[data-week-today]')?.addEventListener('click', () => {
+    if (scope === 'personal') personalWeekDate = fortalezaDate()
+    else { generalSelectedDate = fortalezaDate(); month=generalSelectedDate.slice(0,7) }
+    persistUiPreferences(); render()
+  })
+}
 function bind(): void {
   bindScreenTabs()
   bindAdminPersonPicker()
   document.getElementById('agendaPrev')?.addEventListener('click', () => moveMonth(-1))
   document.getElementById('agendaNext')?.addEventListener('click', () => moveMonth(1))
   document.getElementById('agendaMonth')?.addEventListener('change', event => { month = (event.target as HTMLInputElement).value || month; persistUiPreferences(); render() })
-  document.querySelectorAll<HTMLButtonElement>('[data-personal-view]').forEach(button => button.addEventListener('click', () => { uiPreferences.personal.view = button.dataset['personalView'] === 'month' ? 'month' : 'upcoming'; persistUiPreferences(); render() }))
+  document.querySelectorAll<HTMLButtonElement>('[data-personal-view]').forEach(button => button.addEventListener('click', () => { uiPreferences.personal.view = button.dataset['personalView'] === 'month' ? 'month' : 'week'; persistUiPreferences(); render() }))
+  bindWeekNavigation('personal')
   document.getElementById('agendaIcsMonth')?.addEventListener('click', () => downloadIcs(monthEvents(), `minha-agenda-${month}.ics`, 'Nenhuma designação disponível neste mês.'))
   document.getElementById('agendaIcsUpcoming')?.addEventListener('click', () => downloadIcs(upcomingAgendaEvents(personalEvents(), fortalezaDate()), 'minha-agenda-proximos-compromissos.ics', 'Nenhum compromisso futuro disponível.'))
   document.getElementById('agendaShare')?.addEventListener('click', openShare)
@@ -301,17 +328,26 @@ function renderGeneralAgenda(root: HTMLElement): void {
   const [year, monthNumber] = month.split('-').map(Number), firstDow = new Date(year, monthNumber - 1, 1).getDay(), totalDays = new Date(year, monthNumber, 0).getDate()
   const byDay = new Map<number, AnnouncementEvent[]>(); events.forEach(event => { const day = Number(event.date.slice(-2)); byDay.set(day, [...(byDay.get(day) ?? []), event]) })
   const calendar = [...Array(firstDow).fill(''), ...Array.from({ length:totalDays }, (_, index) => String(index + 1))]
-  if (!events.some(event => event.date === generalSelectedDate)) { generalSelectedDate = events.find(event => event.date >= today)?.date ?? events[0]?.date ?? `${month}-01`; persistUiPreferences() }
+  if (!generalSelectedDate) { generalSelectedDate = today; persistUiPreferences() }
+  if (uiPreferences.general.view === 'month' && !generalSelectedDate.startsWith(month)) { generalSelectedDate = events.find(event => event.date >= today)?.date ?? events[0]?.date ?? `${month}-01`; persistUiPreferences() }
   const selectedEvents = events.filter(event => event.date === generalSelectedDate)
   const visibleSources = [...new Set(events.map(event => event.source))]
+  const week = weekDates(generalSelectedDate)
+  const weekEvents = announcementEvents().filter(event => week.includes(event.date)).sort((a,b) => `${a.date} ${a.time ?? ''}`.localeCompare(`${b.date} ${b.time ?? ''}`))
   root.innerHTML = `${moduleTitle('Minha agenda')}${screenTabs()}${loadingAssignments ? '<div class="notice">Atualizando designações dos módulos...</div>' : ''}
+    <div class="program-period-modes agenda-view-modes" role="tablist" aria-label="Visualização da agenda geral"><button class="program-period-mode" role="tab" type="button" data-general-view="week" aria-selected="${uiPreferences.general.view === 'week'}">Semana</button><button class="program-period-mode" role="tab" type="button" data-general-view="month" aria-selected="${uiPreferences.general.view === 'month'}">Mês</button></div>
+    ${uiPreferences.general.view === 'week' ? weekNavigation(generalSelectedDate, 'general') : ''}
+    ${uiPreferences.general.view === 'week' ? `<div class="agenda-list">${weekEvents.map(event => `<article class="agenda-event"><time>${esc(labelDate(event.date))}${event.time ? ` · ${esc(event.time)}` : ''}</time><div><strong>${esc(event.title)}</strong><small><span class="agenda-source ${event.source}">${esc(sourceLabels[event.source])}</span> · ${esc(event.detail)}${event.location ? ` · ${esc(event.location)}` : ''}</small><p>${esc(event.people.join(', '))}</p></div><span class="agenda-status ${event.status}">${esc(statusLabel(event.status))}</span></article>`).join('') || '<p class="empty-state">Nenhum compromisso nesta semana.</p>'}</div>` : ''}
+    ${uiPreferences.general.view === 'month' ? `
     <div class="agenda-toolbar"><button class="btn btn-ghost" id="generalPrev" type="button" aria-label="Mês anterior">‹</button><label class="sr-only" for="generalMonth">Mês da agenda geral</label><input class="form-input" id="generalMonth" type="month" value="${month}"><button class="btn btn-ghost" id="generalNext" type="button" aria-label="Próximo mês">›</button></div>
     <div class="agenda-actions"><button class="btn btn-ghost" id="generalIcsMonth" type="button">Baixar calendário</button></div>
     <div class="agenda-source-legend" aria-label="Cores dos módulos">${visibleSources.map(source => `<span><i class="${source}" aria-hidden="true"></i>${esc(sourceLabels[source])}</span>`).join('')}</div>
     <div class="agenda-calendar"><div class="agenda-weekdays">${['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'].map(day => `<strong>${day}</strong>`).join('')}</div><div class="agenda-days">${calendar.map(day => { if (!day) return '<div class="agenda-day empty"></div>'; const date = `${month}-${day.padStart(2, '0')}`, dayEvents = byDay.get(Number(day)) ?? [], sources = [...new Set(dayEvents.map(event => event.source))], accessible = dayEvents.length ? `${day}/${monthNumber}, ${dayEvents.length} ${dayEvents.length === 1 ? 'item' : 'itens'}: ${sources.map(source => sourceLabels[source]).join(', ')}` : `${day}/${monthNumber}, sem itens`; return `<button class="agenda-day agenda-day-button ${dayEvents.length ? 'has-events' : ''} ${generalSelectedDate === date ? 'selected' : ''}" type="button" data-general-date="${date}" aria-label="${esc(accessible)}"><span>${day}</span><span class="agenda-day-markers" aria-hidden="true">${dayEvents.slice(0, 3).map(event => `<i class="${event.source}"></i>`).join('')}${dayEvents.length > 3 ? `<b>+${dayEvents.length - 3}</b>` : ''}</span></button>` }).join('')}</div></div>
     <div class="agenda-selected-day"><strong>${esc(labelDate(generalSelectedDate))}</strong><span>${selectedEvents.length} item(ns)</span></div>
-    <div class="agenda-list">${selectedEvents.map(event => `<article class="agenda-event"><time>${event.time ? esc(event.time) : 'Dia inteiro'}</time><div><strong>${esc(event.title)}</strong><small><span class="agenda-source ${event.source}">${esc(sourceLabels[event.source])}</span> · ${esc(event.detail)}${event.location ? ` · ${esc(event.location)}` : ''}</small><p>${esc(event.people.join(', '))}</p></div><span class="agenda-status ${event.status}">${esc(statusLabel(event.status))}</span></article>`).join('') || '<p class="empty-state">Nenhuma designação nesta data.</p>'}</div>`
+    <div class="agenda-list">${selectedEvents.map(event => `<article class="agenda-event"><time>${event.time ? esc(event.time) : 'Dia inteiro'}</time><div><strong>${esc(event.title)}</strong><small><span class="agenda-source ${event.source}">${esc(sourceLabels[event.source])}</span> · ${esc(event.detail)}${event.location ? ` · ${esc(event.location)}` : ''}</small><p>${esc(event.people.join(', '))}</p></div><span class="agenda-status ${event.status}">${esc(statusLabel(event.status))}</span></article>`).join('') || '<p class="empty-state">Nenhuma designação nesta data.</p>'}</div>` : ''}`
   bindScreenTabs()
+  document.querySelectorAll<HTMLButtonElement>('[data-general-view]').forEach(button => button.addEventListener('click', () => { uiPreferences.general.view = button.dataset['generalView'] === 'month' ? 'month' : 'week'; if(uiPreferences.general.view==='month')month=generalSelectedDate.slice(0,7);persistUiPreferences(); render() }))
+  bindWeekNavigation('general')
   document.getElementById('generalPrev')?.addEventListener('click', () => moveMonth(-1))
   document.getElementById('generalNext')?.addEventListener('click', () => moveMonth(1))
   document.getElementById('generalMonth')?.addEventListener('change', event => { month = (event.target as HTMLInputElement).value || month; persistUiPreferences(); render() })

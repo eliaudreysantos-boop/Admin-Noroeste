@@ -1019,6 +1019,14 @@ textarea.form-input {
 .agenda-screen-tabs .program-period-mode { min-width: 0; min-height: 44px; padding: 7px 4px; }
 .agenda-view-modes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: min(320px, 100%); margin: 12px 0 8px; padding: 3px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); }
 .agenda-view-modes .program-period-mode { min-height: 40px; }
+.agenda-week-nav { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:10px 0; }
+.agenda-week-nav strong { font-size:.82rem; color:var(--blue-deep); text-align:center; flex:1; min-width:140px; }
+.agenda-week-nav .btn { min-width:40px; min-height:40px; }
+.pdf-inventory-row { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 0; border-bottom:1px solid var(--border); font-size:.78rem; overflow-wrap:anywhere; }
+.pdf-inventory-row span { min-width:0; }
+.pdf-inventory-row small { display:block; color:var(--ink-3); margin-top:3px; }
+.pdf-inventory-row .btn { flex-shrink:0; }
+@media(max-width:600px) { .pdf-inventory-row { align-items:flex-start; flex-direction:column; } .pdf-inventory-row .btn { width:100%; } }
 .agenda-toolbar .btn { min-width: 42px; padding: 8px; font-size: 1.2rem; }
 .agenda-actions { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
 .agenda-next { margin-bottom: 12px; padding: 15px 16px; border-left: 4px solid var(--gold); border-radius: 6px; background: var(--surface); box-shadow: var(--shadow); }

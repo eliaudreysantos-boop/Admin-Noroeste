@@ -1,4 +1,5 @@
 import { auditIntegrations } from './integration-audit'
+import { auditMasterQuality } from './master-quality'
 import { focusCorrection, fieldHelp, takeMasterCorrection } from '../ui/field-guidance'
 import { editorBusy, editorError, editorSaved } from '../ui/editor-feedback'
 import type {
@@ -63,8 +64,14 @@ let restoreCandidate: Record<string, unknown> | null = null
 let restoreFileName = ''
 let baseLoadPromise: Promise<boolean> | null = null
 
-type AdminTab = 'indice' | 'pessoas' | 'usuarios' | 'config' | 'vinculos' | 'dados'
+type AdminTab = 'indice' | 'pessoas' | 'usuarios' | 'config' | 'vinculos' | 'dados' | 'saude'
 let activeTab: AdminTab = 'indice'
+interface PdfInventoryFile { path:string; etag:string; createdAt:string|null; bytes:number|null; status:'ativo'|'retido'|'elegivel'|'desconhecido' }
+interface PdfInventory { checkedAt:string; retentionDays:number; files:PdfInventoryFile[]; health:{database:string;storage:string;version:string} }
+let pdfInventory:PdfInventory|null=null
+let pdfInventoryError=''
+let pdfInventoryLoading=false
+const BACKUP_CHECK_KEY='noroeste_backup_check_v1'
 let activeConfigSection: 'congregacao' | 'agenda' = 'congregacao'
 
 let pessoaFilter = { nome: '', role: '', ativo: 'true', sex: '' }
@@ -232,7 +239,8 @@ function renderContent(): void {
   else if (activeTab === 'usuarios') renderUsuarios()
   else if (activeTab === 'config')   renderConfig()
   else if (activeTab === 'vinculos') renderVinculos()
-  else                               renderDados()
+  else if (activeTab === 'dados')     renderDados()
+  else                               renderSaude()
 
 }
 function renderNavigation(): void {
@@ -240,7 +248,7 @@ function renderNavigation(): void {
   if (host) renderWorkspaceNav(host, 'Admin', 'pessoas', activeTab, [
     { id:'pessoas', label:'Pessoas' }, { id:'usuarios', label:'Acessos' },
     { id:'config', label:'Administração', children:[
-      { id:'config', label:'Configurações' }, { id:'vinculos', label:'Vínculos' }, { id:'dados', label:'Backup' },
+      { id:'config', label:'Configurações' }, { id:'vinculos', label:'Vínculos' }, { id:'dados', label:'Backup' }, { id:'saude', label:'Saúde e PDFs' },
     ] },
   ], id => { void switchTab(id as typeof activeTab) })
 }
@@ -273,6 +281,7 @@ function renderIndex(): void {
     { id: 'config', titulo: 'Configuração', subtitulo: 'Congregação, agenda e PDFs', icone: '⚙', corFundo: '#5C6062' },
     { id: 'vinculos', titulo: 'Vínculos', subtitulo: 'IDs compartilhados entre os módulos', icone: '⌁', corFundo: '#1A6B3C' },
     { id: 'dados', titulo: 'Dados', subtitulo: 'Backup completo e restauração', icone: '▤', corFundo: '#B3261E' },
+    { id: 'saude', titulo: 'Saúde e PDFs', subtitulo: 'Estado dos serviços e limpeza protegida', icone: '◉', corFundo: '#376A8C' },
   ]
   renderMenuCards(content.querySelector<HTMLElement>('#mestreMenu')!, items, id => { void switchTab(id as typeof activeTab) })
 }
@@ -419,6 +428,7 @@ function renderVinculos(): void {
     }catch{panel.textContent='Não foi possível concluir a auditoria. Use Atualizar para tentar novamente.'}
   })
   const issues = collectLinkIssues(rootData)
+  const qualityIssues = auditMasterQuality(pessoas, usuarios)
   const configIssues = collectAgendaConfigIssues()
   const orphanCount = issues.filter(item => item.kind === 'orfao').length
   const missingCount = issues.filter(item => item.kind === 'sem_vinculo').length
@@ -439,6 +449,7 @@ function renderVinculos(): void {
       ${linkMetric('IDs órfãos', orphanCount, '#B3261E')}
       ${linkMetric('Duplicados', duplicateCount, '#7E3AF2')}
     </div>
+    <details class="form-panel" style="margin-bottom:14px"><summary><strong>Qualidade dos cadastros</strong> · ${qualityIssues.length} ponto(s) para revisar</summary><div class="agenda-board-body">${qualityIssues.map(item => `<article class="notice"><strong>${escapeHtml(item.id)} · ${escapeHtml(item.kind)}</strong><p>${escapeHtml(item.detail)}</p></article>`).join('') || '<p class="notice">Nenhum problema de cadastro detectado.</p>'}<p class="notice">A auditoria é somente leitura. Confirme cada caso antes de editar.</p></div></details>
     <div style="display:flex;flex-direction:column;gap:8px">
       ${configIssues.map(item => `
         <div style="border:1px solid #C8922A;border-left:4px solid #C8922A;border-radius:8px;padding:10px 12px;background:#FFF9E8">
@@ -500,6 +511,58 @@ function downloadBackup(data: Record<string, unknown>, prefix?: string): void {
   link.click()
   link.remove()
   setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
+async function loadPdfInventory():Promise<void> {
+  if(pdfInventoryLoading)return
+  pdfInventoryLoading=true;pdfInventoryError='';renderSaude()
+  try {pdfInventory=await apiJson<PdfInventory>('pdf-maintenance')}
+  catch(error){pdfInventory=null;pdfInventoryError=error instanceof Error?error.message:'Não foi possível verificar os serviços.'}
+  finally {pdfInventoryLoading=false;if(activeTab==='saude')renderSaude()}
+}
+function backupCheckLabel():string {
+  try {
+    const item=JSON.parse(localStorage.getItem(BACKUP_CHECK_KEY)??'null') as {at?:string;bytes?:number;hash?:string}|null
+    return item?.at&&item.hash?`Última conferência neste aparelho: ${new Date(item.at).toLocaleString('pt-BR')} · ${item.bytes} bytes · SHA-256 ${item.hash.slice(0,12)}…`:'Nenhum backup conferido neste aparelho.'
+  }catch{return 'Nenhum backup conferido neste aparelho.'}
+}
+async function verifyBackupFile(file:File):Promise<void> {
+  if(file.size>20*1024*1024){toast('Arquivo maior que 20 MB.');return}
+  try {
+    const bytes=await file.arrayBuffer()
+    const validation=validateBackup(JSON.parse(new TextDecoder().decode(bytes)) as unknown)
+    if(!validation.ok){toast(validation.error,5000);return}
+    const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),byte=>byte.toString(16).padStart(2,'0')).join('')
+    localStorage.setItem(BACKUP_CHECK_KEY,JSON.stringify({at:new Date().toISOString(),bytes:file.size,hash}))
+    toast('Backup conferido; nenhum dado foi restaurado.');renderSaude()
+  }catch{toast('Não foi possível conferir o arquivo JSON.',5000)}
+}
+function renderSaude():void {
+  const mc=document.getElementById('mestreContent');if(!mc)return
+  if(!pdfInventory&&!pdfInventoryLoading&&!pdfInventoryError){void loadPdfInventory();return}
+  const eligible=pdfInventory?.files.filter(item=>item.status==='elegivel')??[]
+  const count=(status:PdfInventoryFile['status'])=>pdfInventory?.files.filter(item=>item.status===status).length??0
+  mc.innerHTML=`<section class="form-panel"><h3>Saúde do sistema</h3><p class="notice">${pdfInventoryLoading?'Conferindo serviços…':pdfInventoryError?escapeHtml(pdfInventoryError):`Banco: ${escapeHtml(pdfInventory?.health.database)} · PDFs: ${escapeHtml(pdfInventory?.health.storage)} · Versão: ${escapeHtml(pdfInventory?.health.version)} · conferido em ${escapeHtml(new Date(pdfInventory!.checkedAt).toLocaleString('pt-BR'))}`}</p><button id="refreshPdfInventory" class="btn btn-ghost" type="button">Conferir novamente</button></section>
+    <section class="form-panel"><h3>Verificação de backup</h3><p class="notice">${escapeHtml(backupCheckLabel())}</p><p>Selecione um backup para validar estrutura e SHA-256 sem restaurar dados. A informação fica somente neste aparelho.</p><input id="verifyBackupFile" class="form-input" type="file" accept="application/json,.json" aria-label="Selecionar backup para conferência"></section>
+    <section class="form-panel"><h3>Inventário de PDFs</h3><p class="notice">${count('ativo')} ativos · ${count('retido')} em retenção · ${count('elegivel')} elegíveis · ${count('desconhecido')} com idade desconhecida. Retenção mínima: 90 dias. Arquivos ativos ou de idade desconhecida nunca entram na limpeza.</p>
+    ${pdfInventory?.files.map(item=>`<label class="pdf-inventory-row"><span>${item.status==='elegivel'?`<input type="checkbox" data-pdf-clean="${escapeHtml(item.path)}">`:''}<strong>${escapeHtml(item.status)}</strong> ${escapeHtml(item.path)}<small>${item.createdAt?escapeHtml(new Date(item.createdAt).toLocaleDateString('pt-BR')):'Data desconhecida'}${item.bytes?` · ${item.bytes} bytes`:''}</small></span><a class="btn btn-ghost" target="_blank" rel="noopener" href="/.netlify/functions/storage-file?path=${encodeURIComponent(item.path)}">Visualizar</a></label>`).join('')??''}
+    ${eligible.length?'<p>Selecione até 20 PDFs elegíveis, visualize-os e digite EXCLUIR PDFs para confirmar. O servidor confere as referências e a idade novamente.</p><input id="pdfDeletePhrase" class="form-input" placeholder="EXCLUIR PDFs" autocomplete="off"><button id="deleteSelectedPdfs" class="btn btn-danger" type="button">Excluir PDFs selecionados</button>':''}</section>`
+  document.getElementById('refreshPdfInventory')?.addEventListener('click',()=>void loadPdfInventory())
+  document.getElementById('verifyBackupFile')?.addEventListener('change',event=>{const file=(event.currentTarget as HTMLInputElement).files?.[0];if(file)void verifyBackupFile(file)})
+  document.getElementById('deleteSelectedPdfs')?.addEventListener('click',()=>void cleanupSelectedPdfs())
+}
+async function cleanupSelectedPdfs():Promise<void> {
+  const paths=[...document.querySelectorAll<HTMLInputElement>('[data-pdf-clean]:checked')].map(input=>input.dataset['pdfClean']??'').filter(Boolean)
+  const phrase=(document.getElementById('pdfDeletePhrase') as HTMLInputElement|null)?.value
+  if(!paths.length||paths.length>20||phrase!=='EXCLUIR PDFs'){toast('Selecione até 20 arquivos e digite EXCLUIR PDFs.');return}
+  if(!confirm(`Excluir permanentemente ${paths.length} PDF(s) elegível(is)?`))return
+  const button=document.getElementById('deleteSelectedPdfs') as HTMLButtonElement|null
+  if(button)button.disabled=true
+  try {
+    const result=await apiJson<{deleted:string[];skipped:{path:string;reason:string}[]}>('pdf-maintenance',{method:'POST',body:JSON.stringify({paths,confirm:phrase})})
+    toast(`${result.deleted.length} excluído(s); ${result.skipped.length} preservado(s).`,5000)
+    await loadPdfInventory()
+  }catch(error){toast(error instanceof Error?error.message:'Não foi possível concluir a limpeza.',5000);if(button)button.disabled=false}
 }
 
 function renderDados(): void {

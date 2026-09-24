@@ -81,7 +81,7 @@ export async function storageFileResponse(
     if (!bytes) return json(400, { error:'PDF inválido ou maior que 4 MB.' })
     const payload = new ArrayBuffer(bytes.byteLength)
     new Uint8Array(payload).set(bytes)
-    await store.set(path, payload, { metadata:{ contentType:'application/pdf' } })
+    await store.set(path, payload, { metadata:{ contentType:'application/pdf', createdAt:new Date().toISOString(), bytes:bytes.byteLength } })
     const requestUrl = new URL(request.url)
     const url = `${requestUrl.origin}/.netlify/functions/storage-file?path=${encodeURIComponent(path)}`
     return json(200, { url })
