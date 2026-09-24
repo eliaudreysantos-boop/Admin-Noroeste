@@ -1,5 +1,7 @@
 import { adminDatabase } from '../lib/subscription-store.ts'
 import { appSession, json, objectBody, validCsrf } from '../lib/secure-session.ts'
+import { activityEntry } from '../lib/activity.ts'
+import { auditedWrite } from '../lib/audited-write.ts'
 
 export default async (request: Request): Promise<Response> => {
   if (request.method !== 'PATCH') return json(405, { error:'Método não permitido.' })
@@ -16,7 +18,15 @@ export default async (request: Request): Promise<Response> => {
     patch[`${masterId}/limpeza/grupo`] = value === null ? null : Number(value)
   }
   try {
-    await adminDatabase().ref('master/pessoas').update(patch)
+    const entry=activityEntry(session,'alterar','master/pessoas','limpeza')
+    let applied=false
+    const result=await adminDatabase().ref('/').transaction(current=>{
+      if(current===null){applied=false;return null}
+      const next=auditedWrite(current,'master/pessoas','PATCH',patch,false,undefined,entry)
+      applied=next!==undefined
+      return next
+    },undefined,false)
+    if(!result.committed||!applied)return json(409,{error:'Não foi possível salvar os grupos. Recarregue e tente novamente.'})
     return json(200, { ok:true })
   } catch { return json(503, { error:'Não foi possível salvar os grupos.' }) }
 }

@@ -77,6 +77,7 @@ export interface ConfigLimpezaGrupo {
 }
 
 export interface LimpezaSemanaGerada {
+  manualGroup?: boolean
   referencia:          string
   dataMeioSemana:      string
   dataFimSemana:       string
@@ -207,6 +208,7 @@ export interface RawRoot {
 // ─── App context ───────────────────────────────────────────────────────────
 
 export interface AppContext {
+  overview?: { month:string; pending:boolean }
   uid:     string
   usuario: Usuario
 }

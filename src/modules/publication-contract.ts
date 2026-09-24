@@ -32,7 +32,7 @@ export function publicationInput(root:PublicationRoot,module:PublicPdfModule,id:
   if(module==='tarefas')return {meetings:Object.values(period?.meetings??{}).filter((m:any)=>canonicalMeetingType(m.type)).sort((a:any,b:any)=>String(a.date).localeCompare(String(b.date))),people:Object.fromEntries(Object.entries(root.tarefas?.people??{}).map(([key,p]:any)=>[key,canonicalTaskPerson(key,p,people)])),congregation}
   if(module==='limpeza') {
     const {publicado,publicadoEm,...printPeriod}=period??{}
-    return printPeriod
+    return {...printPeriod,semanas:(printPeriod.semanas??[]).map(({manualGroup,...week}:any)=>{void manualGroup;return week})}
   }
   if(module==='servicoCampo')return {month:id,assignments:Object.values(period?.assignments??{}),people,congregation}
   if(module==='escala')return {month:id,locals:root.escala?.scales??{},tables:period,participants:Object.fromEntries(Object.entries(root.escala?.participants??{}).map(([key,p]:any)=>{

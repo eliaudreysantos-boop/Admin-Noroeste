@@ -26,7 +26,7 @@ export function editorBusy(scope: HTMLElement): () => void {
 }
 export function installEditorFeedback(): void {
   const active = (set: Set<HTMLElement>) => [...set].filter(scope => { if (scope.isConnected) return true; set.delete(scope); return false })
-  const allowLeave = () => !active(busy).length && (!active(pending).length || confirm('Há alterações não salvas. Deseja descartá-las?'))
+  const allowLeave = (scope?:HTMLElement|null) => !active(busy).some(item=>!scope||scope.contains(item)) && (!active(pending).some(item=>!scope||scope.contains(item)) || confirm('Há alterações não salvas. Deseja descartá-las?'))
   const previousValues = new WeakMap<HTMLInputElement | HTMLSelectElement, string>()
   const periodSelector = 'input[type="month"], #eLocal, #tarefasPeriodMode'
   document.addEventListener('focusin', event => {
@@ -49,9 +49,10 @@ export function installEditorFeedback(): void {
     const target = event.target as HTMLElement
     const button = target.closest('button, a')
     if (button?.closest('.month-navigation')) return // The cancellable change event handles this action once.
-    const navigation = button?.matches('[data-workspace-tab], [data-cleaning-tab], [data-module-index], [data-module], [data-menu-card], #btnBack, #btnSair, [id*="Cancel"], [id^="cancel"], [id^="close"], #serviceSchedule, #serviceConfig, #servicePrev, #serviceNext, [data-edit-service-template]') || target.classList.contains('modal-overlay') || Boolean(button && [...active(pending), ...active(busy)].some(scope => !scope.contains(button)))
+    const navigation = button?.matches('[data-operations-home], [data-operation-open], [data-workspace-tab], [data-cleaning-tab], [data-module-index], [data-module], [data-menu-card], #btnBack, #btnSair, [id*="Cancel"], [id^="cancel"], [id^="close"], #serviceSchedule, #serviceConfig, #servicePrev, #serviceNext, [data-edit-service-template]') || target.classList.contains('modal-overlay') || Boolean(button && [...active(pending), ...active(busy)].some(scope => !scope.contains(button)))
     if (!navigation) return
-    if (!allowLeave()) { event.preventDefault(); event.stopImmediatePropagation() }
+    const closing=button?.matches('[id*="Cancel"], [id^="cancel"], [id^="close"]')?button.closest<HTMLElement>('.modal-overlay'):null
+    if (!allowLeave(closing)) { event.preventDefault(); event.stopImmediatePropagation() }
   }, true)
   window.addEventListener('beforeunload', event => { if (active(pending).length || active(busy).length) { event.preventDefault(); event.returnValue = '' } })
 }

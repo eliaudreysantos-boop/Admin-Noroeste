@@ -1,4 +1,5 @@
 import { renderPublicationStatus } from './module-publication'
+import { substitutionDialog } from '../ui/substitution-dialog'
 import { focusCorrection, fieldHelp } from '../ui/field-guidance'
 import { fortalezaToday, isValidCivilDate } from './civil-date'
 import { editorBusy, editorError, editorSaved } from '../ui/editor-feedback'
@@ -25,6 +26,7 @@ import {
 } from '../firebase'
 import {
   assertCleaningPeriodEditable,
+  replaceCleaningGroup,
   generateCleaningPeriod,
   monthLabel,
   periodBounds,
@@ -43,6 +45,7 @@ let periodos: Record<string, LimpezaPeriodoGerado> = {}
 let periodMode: CleaningPeriodMode = 'bimester'
 let periodAnchor = todayStr()
 let selectedPeriodId = ''
+let overviewMonth = ''
 let congregationName = 'Noroeste'
 let reunioes: Partial<ConfigReunioes> = {}
 const CLEANING_PERIOD_MODE_KEY = 'noroeste_limpeza_period_mode'
@@ -113,6 +116,8 @@ function renderSectionTitle(title: string, desc: string): string {
 }
 
 export default function mount(_ctx: AppContext): void {
+  overviewMonth=_ctx.overview?.month??''
+  if(overviewMonth)periodAnchor=overviewMonth+'-01'
   limpezaChanges = new Map()
   configDirty = false
 
@@ -156,7 +161,8 @@ async function loadAll(): Promise<void> {
       ? savedMode
       : limpeza.periodMode === 'month' ? 'month' : 'bimester'
     const ids = Object.keys(periodos).sort()
-    selectedPeriodId = ids[ids.length - 1] ?? ''
+    selectedPeriodId = overviewMonth ? ids.find(id=>periodos[id].inicio<=overviewMonth+'-01'&&periodos[id].fim>=overviewMonth+'-01')??'' : ids[ids.length - 1] ?? ''
+    overviewMonth=''
   } catch {
     toast('Erro ao carregar dados de limpeza')
     if (content?.isConnected) {
@@ -228,11 +234,12 @@ function generatedPeriodOptions(): string {
 }
 
 function renderPeriodRows(period: LimpezaPeriodoGerado): string {
-  return period.semanas.map(week => `
+  return period.semanas.map((week,index) => `
     <div class="cleaning-period-row" style="padding:10px 12px;border-bottom:1px solid var(--border)">
       <strong style="color:var(--blue-deep)">Grupo ${week.grupo}</strong>
       <span style="font-size:.82rem;font-weight:600;overflow-wrap:anywhere">${escapeHtml(week.grupoNome)}</span>
       <span class="cleaning-period-dates" style="font-size:.78rem;color:var(--ink-3)">${formatGeneratedDate(week.dataMeioSemana)} e ${formatGeneratedDate(week.dataFimSemana)}</span>
+      ${period.publicado?'':`<button type="button" class="btn btn-ghost" data-cleaning-substitute="${index}">Substituir grupo</button>`}${week.manualGroup?'<small>Grupo ajustado nesta semana</small>':''}
     </div>`).join('')
 }
 
@@ -272,6 +279,7 @@ async function saveGeneratedPeriod(): Promise<void> {
       `${periodAnchor.slice(0, 7)}-01`, periodMode, effective.config,
       reunioes as ConfigReunioes, effective.people, congregationName, new Date().toISOString(),
     )
+    generated.semanas=generated.semanas.map(week=>periodos[generated.id]?.semanas.find(previous=>previous.referencia===week.referencia&&previous.manualGroup)??week)
     await compareAndUpdate(limpezaPeriodosRef, { [generated.id]:periodos[generated.id] ?? null }, { [generated.id]: generated })
     try {
       await update(configLimpezaRef, { periodMode })
@@ -555,6 +563,17 @@ function renderPdf(): void {
     </div>`
   const schedule = document.getElementById('cleaningSchedule')
   if (schedule) schedule.innerHTML = period ? renderPeriodRows(period) : '<p class="empty-state">Nenhuma escala gerada.</p>'
+  schedule?.querySelectorAll<HTMLButtonElement>('[data-cleaning-substitute]').forEach(button=>button.addEventListener('click',()=>{
+    if(!period||period.publicado)return
+    const index=Number(button.dataset.cleaningSubstitute),week=period.semanas[index]
+    substitutionDialog({title:`Grupo · semana de ${formatGeneratedDate(week.referencia)}`,current:week.grupoNome,candidates:Array.from({length:groupCount()},(_,i)=>i+1).filter(group=>group!==week.grupo).map(group=>{
+      let reason='';try{replaceCleaningGroup(period,index,group,limpeza as ConfigLimpeza,pessoas)}catch(error){reason=error instanceof Error?error.message:'Grupo indisponível'}
+      return {id:String(group),name:limpeza.gruposConfig?.[String(group)]?.nome||`Grupo ${group}`,count:period.semanas.filter(w=>w.grupo===group&&w.referencia.slice(0,7)===week.referencia.slice(0,7)).length,reason}
+    }),note:'Troca somente esta semana, incluindo as duas reuniões. A rotação das demais semanas e o cadastro dos grupos permanecem iguais. A troca será preservada ao gerar novamente este período.',save:async id=>{
+      const next=replaceCleaningGroup(period,index,Number(id),limpeza as ConfigLimpeza,pessoas)
+      await compareAndUpdate(limpezaPeriodosRef,{[period.id]:period},{[period.id]:next});periodos[period.id]=next;renderPdf();toast('Grupo substituído nesta semana');return true
+    }})
+  }))
   document.getElementById('pdfLimpezaPeriodo')?.addEventListener('change', event => {
     selectedPeriodId = (event.target as HTMLSelectElement).value
     renderPdf()

@@ -1,4 +1,6 @@
 import { renderPublicationStatus } from './module-publication'
+import { substitutionDialog } from '../ui/substitution-dialog'
+import { fieldSubstitutes } from './substitution-domain'
 import { focusCorrection, fieldHelp } from '../ui/field-guidance'
 import { fortalezaCurrentMonth, isValidCivilDate } from './civil-date'
 import { editorBusy, editorError } from '../ui/editor-feedback'
@@ -55,7 +57,7 @@ function root(): HTMLElement { return document.getElementById('servicoCampoRoot'
 function sectionTitle(title: string): string { return `<div class="module-section-title">${screen === 'configuracao' ? moduleBackButton() : ''}<h2>${esc(title)}</h2></div>` }
 
 export default function mount(appContext: AppContext): void {
-  void appContext
+  if(appContext.overview)selectedMonth=appContext.overview.month
   screen = 'programacao'; editingTemplateId = ''; loadPromise = null; data = {}; people = {}
   const host = document.getElementById('appContent'); if (!host) return
   host.innerHTML = '<div id="serviceNav"></div><div id="servicoCampoRoot"></div>'
@@ -148,6 +150,15 @@ function renderSchedule(): void {
   document.getElementById('serviceReopen')?.addEventListener('click', () => void reopenPeriod())
   document.getElementById('manualServiceForm')?.addEventListener('submit', event => { event.preventDefault(); void addManualAssignment(event.currentTarget as HTMLFormElement) })
   document.querySelectorAll<HTMLSelectElement>('[data-service-leader]').forEach(select => select.addEventListener('change', () => void changeLeader(select.dataset.serviceLeader!, select.value)))
+  document.querySelectorAll<HTMLSelectElement>('[data-service-leader]').forEach(select=>{
+    if(locked)return
+    const button=document.createElement('button');button.className='btn btn-ghost';button.type='button';button.textContent='Buscar substituto';button.dataset.serviceSubstitute=select.dataset.serviceLeader
+    select.before(button)
+    button.addEventListener('click',()=>{
+      const item=period?.assignments[select.dataset.serviceLeader!];if(!item)return
+      substitutionDialog({title:`Dirigente · ${dateLabel(item.date)} · ${item.time}`,current:personName(item.leaderId),candidates:fieldSubstitutes(item,assignments,data.leaders??{},people),save:id=>changeLeader(item.id,id)})
+    })
+  })
   document.querySelectorAll<HTMLButtonElement>('[data-service-delete]').forEach(button => button.addEventListener('click', () => void deleteAssignment(button.dataset.serviceDelete!)))
 }
 
@@ -167,11 +178,11 @@ async function generatePeriod(): Promise<void> {
   finally { generatingPeriod = false }
 }
 
-async function changeLeader(assignmentId: string, leaderId: string): Promise<void> {
-  const period = currentPeriod(), assignment = period?.assignments?.[assignmentId]; if (!period || !assignment || period.published) return
-  if (leaderId && !leaderIds().includes(leaderId)) { toast('Selecione um dirigente aprovado'); return }
-  if(fieldServiceConflicts(Object.values(period.assignments).map(item=>item.id===assignmentId?{...item,leaderId}:item)).length){toast('O dirigente já tem uma saída na mesma data e horário');return}
-  try { await compareAndSet(child(servicoCampoRef, `periods/${selectedMonth}`), period, { ...period, assignments:{ ...period.assignments, [assignmentId]:{ ...assignment, leaderId } } }); assignment.leaderId = leaderId; toast('Dirigente atualizado'); render() } catch (error) { toast(failureMessage(error, 'Não foi possível atualizar o dirigente')) }
+async function changeLeader(assignmentId: string, leaderId: string): Promise<boolean> {
+  const period = currentPeriod(), assignment = period?.assignments?.[assignmentId]; if (!period || !assignment || period.published) return false
+  if (leaderId && !leaderIds().includes(leaderId)) { toast('Selecione um dirigente aprovado'); return false }
+  if(fieldServiceConflicts(Object.values(period.assignments).map(item=>item.id===assignmentId?{...item,leaderId}:item)).length){toast('O dirigente já tem uma saída na mesma data e horário');return false}
+  try { await compareAndSet(child(servicoCampoRef, `periods/${selectedMonth}`), period, { ...period, assignments:{ ...period.assignments, [assignmentId]:{ ...assignment, leaderId } } }); assignment.leaderId = leaderId; toast('Dirigente atualizado'); render();return true } catch (error) { toast(failureMessage(error, 'Não foi possível atualizar o dirigente'));return false }
 }
 
 async function addManualAssignment(form: HTMLFormElement): Promise<void> {

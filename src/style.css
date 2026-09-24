@@ -1357,3 +1357,18 @@ button:focus-visible, summary:focus-visible { outline:2px solid var(--blue-mid);
 @media (min-width:561px) {
   .scale-week > summary { color:var(--ink-2); }
 }
+.operations-overview { margin-bottom:20px; }
+.operations-overview h2 { font-size:1.1rem; margin-bottom:12px; }
+.operations-overview label { display:block; margin:10px 0; }
+.operations-overview details { margin-top:16px; }
+.operations-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr)); gap:12px; }
+.operations-grid article { border:1px solid var(--border); border-radius:10px; padding:12px; min-width:0; overflow-wrap:anywhere; }
+.operations-grid h3 { font-size:.95rem; }
+.operations-grid p,.operations-grid li { font-size:.82rem; margin:8px 0; }
+.operations-grid ul { padding-left:18px; }
+.operations-overview .module-list-row { overflow-wrap:anywhere; gap:12px; }
+.operations-overview .module-list-row small { display:block; }
+.substitution-candidate { display:flex; gap:10px; padding:12px 0; border-bottom:1px solid var(--border); align-items:center; }
+.substitution-candidate span { min-width:0; overflow-wrap:anywhere; }
+.substitution-candidate small { display:block; font-size:.8rem; color:var(--ink-3); }
+[data-sub-list] { max-height:40vh; overflow:auto; }

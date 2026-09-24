@@ -1,4 +1,5 @@
 import { getStore } from '@netlify/blobs'
+import { activityEntry,appendActivity } from '../lib/activity.ts'
 import { appSession,json,objectBody,validCsrf } from '../lib/secure-session.ts'
 import { adminDatabase } from '../lib/subscription-store.ts'
 import { sourceHash,publicationVersion,transitionPublication } from '../lib/publication-transition.ts'
@@ -42,13 +43,14 @@ export default async(request:Request):Promise<Response>=>{
       document['url']=`${new URL(request.url).origin}/.netlify/functions/storage-file?path=${encodeURIComponent(path)}`
       document['tipo']='modulo'
     }
+    const entry=activityEntry(session,document?'publicar':'reabrir',`${module}/${id}`,module)
     let applied=false
     const result=await database.ref('/').transaction(current=>{
       // A cold Firebase transaction can initially see null; let the server retry.
       if(current===null){applied=false;return null}
       const next=transitionPublication(current,module,id,String(body['hash']??''),body['previous'],document,String(body['version']??''))
       applied=next!==undefined
-      return next
+      return appendActivity(current,next,entry)
     },undefined,false)
     if(!result.committed||!applied)return json(409,{error:'Os dados ou a publicação mudaram. A versão anterior foi preservada. Reabra o módulo e confira.'})
     return json(200,{ok:true,document})

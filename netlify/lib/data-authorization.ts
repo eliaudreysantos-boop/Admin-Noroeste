@@ -1,7 +1,7 @@
 import { activeData, isRetiredPath } from './retired-data.ts'
 import type { AppPermissions } from '../../src/types.ts'
 
-const PRIVATE_ROOTS = new Set(['appSessoesPrivadas', 'agendaDispositivosPrivados', 'agendaPareamentosPrivados', 'agendaAssinaturasPrivadas', 'autenticacaoTentativasPrivadas', 'pendenciasMigracao'])
+const PRIVATE_ROOTS = new Set(['historicoOperacionalPrivado', 'appSessoesPrivadas', 'agendaDispositivosPrivados', 'agendaPareamentosPrivados', 'agendaAssinaturasPrivadas', 'autenticacaoTentativasPrivadas', 'pendenciasMigracao'])
 
 export function normalizeDataPath(value: string): string | null {
   const path = value.trim().replace(/^\/+|\/+$/g, '')

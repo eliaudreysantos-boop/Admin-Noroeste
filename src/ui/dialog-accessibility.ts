@@ -6,7 +6,7 @@ export function installDialogAccessibility(): void {
   const dialogs=new Map<HTMLElement,HTMLElement|null>()
   const focusable=(scope:HTMLElement)=>[...scope.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),a[href],[tabindex="0"]')].filter(item=>item.getClientRects().length>0)
   const sync=():void=>{
-    for(const [dialog,previous] of dialogs)if(!dialog.isConnected){dialogs.delete(dialog);if(previous?.isConnected)previous.focus({preventScroll:true})}
+    for(const [dialog,previous] of dialogs)if(!dialog.isConnected){dialogs.delete(dialog);const remaining=[...dialogs.keys()].filter(item=>item.isConnected).pop();if(remaining)focusable(remaining)[0]?.focus({preventScroll:true});else if(previous?.isConnected)previous.focus({preventScroll:true})}
     document.querySelectorAll<HTMLElement>('.modal').forEach(dialog=>{
       if(!dialogs.has(dialog)){
         dialogs.set(dialog,lastOutside)

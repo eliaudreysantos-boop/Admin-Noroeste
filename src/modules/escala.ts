@@ -1,4 +1,5 @@
 import { focusCorrection, fieldHelp, requestMasterCorrection } from '../ui/field-guidance'
+import { substitutionDialog } from '../ui/substitution-dialog'
 import { navigateTo } from '../router'
 import { editorBusy, editorError, editorSaved } from '../ui/editor-feedback'
 import { lockPublicationUi } from '../ui/publication-busy'
@@ -91,7 +92,7 @@ export default function mount(ctx: AppContext): void {
   context = ctx; tab = 'indice'; selectedLocalId = ''; selectedParticipantId = ''; loadPromise = null
   participants = {}; pessoas = {}; locals = {}; historicalSnapshots = {}; availability = {}; tables = {}; blocks = {}; exclusions = {}; settings = {}; greetings = {}; publishedMonth = ''; publishedMonths = {}
   document.getElementById('appContent')!.innerHTML = '<div id="escalaRoot"><div id="escalaNav"></div><div id="escalaContent"></div></div>'
-  void go('escalaAtual')
+  void go(ctx.overview?.pending?'pendencias':'escalaAtual')
 }
 function ensureLoaded(): Promise<boolean> {
   loadPromise ??= load()
@@ -105,7 +106,8 @@ async function load(): Promise<boolean> {
     tables = data.tables ?? {}; blocks = data.monthSlotBlocks ?? {}; exclusions = data.monthExclusions ?? {}
     settings = data.settings ?? {}; greetings = data.greetings ?? {}; publishedMonth = data.publishedMonth ?? ''; publishedMonthBaseline = data.publishedMonth ?? null
     publishedMonths = data.publishedMonths ?? {}
-    const savedMonth = localStorage.getItem(ESCALA_MONTH_KEY) ?? data.editingMonth
+    const savedMonth = context.overview?.month ?? localStorage.getItem(ESCALA_MONTH_KEY) ?? data.editingMonth
+    delete context.overview
     selectedMonth = isValidMonth(savedMonth ?? '') ? savedMonth! : monthNow()
     pessoas = peopleSnap.exists() ? peopleSnap.val() as RawPessoas : {}
     const rawProfiles = data.participants ?? {}
@@ -442,6 +444,21 @@ function pairModal(date: string, time: string): void {
   const options = ids.map(id => { const item = analysis.blocked.find(candidate => candidate.id === id); return `<option value="${esc(id)}">${esc(name(id))}${item ? ` — ${esc(ESCALA_RULE_LABELS[item.rule])}` : ''}</option>` }).join('')
   const overlay = document.createElement('div'); overlay.className = 'modal-overlay'; overlay.innerHTML = `<div class="modal"><h2>${esc(dayLabel(date))} · ${time}</h2><p class="form-help">Disponíveis primeiro; conflitos continuam selecionáveis com confirmação.</p><div class="form-group"><label class="form-label">Primeira pessoa</label><select id="pair1" class="form-select"><option value="">Vago</option>${options}</select></div><div class="form-group"><label class="form-label">Segunda pessoa</label><select id="pair2" class="form-select"><option value="">Vago</option>${options}</select></div><div style="display:flex;gap:8px;justify-content:flex-end"><button id="pairCancel" class="btn btn-ghost">Cancelar</button><button id="pairSave" class="btn btn-primary">Salvar</button></div></div>`
   document.body.appendChild(overlay); (document.getElementById('pair1') as HTMLSelectElement).value = cell.p1; (document.getElementById('pair2') as HTMLSelectElement).value = cell.p2
+  for(const slot of ['p1','p2'] as const) {
+    const select=overlay.querySelector<HTMLSelectElement>(slot==='p1'?'#pair1':'#pair2')!
+    const button=document.createElement('button');button.type='button';button.className='btn btn-ghost';button.textContent='Buscar substituto';button.dataset.pairSubstitute=slot;select.after(button)
+    button.addEventListener('click',()=>{
+      const other=overlay.querySelector<HTMLSelectElement>(slot==='p1'?'#pair2':'#pair1')!.value
+      substitutionDialog({title:`Substituição · ${dayLabel(date)} · ${time}`,current:select.value?name(select.value):'Vago',note:'A escolha será aplicada ao editor da dupla. Confira as duas pessoas e toque em Salvar para gravar.',candidates:Object.keys(participants).filter(id=>id!==select.value).map(id=>({id,name:name(id),count:Object.values(tables).reduce((sum,months)=>sum+Object.values(months[selectedMonth]?.rows??{}).reduce((n,row)=>n+Object.values(row.slots??{}).filter(c=>c.p1===id||c.p2===id).length,0),0),reason:validatePair(input(),date,time,slot==='p1'?id:other,slot==='p2'?id:other).join(' · ')})),save:async id=>{select.value=id;select.dispatchEvent(new Event('change',{bubbles:true}));return true}})
+    })
+  }
+  const preview=document.createElement('p');preview.className='notice';preview.setAttribute('aria-live','polite');overlay.querySelector('.modal')!.append(preview)
+  const refresh=()=>{
+    const p1=overlay.querySelector<HTMLSelectElement>('#pair1')!.value,p2=overlay.querySelector<HTMLSelectElement>('#pair2')!.value
+    const issues=validatePair(input(),date,time,p1,p2)
+    preview.textContent=`Dupla: ${p1?name(p1):'Vago'} e ${p2?name(p2):'Vago'}. ${issues.length?issues.join(' · '):'Sem conflito identificado.'}`
+  }
+  overlay.querySelectorAll('select').forEach(select=>select.addEventListener('change',refresh));refresh()
   document.getElementById('pairCancel')!.addEventListener('click', () => overlay.remove()); document.getElementById('pairSave')!.addEventListener('click', () => void savePair(date, time, overlay))
 }
 async function savePair(date: string, time: string, overlay: HTMLElement): Promise<void> {

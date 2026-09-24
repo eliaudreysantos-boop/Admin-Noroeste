@@ -70,6 +70,16 @@ function memberIds(group: number, people: RawPessoas): string[] {
     .map(([id]) => id)
 }
 
+export function replaceCleaningGroup(period:LimpezaPeriodoGerado,index:number,group:number,config:ConfigLimpeza,people:RawPessoas):LimpezaPeriodoGerado {
+  assertCleaningPeriodEditable(period)
+  const week=period.semanas[index],profile=config.gruposConfig?.[String(group)]
+  if(!week||!Number.isInteger(group)||group<1||group>config.grupos)throw new Error('Grupo inválido.')
+  const members=memberIds(group,people),helpers=Object.values(profile?.ajudantesMid??{})
+  if(!members.length)throw new Error('Este grupo não possui integrantes ativos.')
+  if(!profile?.superintendenteMid||!people[profile.superintendenteMid]?.active||helpers.some(id=>!people[id]?.active))throw new Error('Confira o responsável e os ajudantes do grupo.')
+  return {...period,semanas:period.semanas.map((item,i)=>i===index?{...item,grupo:group,grupoNome:profile.nome?.trim()||`Grupo ${group}`,superintendenteMid:profile.superintendenteMid,ajudantesMid:helpers,membrosMid:members,manualGroup:true}:item)}
+}
+
 export function generateCleaningPeriod(
   anchor: string,
   mode: CleaningPeriodMode,

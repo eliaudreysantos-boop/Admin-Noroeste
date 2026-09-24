@@ -1,21 +1,21 @@
-import { guardedModulePath, guardedModuleWrite } from '../lib/published-write.ts'
-import { activeData, preserveArchivedTasks } from '../lib/retired-data.ts'
-import { deleteUnreferencedMasterPerson } from '../lib/master-person-delete.ts'
+import { activeData } from '../lib/retired-data.ts'
+import { activityEntry } from '../lib/activity.ts'
+import { auditedWrite } from '../lib/audited-write.ts'
 import { appSession, json, objectBody, validCsrf } from '../lib/secure-session.ts'
 import { adminDatabase } from '../lib/subscription-store.ts'
 import { readBatch } from '../lib/database-reads.ts'
-import { conditionalPatch, conditionalValue, validConditionalPatch } from '../lib/conditional-write.ts'
+import { validConditionalPatch } from '../lib/conditional-write.ts'
 import { canAccessData, canMutateData, containsPrivateRoot, normalizeDataPath, withoutPrivateRoots } from '../lib/data-authorization.ts'
 
-export default async (request: Request): Promise<Response> => {
+export async function databaseResponse(request:Request,database=adminDatabase,sessionFor=appSession):Promise<Response> {
   if (!['GET', 'PUT', 'PATCH', 'DELETE'].includes(request.method)) return json(405, { error:'Método não permitido.' })
   let session
-  try { session = await appSession(request) } catch { return json(503, { error:'Sessão indisponível.' }) }
+  try { session = await sessionFor(request) } catch { return json(503, { error:'Sessão indisponível.' }) }
   if (!session) return json(401, { error:'Sessão expirada.' })
   const batchPaths = new URL(request.url).searchParams.get('paths')
   if (request.method === 'GET' && batchPaths !== null) {
     const results = await readBatch(batchPaths, session.usuario.apps, async path => {
-      const snapshot = await adminDatabase().ref(path || '/').get()
+      const snapshot = await database().ref(path || '/').get()
       return snapshot.exists() ? snapshot.val() as unknown : null
     })
     return results ? json(200, { results }) : json(400, { error:'Lote de leituras invalido.' })
@@ -28,67 +28,27 @@ export default async (request: Request): Promise<Response> => {
   if (write && !validCsrf(request, session)) return json(403, { error:'Validação da sessão ausente.' })
 
   try {
-    const reference = adminDatabase().ref(path || '/')
+    const reference = database().ref(path || '/')
     if (request.method === 'GET') {
       const snapshot = await reference.get()
       const value = snapshot.exists() ? snapshot.val() as unknown : null
       return json(200, { value:path ? activeData(path, value) : withoutPrivateRoots(value) })
     }
-    if (write && guardedModulePath(path)) {
-      const body=request.method==='DELETE'?{}:await objectBody(request),value=body['value']
-      if(!canMutateData(path,request.method,value,session.usuario.apps))return json(403,{error:'Alteração não autorizada.'})
-      let applied=false
-      const result=await adminDatabase().ref('/').transaction(current=>{
-        if(current===null){applied=false;return null}
-        const next=guardedModuleWrite(current,path,request.method,value,Object.prototype.hasOwnProperty.call(body,'expected'),body['expected'])
-        applied=next!==undefined;return next
-      },undefined,false)
-      return result.committed&&applied?json(200,{ok:true}):json(409,{error:'O registro mudou ou o período está publicado. Recarregue os dados e reabra o período antes de editar.'})
-    }
-    if (request.method === 'DELETE') {
-      if (!canMutateData(path, request.method, undefined, session.usuario.apps)) return json(403, { error:'Alteração não autorizada.' })
-      if(/^master\/pessoas\/[^/]+$/.test(path)) {
-        const mid=path.split('/')[2]!
-        const result=await adminDatabase().ref('/').transaction(current=>deleteUnreferencedMasterPerson(current,mid))
-        return result.committed?json(200,{ok:true}):json(409,{error:'A pessoa possui vínculos ou já foi removida. Recarregue o cadastro antes de continuar.'})
-      }
-      await reference.remove()
-    }
-    else {
-      const body = await objectBody(request)
-      const value = body['value']
-      if (!canMutateData(path, request.method, value, session.usuario.apps)) return json(403, { error:'Alteração não autorizada.' })
-      if (!path && containsPrivateRoot(value)) return json(400, { error:'Backup contém caminhos privados.' })
-      if (Object.prototype.hasOwnProperty.call(body, 'expected')) {
-        if (!path) return json(400, { error:'Selecione um registro para salvar.' })
-        if (request.method === 'PATCH' && !validConditionalPatch(body['expected'], value)) return json(400, { error:'Alterações condicionais inválidas.' })
-        let matched = false
-        const result = await reference.transaction(current => {
-          const proposed = request.method === 'PATCH'
-            ? conditionalPatch(current, body['expected'] as Record<string, unknown>, value as Record<string, unknown>)
-            : conditionalValue(path === 'tarefas' ? activeData(path, current) : current, body['expected'], value ?? null)
-          matched = proposed !== undefined
-          // A no-op still checks the server version when the local cache starts empty.
-          return matched ? (path === 'tarefas' ? preserveArchivedTasks(current, proposed) : proposed) : current
-        })
-        if (!result.committed || !matched) return json(409, { error:'Este registro foi alterado por outra pessoa. Recarregue o aplicativo para conferir os dados antes de editar novamente.' })
-      }
-      else if (request.method === 'PUT') {
-        if (path === 'tarefas') await reference.transaction(current => preserveArchivedTasks(current, value))
-        else await reference.set(value ?? null)
-      }
-      else {
-        if (!value || typeof value !== 'object' || Array.isArray(value) || containsPrivateRoot(value)) return json(400, { error:'Atualização inválida.' })
-        if (!path && Object.prototype.hasOwnProperty.call(value, 'tarefas')) {
-          const patch = value as Record<string, unknown>
-          await reference.transaction(current => {
-            const root = current && typeof current === 'object' ? current as Record<string, unknown> : {}
-            const expected = Object.fromEntries(Object.keys(patch).map(key => [key, key.split('/').reduce<unknown>((item, part) => item && typeof item === 'object' ? (item as Record<string, unknown>)[part] : null, root) ?? null]))
-            return conditionalPatch(root, expected, { ...patch, tarefas:preserveArchivedTasks(root['tarefas'], patch['tarefas']) })
-          })
-        } else await reference.update(value as Record<string, unknown>)
-      }
-    }
-    return json(200, { ok:true })
+    const body=request.method==='DELETE'?{}:await objectBody(request),value=body['value']
+    if(!canMutateData(path,request.method,value,session.usuario.apps))return json(403,{error:'Alteração não autorizada.'})
+    if(containsPrivateRoot(value))return json(400,{error:'Atualização contém caminhos privados.'})
+    const hasExpected=Object.prototype.hasOwnProperty.call(body,'expected')
+    if(hasExpected&&!path)return json(400,{error:'Selecione um registro para salvar.'})
+    if(request.method==='PATCH'&&hasExpected&&!validConditionalPatch(body['expected'],value))return json(400,{error:'Alterações condicionais inválidas.'})
+    const entry=activityEntry(session,request.method==='DELETE'?'remover':'alterar',path)
+    let applied=false
+    const result=await database().ref('/').transaction(current=>{
+      if(current===null){applied=false;return null}
+      const next=auditedWrite(current,path,request.method,value,hasExpected,body['expected'],entry)
+      applied=next!==undefined
+      return next
+    },undefined,false)
+    return result.committed&&applied?json(200,{ok:true}):json(409,{error:'O registro mudou, possui vínculos ou o período está publicado. Recarregue e confira antes de editar.'})
   } catch { return json(503, { error:'Operação de dados indisponível.' }) }
 }
+export default (request:Request)=>databaseResponse(request)

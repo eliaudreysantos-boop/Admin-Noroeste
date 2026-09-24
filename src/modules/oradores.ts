@@ -74,7 +74,7 @@ function installEditGuard():void {
   document.addEventListener('click',event=>{
     if (!document.getElementById('oradoresRoot')) return
     const button=(event.target as HTMLElement)?.closest('button')
-    if (!button || !button.matches('[data-workspace-tab], [data-module-index], #btnBack, #btnSair, [id^="cancel"], [id^="new"], [data-edit-speaker], [data-edit-schedule], [data-edit-theme], [data-edit-congregation], [data-edit-event], [data-confirm-schedule], [data-reconfirm-schedule], [data-substitute-date], #clearScheduleFilters, #fillScheduleDates, #oradoresPrev, #oradoresNext')) return
+    if (!button || !button.matches('[data-operations-home], [data-workspace-tab], [data-module-index], #btnBack, #btnSair, [id^="cancel"], [id^="new"], [data-edit-speaker], [data-edit-schedule], [data-edit-theme], [data-edit-congregation], [data-edit-event], [data-confirm-schedule], [data-reconfirm-schedule], [data-substitute-date], #clearScheduleFilters, #fillScheduleDates, #oradoresPrev, #oradoresNext')) return
     if (!allowLeave()) {event.preventDefault();event.stopImmediatePropagation()}
   },{...options,capture:true})
   window.addEventListener('beforeunload',event=>{if(document.getElementById('oradoresRoot')&&(dirty||saving)){event.preventDefault();event.returnValue=''}},options)
@@ -115,6 +115,7 @@ const empty = (message:string): string => `<p class="empty-state">${esc(message)
 const isoNow = (): string => new Date().toISOString()
 
 export default function mount(context: AppContext): void {
+  if(context.overview)selectedMonth=context.overview.month
   appContext=context;themeFilter='available';themeQuery='';dirty=false;saving=false;masterPeople={};rawSpeakers={};taskPeriods={};speakerQuery='';scheduleQuery='';scheduleFilter='';onlyFuture=false;emergencyDate=today();installEditGuard()
   screen='pendencias'; editingId=''; scheduleDraft=null; loadPromise=null; data={}; events={}; planning={}; taskPeople={}
   const host=document.getElementById('appContent'); if (!host) return

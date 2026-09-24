@@ -1,4 +1,6 @@
 import { focusCorrection, fieldHelp } from '../ui/field-guidance'
+import { substitutionDialog } from '../ui/substitution-dialog'
+import { taskSubstitutes } from './substitution-domain'
 import { canonicalTaskPerson } from './central-person'
 import { fortalezaToday, fortalezaCurrentMonth, isValidCivilDate } from './civil-date'
 import { tasksPersonMessage, tasksDayMessage } from './tarefas-messages'
@@ -10,6 +12,7 @@ import { renderWorkspaceNav } from '../ui/workspace-nav'
 import type { AppContext } from '../types'
 import {
   get,
+  compareAndUpdate,
   update,
   tarefasRef,
   agendaConfigRef, child, limpezaPeriodosRef,
@@ -227,7 +230,7 @@ export default function mount(ctx: AppContext): void {
     <div id="tarefasRoot">
       <div id="tarefasNav"></div><div id="tarefasContent"></div>
     </div>`
-  void openTarefasTab('escala')
+  void openTarefasTab(ctx.overview?.pending?'pendencias':'escala')
 }
 
 function ensureLoaded(): Promise<boolean> {
@@ -257,7 +260,8 @@ async function loadTarefas(): Promise<boolean> {
     pessoas = tarefas.people ?? {}
     periods = tarefas.scale?.periods ?? {}
     planning = tarefas.planning ?? {}
-    const savedPeriod = localStorage.getItem(TAREFAS_PERIOD_KEY) ?? planning.editingPeriod ?? planning.scaleStartDate?.slice(0, 7)
+    const savedPeriod = context.overview?.month ?? localStorage.getItem(TAREFAS_PERIOD_KEY) ?? planning.editingPeriod ?? planning.scaleStartDate?.slice(0, 7)
+    delete context.overview
     selectedPeriodMonth = /^\d{4}-\d{2}$/.test(savedPeriod ?? '') ? savedPeriod! : monthNow()
     const savedPeriodMode = localStorage.getItem(TAREFAS_PERIOD_MODE_KEY)
     selectedPeriodMode = savedPeriodMode === 'month' || savedPeriodMode === 'bimester'
@@ -832,10 +836,27 @@ function assignmentEditor(periodId: string, meetingId: string, meeting: TarefasM
       return `<option value="${escapeHtml(id)}" ${id === selected ? 'selected' : ''}>${escapeHtml(pessoaNome(person, id) + suffix)}</option>`
     })
     .join('')
-  return `<label style="display:flex;align-items:center;gap:8px;font-size:.76rem;color:var(--ink-2)"><span style="min-width:86px;font-weight:700">${escapeHtml(roleLabel(role))}</span><select class="form-select tarefas-assignment-select" data-period="${escapeHtml(periodId)}" data-meeting="${escapeHtml(meetingId)}" data-role="${escapeHtml(role)}" data-original="${escapeHtml(selected)}" style="padding:6px 28px 6px 8px;font-size:.78rem" ${locked ? 'disabled' : ''}><option value="">Deixar vazio</option>${options}</select></label>`
+  return `<div><label style="display:flex;align-items:center;gap:8px;font-size:.76rem;color:var(--ink-2)"><span style="min-width:86px;font-weight:700">${escapeHtml(roleLabel(role))}</span><select class="form-select tarefas-assignment-select" data-period="${escapeHtml(periodId)}" data-meeting="${escapeHtml(meetingId)}" data-role="${escapeHtml(role)}" data-original="${escapeHtml(selected)}" style="padding:6px 28px 6px 8px;font-size:.78rem" ${locked ? 'disabled' : ''}><option value="">Deixar vazio</option>${options}</select></label>${locked?'':`<button type="button" class="btn btn-ghost" data-task-substitute data-period="${escapeHtml(periodId)}" data-meeting="${escapeHtml(meetingId)}" data-role="${role}">${selected?'Buscar substituto':'Buscar candidato'}</button>`}</div>`
 }
 
 function bindAssignmentEditors(): void {
+  document.querySelectorAll<HTMLButtonElement>('[data-task-substitute]').forEach(button=>button.addEventListener('click',async()=>{
+    const periodId=button.dataset.period!,meetingId=button.dataset.meeting!,role=button.dataset.role as TaskRole
+    const entry=meetingEntries(periods).find(item=>item.periodId===periodId&&item.meetingId===meetingId)
+    if(!entry||periods[periodId]?.locked)return
+    button.disabled=true
+    try {
+      if(normalizeTaskGenerationRules(planning.engineRules).evitarConflitosOradores)discursos=(await get(tarefasDiscursosRef)).val() as TaskDomainContext['discursos']??{}
+      const original=assignmentForRole(entry.meeting,role)
+      substitutionDialog({title:`${TASK_ROLE_LABELS[role]} · ${formatDate(entry.meeting.date)}`,current:original?pessoaNome(pessoas[original]??{},original):'Vago',candidates:taskSubstitutes(domainContext(),entry,role),save:async id=>{
+        if(normalizeTaskGenerationRules(planning.engineRules).evitarConflitosOradores)discursos=(await get(tarefasDiscursosRef)).val() as TaskDomainContext['discursos']??{}
+        const reason=manualConflictReason(domainContext(),entry,role,id)
+        if(reason)throw new Error(reason)
+        return saveAssignment(periodId,meetingId,role,id)
+      }})
+    }catch{toast('Não foi possível consultar candidatos. Tente novamente.')}
+    finally{button.disabled=false}
+  }))
   document.querySelectorAll<HTMLSelectElement>('.tarefas-assignment-select').forEach(select => {
     select.addEventListener('change', async () => {
       select.disabled = true
@@ -867,15 +888,17 @@ function bindAssignmentEditors(): void {
   })
 }
 
-async function saveAssignment(periodId: string, meetingId: string, role: string, personId: string): Promise<void> {
-  if (!periodId || !meetingId || !role) return
-  if (periods[periodId]?.locked) { toast('Esta escala está travada'); return }
+async function saveAssignment(periodId: string, meetingId: string, role: string, personId: string): Promise<boolean> {
+  if (!periodId || !meetingId || !role) return false
+  if (periods[periodId]?.locked) { toast('Esta escala está travada'); return false }
   const path = `${periodId}/meetings/${meetingId}`
   try {
-    await update(tarefasScaleRef, {
-      [`${path}/assignments/${role}`]: personId || null,
-      [`${path}/manualEdits/${role}`]: personId ? true : null,
-    })
+    const baseline=periods[periodId]?.meetings?.[meetingId]
+    if(!baseline)return false
+    const next=structuredClone(baseline);next.assignments??={};next.manualEdits??={}
+    if(personId){next.assignments[role]=personId;next.manualEdits[role]=true}
+    else {delete next.assignments[role];delete next.manualEdits[role]}
+    await compareAndUpdate(tarefasScaleRef,{[path]:baseline},{[path]:next})
     const meeting = periods[periodId]?.meetings?.[meetingId]
     if (meeting) {
       meeting.assignments = { ...(meeting.assignments ?? {}) }
@@ -887,8 +910,10 @@ async function saveAssignment(periodId: string, meetingId: string, role: string,
     }
     toast('Designação atualizada')
     renderEscala()
+    return true
   } catch {
     toast('Não foi possível salvar a designação')
+    return false
   }
 }
 
