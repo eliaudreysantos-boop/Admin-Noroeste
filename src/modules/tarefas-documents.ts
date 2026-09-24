@@ -79,8 +79,8 @@ export async function createTaskSchedulePdf(meetings: TaskMeeting[], congregatio
   const period = ordered.length ? `${formatTaskDate(ordered[0]?.date)} - ${formatTaskDate(ordered[ordered.length - 1]?.date)}` : 'Sem período'
   let y = drawPublicPdfHeader(page, bold, regular, { title:'Escala de Tarefas', congregation, period, margin:PDF_MARGIN, compact:true })
   const blocks: Array<{ title:string; roles:typeof TASK_ROLES[number][] }> = [
-    { title:'Operadores e microfones', roles:['operador1', 'operador2', 'mic1', 'mic2'] },
-    { title:'Presidente, leitor e recepção', roles:['presidente', 'leitor', 'entrada', 'auditorio'] },
+    { title:'Áudio e Vídeo', roles:['operador1', 'operador2', 'mic1', 'mic2'] },
+    { title:'Presidente, leitor e indicadores', roles:['presidente', 'leitor', 'entrada', 'auditorio'] },
   ]
   const width = A4_PORTRAIT[0] - PDF_MARGIN * 2, dateWidth = 49, cellWidth = (width - dateWidth) / 4
   const prepare = (size: number) => blocks.map(block => ({
