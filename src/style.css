@@ -1036,6 +1036,8 @@ textarea.form-input {
 .agenda-next strong { display: block; color: var(--ink); font-size: 1rem; }
 .agenda-next p { margin-top: 3px; color: var(--ink-2); font-size: .8rem; }
 .agenda-next.empty { border-left-color: var(--border); box-shadow: none; }
+.agenda-sync-meta { color:var(--ink-3); font-size:.7rem; margin:8px 2px 12px; }
+.agenda-event-location { display:block; margin-top:5px; color:var(--ink-2); font-size:.78rem; font-weight:650; }
 .agenda-personal-panel { margin-top: 10px; }
 .agenda-sharing-actions { justify-content: flex-start; margin-top: 14px; }
 .agenda-calendar { overflow: hidden; margin-bottom: 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }

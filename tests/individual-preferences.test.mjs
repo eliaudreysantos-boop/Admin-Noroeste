@@ -26,6 +26,7 @@ test('visualizacao antiga migra para semana e preserva data valida',()=>{
   assert.equal(old.personal.view,'week')
   assert.equal(old.personal.weekDate,'2026-09-24')
   assert.equal(old.general.view,'month')
+  assert.equal(old.personal.selectedDate,'')
 })
 
 test('preferencias ficam isoladas por pessoa e contexto', () => {

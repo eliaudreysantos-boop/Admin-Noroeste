@@ -23,7 +23,7 @@ try {
    if(endpoint==='auth-session')return route.fulfill({json:{uid:'audit',csrf:'a'.repeat(48),usuario:{nome:'Auditoria',ativo:true,masterId:'m',apps:{mestre:true,tarefas:true,oradores:true,escala:true,limpeza:true,servicoCampo:true,individual:true}}}})
    if(endpoint==='auth-users')return route.fulfill({json:{}})
    if(endpoint==='module-publication')return route.fulfill({json:{hash:'test',document:null}})
-   if(endpoint==='agenda-data')return route.fulfill({json:{masterId:'m',person:master.m,events:[],announcements:[],agenda:{},completedSources:['tarefas','oradores','limpeza','escala','servicoCampo','quadro'],failedSources:[]}})
+   if(endpoint==='agenda-data')return route.fulfill({json:{masterId:'m',person:master.m,events:[{id:'teste-proximo',source:'tarefas',date:'2026-10-04',time:'10:00',title:'Leitura',detail:'Reunião',location:'Salão',status:'futuro'}],announcements:[],agenda:{},completedSources:['tarefas','oradores','limpeza','escala','servicoCampo','quadro'],failedSources:[]}})
    if(request.method()!=='GET'){writes.push(endpoint);return route.fulfill({json:{ok:true}})}
    const paths=JSON.parse(url.searchParams.get('paths')||'[]')
    return route.fulfill({json:paths.length?{results:paths.map(path=>({value:read(path)}))}:{value:read(url.searchParams.get('path')||'')}})
@@ -70,7 +70,20 @@ try {
     await page.locator('.service-assignment summary').click()
     assert.equal(await page.locator('[data-service-leader]').isVisible(),true)
    }
-   if(module==='individual')await page.getByText(/Última sincronização:/).waitFor()
+   if(module==='individual'){
+    await page.getByText(/Última sincronização:/).waitFor()
+    assert.equal(await page.locator('.agenda-next').count(),1)
+    await page.locator('[data-personal-view="month"]').click()
+    await page.locator('[data-personal-date="2026-10-04"]').click()
+    assert.match(await page.locator('.agenda-selected-day').innerText(),/04\/10\/2026/)
+    assert.equal(await page.locator('[data-personal-date="2026-10-04"]').getAttribute('aria-pressed'),'true')
+    assert.equal(await page.locator('.agenda-next').count(),0)
+    assert.match(await page.locator('.agenda-event-location').innerText(),/Salão/)
+    assert.equal(await page.locator('.agenda-personal-panel').filter({has:page.locator('summary').getByText('Mais opções')}).count(),1)
+    await page.locator('[data-agenda-screen="quadro"]').click()
+    assert.equal(await page.locator('[data-agenda-panel="moduleDocuments"]').getAttribute('open'),'')
+    await page.locator('[data-agenda-screen="agenda"]').click()
+   }
    await overflow(module)
    if(width===390)await page.screenshot({path:new URL('../output/layout-mobile/'+module+'-390.png',import.meta.url).pathname.replace(/^\/([A-Z]:)/i,'$1'),fullPage:true})
   }

@@ -13,6 +13,7 @@ export interface AgendaUiPreferences {
     month: string
     view: PersonalView
     weekDate: string
+    selectedDate: string
     openPanels: PersonalPanel[]
   }
   general: {
@@ -43,9 +44,9 @@ export function defaultAgendaUiPreferences(currentMonth: string): AgendaUiPrefer
   const safeMonth = monthValue(currentMonth, fortalezaCurrentMonth())
   return {
     screen:'agenda',
-    personal:{ month:safeMonth, view:'week', weekDate:'', openPanels:[] },
+    personal:{ month:safeMonth, view:'week', weekDate:'', selectedDate:'', openPanels:[] },
     general:{ month:safeMonth, selectedDate:'', view:'week' },
-    board:{ meetingDate:'', documentPeriod:safeMonth, openPanels:['meetings'] },
+    board:{ meetingDate:'', documentPeriod:safeMonth, openPanels:['moduleDocuments'] },
     updatedAt:0,
   }
 }
@@ -61,6 +62,7 @@ export function parseAgendaUiPreferences(raw: string | null, currentMonth: strin
         month:monthValue(personal['month'], fallback.personal.month),
         view:oneOf(personal['view'], PERSONAL_VIEWS, fallback.personal.view),
         weekDate:dateValue(personal['weekDate']),
+        selectedDate:dateValue(personal['selectedDate']),
         openPanels:stringList(personal['openPanels'], PERSONAL_PANELS),
       },
       general:{

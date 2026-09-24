@@ -18,6 +18,7 @@ let syncGeneration=0
 let screen: 'agenda' | 'geral' | 'quadro' = 'agenda'
 let generalSelectedDate = ''
 let personalWeekDate = fortalezaToday()
+let personalSelectedDate = fortalezaToday()
 let boardDocumentPeriod = month
 let boardMeetingDate = ''
 let uiPreferences = defaultAgendaUiPreferences(month)
@@ -109,14 +110,14 @@ function historyPanel():string {
 
 function captureUiPreferences(): void {
   uiPreferences.screen = screen
-  if (screen === 'agenda') Object.assign(uiPreferences.personal, { month, weekDate:personalWeekDate })
+  if (screen === 'agenda') Object.assign(uiPreferences.personal, { month, weekDate:personalWeekDate, selectedDate:personalSelectedDate })
   if (screen === 'geral') Object.assign(uiPreferences.general, { month, selectedDate:generalSelectedDate })
   Object.assign(uiPreferences.board, { meetingDate:boardMeetingDate, documentPeriod:boardDocumentPeriod })
 }
 
 function applyScreenPreferences(nextScreen: AgendaScreen): void {
   screen = nextScreen
-  if (screen === 'agenda') { month = uiPreferences.personal.month; personalWeekDate = uiPreferences.personal.weekDate || fortalezaDate() }
+  if (screen === 'agenda') { month = uiPreferences.personal.month; personalWeekDate = uiPreferences.personal.weekDate || fortalezaDate(); personalSelectedDate = uiPreferences.personal.selectedDate || fortalezaDate() }
   if (screen === 'geral') { month = uiPreferences.general.month; generalSelectedDate = uiPreferences.general.selectedDate }
 }
 
@@ -246,16 +247,21 @@ function screenTabs(): string { return `<div class="program-period-modes agenda-
 function bindScreenTabs(): void { document.querySelectorAll<HTMLButtonElement>('[data-agenda-screen]').forEach(button => button.addEventListener('click', () => { captureUiPreferences(); uiPreferences.screen = button.dataset['agendaScreen'] as AgendaScreen; applyScreenPreferences(uiPreferences.screen); persistUiPreferences(); render(); document.getElementById('individualRoot')?.scrollIntoView({ block:'start' }) })) }
 
 function statusLabel(status: AgendaStatus): string {
-  return ({ futuro:'Futuro', 'confirmacao-pendente':'Confirmar', alterado:'Alterado', realizado:'Realizado' })[status]
+  return ({ futuro:'Futuro', 'confirmacao-pendente':'Confirmação pendente', alterado:'Alterado', realizado:'Realizado' })[status]
+}
+
+function friendlyDate(date:string):string {
+  const weekday=new Intl.DateTimeFormat('pt-BR',{weekday:'long',timeZone:'UTC'}).format(new Date(`${date}T12:00:00Z`))
+  return `${weekday.charAt(0).toUpperCase()+weekday.slice(1)}, ${labelDate(date)}`
 }
 
 function eventRows(events: AgendaEvent[], showDate = true): string {
-  return events.map(event => `<article class="agenda-event"><time>${showDate ? esc(labelDate(event.date)) : ''}${event.time ? `${showDate ? ' · ' : ''}${esc(event.time)}` : !showDate ? 'Dia inteiro' : ''}</time><div><strong>${esc(event.title)}</strong><small><span class="agenda-source ${event.source}">${esc(sourceLabels[event.source])}</span> · ${esc(event.detail)}${event.location ? ` · ${esc(event.location)}` : ''}</small>${event.note ? `<p>${esc(event.note)}</p>` : ''}</div><span class="agenda-status ${event.status}">${esc(statusLabel(event.status))}</span></article>`).join('')
+  return events.map(event => `<article class="agenda-event"><time>${showDate ? esc(friendlyDate(event.date)) : ''}${event.time ? `${showDate ? ' · ' : ''}${esc(event.time)}` : !showDate ? 'Dia inteiro' : ''}</time><div><strong>${esc(event.title)}</strong><small><span class="agenda-source ${event.source}">${esc(sourceLabels[event.source])}</span> · ${esc(event.detail)}</small>${event.location ? `<span class="agenda-event-location">Local: ${esc(event.location)}</span>` : ''}${event.note ? `<p>${esc(event.note)}</p>` : ''}</div><span class="agenda-status ${event.status}">${esc(statusLabel(event.status))}</span></article>`).join('')
 }
 
 function nextCommitment(event?: AgendaEvent): string {
   if (!event) return '<section class="agenda-next empty"><span>Próximo compromisso</span><strong>Nenhuma designação futura</strong></section>'
-  return `<section class="agenda-next"><span>Próximo compromisso</span><div><time>${esc(labelDate(event.date))}${event.time ? ` · ${esc(event.time)}` : ''}</time><span class="agenda-source ${event.source}">${esc(sourceLabels[event.source])}</span></div><strong>${esc(event.title)}</strong><p>${esc(event.detail)}${event.location ? ` · ${esc(event.location)}` : ''}</p></section>`
+  return `<section class="agenda-next"><span>Próximo compromisso</span><div><time>${esc(friendlyDate(event.date))}${event.time ? ` · ${esc(event.time)}` : ''}</time><span class="agenda-source ${event.source}">${esc(sourceLabels[event.source])}</span></div><strong>${esc(event.title)}</strong><p>${esc(event.detail)}</p>${event.location ? `<p>Local: ${esc(event.location)}</p>` : ''}</section>`
 }
 
 function weekStart(date: string): string {
@@ -283,14 +289,21 @@ function render(): void {
   const byDay = new Map<number, AgendaEvent[]>(); events.forEach(event => { const day = Number(event.date.slice(-2)); byDay.set(day, [...(byDay.get(day) ?? []), event]) })
   const calendar = [...Array(firstDow).fill(''), ...Array.from({ length:totalDays }, (_, index) => String(index + 1))]
   const week = weekDates(personalWeekDate)
-  const listEvents = uiPreferences.personal.view === 'week' ? personalEvents().filter(event => week.includes(event.date)).sort((a,b) => `${a.date} ${a.time ?? ''}`.localeCompare(`${b.date} ${b.time ?? ''}`)) : events
+  if (uiPreferences.personal.view === 'month' && !personalSelectedDate.startsWith(month)) personalSelectedDate = `${month}-01`
+  const listEvents = (uiPreferences.personal.view === 'week' ? personalEvents().filter(event => week.includes(event.date)) : events.filter(event => event.date === personalSelectedDate)).sort((a,b) => `${a.date} ${a.time ?? ''}`.localeCompare(`${b.date} ${b.time ?? ''}`))
+  const nextOutsideView = future[0] && !listEvents.some(event => event.id === future[0]?.id)
+  const lastSync = lastSuccessfulSync ? new Intl.DateTimeFormat('pt-BR',{dateStyle:'short',timeStyle:'short',timeZone:'America/Fortaleza'}).format(lastSuccessfulSync) : ''
+  const syncStale = !loadingAssignments && (!lastSuccessfulSync || Date.now()-lastSuccessfulSync > DAILY_SYNC_MS)
   root.innerHTML = `${moduleTitle('Minha agenda')}${screenTabs()}${loadingAssignments ? '<div class="notice">Atualizando designações dos módulos...</div>' : ''}${adminPersonPicker()}
-    <span class="admin-badge">${loadingAssignments ? 'Sincronizando' : lastSuccessfulSync ? 'Última sincronização: '+esc(new Intl.DateTimeFormat('pt-BR',{dateStyle:'short',timeStyle:'short',timeZone:'America/Fortaleza'}).format(lastSuccessfulSync)) : 'Sincronização ainda não concluída'}</span>${nextCommitment(future[0])}
+    ${syncStale ? `<div class="notice warning">Dados possivelmente desatualizados. ${lastSync ? `Última sincronização: ${esc(lastSync)}.` : 'Sincronização ainda não concluída.'}</div>` : ''}
+    ${nextOutsideView ? nextCommitment(future[0]) : ''}
     <div class="program-period-modes agenda-view-modes" role="tablist" aria-label="Visualização dos compromissos"><button class="program-period-mode" role="tab" type="button" data-personal-view="week" aria-selected="${uiPreferences.personal.view === 'week'}">Semana</button><button class="program-period-mode" role="tab" type="button" data-personal-view="month" aria-selected="${uiPreferences.personal.view === 'month'}">Mês</button></div>
     ${uiPreferences.personal.view === 'week' ? weekNavigation(personalWeekDate, 'personal') : ''}
-    <div class="agenda-list">${eventRows(listEvents) || `<p class="empty-state">${uiPreferences.personal.view === 'week' ? 'Nenhuma designação nesta semana.' : 'Nenhuma designação neste mês.'}</p>`}</div>
-    <details class="form-panel agenda-board-card agenda-personal-panel" data-agenda-panel="calendar" ${uiPreferences.personal.openPanels.includes('calendar') ? 'open' : ''}><summary><strong>Calendário mensal</strong><span>${esc(month)}</span></summary><div class="agenda-board-body"><div class="agenda-toolbar"><button class="btn btn-ghost" id="agendaPrev" type="button" aria-label="Mês anterior">‹</button><label class="sr-only" for="agendaMonth">Mês do calendário pessoal</label><input class="form-input" id="agendaMonth" type="month" value="${month}"><button class="btn btn-ghost" id="agendaNext" type="button" aria-label="Próximo mês">›</button></div><div class="agenda-calendar"><div class="agenda-weekdays">${['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'].map(day => `<strong>${day}</strong>`).join('')}</div><div class="agenda-days">${calendar.map(day => day ? `<div class="agenda-day ${byDay.has(Number(day)) ? 'has-events' : ''}"><span>${day}</span>${(byDay.get(Number(day)) ?? []).slice(0, 3).map(event => `<i class="${event.source}" aria-hidden="true"></i>`).join('')}</div>` : '<div class="agenda-day empty"></div>').join('')}</div></div></div></details>
-    ${calendarExportPanel()}${historyPanel()}`
+    ${uiPreferences.personal.view === 'month' ? `<div class="agenda-toolbar"><button class="btn btn-ghost" id="agendaPrev" type="button" aria-label="Mês anterior">‹</button><label class="sr-only" for="agendaMonth">Mês do calendário pessoal</label><input class="form-input" id="agendaMonth" type="month" value="${month}"><button class="btn btn-ghost" id="agendaNext" type="button" aria-label="Próximo mês">›</button></div><div class="agenda-calendar"><div class="agenda-weekdays">${['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'].map(day => `<strong>${day}</strong>`).join('')}</div><div class="agenda-days">${calendar.map(day => {if(!day)return '<div class="agenda-day empty"></div>';const date=`${month}-${day.padStart(2,'0')}`,dayEvents=byDay.get(Number(day))??[];return `<button class="agenda-day agenda-day-button ${dayEvents.length?'has-events':''} ${personalSelectedDate===date?'selected':''}" type="button" data-personal-date="${date}" aria-pressed="${personalSelectedDate===date}" aria-label="${esc(`${friendlyDate(date)}: ${dayEvents.length} compromisso(s)`)}"><span>${day}</span><span class="agenda-day-markers" aria-hidden="true">${dayEvents.slice(0,3).map(event=>`<i class="${event.source}"></i>`).join('')}</span></button>`}).join('')}</div></div>` : ''}
+    ${uiPreferences.personal.view === 'month' ? `<div class="agenda-selected-day"><strong>${esc(friendlyDate(personalSelectedDate))}</strong><span>${listEvents.length} item(ns)</span></div>` : ''}
+    <div class="agenda-list">${eventRows(listEvents) || `<p class="empty-state">${uiPreferences.personal.view === 'week' ? 'Nenhuma designação nesta semana.' : 'Nenhuma designação nesta data.'}</p>`}</div>
+    <p class="agenda-sync-meta">${loadingAssignments ? 'Sincronizando…' : lastSync ? `Última sincronização: ${esc(lastSync)}` : 'Ainda não sincronizado'}</p>
+    <details class="form-panel agenda-board-card agenda-personal-panel"><summary><strong>Mais opções</strong><span>Calendário, compartilhamento e histórico</span></summary><div class="agenda-board-body">${calendarExportPanel()}${historyPanel()}</div></details>`
   bind()
 }
 
@@ -314,6 +327,7 @@ function bind(): void {
   document.getElementById('agendaPrev')?.addEventListener('click', () => moveMonth(-1))
   document.getElementById('agendaNext')?.addEventListener('click', () => moveMonth(1))
   document.getElementById('agendaMonth')?.addEventListener('change', event => { month = (event.target as HTMLInputElement).value || month; persistUiPreferences(); render() })
+  document.querySelectorAll<HTMLButtonElement>('[data-personal-date]').forEach(button=>button.addEventListener('click',()=>{personalSelectedDate=button.dataset['personalDate']??personalSelectedDate;persistUiPreferences();render()}))
   document.querySelectorAll<HTMLButtonElement>('[data-personal-view]').forEach(button => button.addEventListener('click', () => { uiPreferences.personal.view = button.dataset['personalView'] === 'month' ? 'month' : 'week'; persistUiPreferences(); render() }))
   bindWeekNavigation('personal')
   document.getElementById('agendaIcsMonth')?.addEventListener('click', () => downloadIcs(monthEvents(), `minha-agenda-${month}.ics`, 'Nenhuma designação disponível neste mês.'))
@@ -372,8 +386,8 @@ function renderBoard(root: HTMLElement): void {
   const meetingSummary = selectedMeeting ? `${labelDate(selectedMeeting.date)} · ${selectedMeeting.kind === 'midweek' ? 'Meio de semana' : 'Fim de semana'}` : 'Nenhuma reunião futura'
   root.innerHTML = `${moduleTitle('Minha agenda')}${screenTabs()}${loadingAssignments ? '<div class="notice">Atualizando designações dos módulos...</div>' : ''}
     <div class="agenda-board-sections">
-      <details class="form-panel agenda-board-card" data-agenda-panel="meetings" ${uiPreferences.board.openPanels.includes('meetings') ? 'open' : ''}><summary><strong>Dados das reuniões</strong><span>${esc(meetingSummary)}</span></summary><div class="agenda-board-body"><label class="form-field"><span>Reunião</span><select id="boardMeetingDate">${meetingDates.map(item => `<option value="${esc(item.date)}" ${item.date === boardMeetingDate ? 'selected' : ''}>${esc(labelDate(item.date))} · ${item.kind === 'midweek' ? 'Meio de semana' : 'Fim de semana'}</option>`).join('') || '<option value="">Nenhuma reunião futura</option>'}</select></label><textarea id="boardInlineDraft" class="form-input" rows="12" maxlength="4000">${esc(boardMeetingMessage(meetingEvents, selectedMeeting))}</textarea><div class="agenda-actions"><button class="btn btn-ghost" id="boardInlineCopy" type="button">Copiar texto</button>${hasCleaning ? '<button class="btn btn-ghost" id="boardCleaningCopy" type="button">Copiar limpeza</button>' : ''}</div></div></details>
-      <details class="form-panel agenda-board-card" data-agenda-panel="moduleDocuments" ${uiPreferences.board.openPanels.includes('moduleDocuments') ? 'open' : ''}><summary><strong>PDFs dos módulos</strong><span>${Object.keys(visibleDocuments.modules).length} de ${PUBLIC_PDF_MODULES.length}</span></summary><div class="agenda-board-body"><label class="form-field"><span>Período</span><select id="boardDocumentPeriod">${periods.map(period => `<option value="${esc(period)}" ${period === boardDocumentPeriod ? 'selected' : ''}>${esc(formatDocumentMonth(period))}</option>`).join('') || `<option value="${esc(boardDocumentPeriod)}">${esc(formatDocumentMonth(boardDocumentPeriod))}</option>`}</select></label><div class="agenda-module-downloads">${PUBLIC_PDF_MODULES.map(module => moduleDownloadRow(module, visibleDocuments.modules[module])).join('')}</div></div></details>
+      <details class="form-panel agenda-board-card" data-agenda-panel="meetings" ${uiPreferences.board.openPanels.includes('meetings') ? 'open' : ''}><summary><strong>Texto da reunião</strong><span>${esc(meetingSummary)}</span></summary><div class="agenda-board-body"><label class="form-field"><span>Reunião</span><select id="boardMeetingDate">${meetingDates.map(item => `<option value="${esc(item.date)}" ${item.date === boardMeetingDate ? 'selected' : ''}>${esc(labelDate(item.date))} · ${item.kind === 'midweek' ? 'Meio de semana' : 'Fim de semana'}</option>`).join('') || '<option value="">Nenhuma reunião futura</option>'}</select></label><textarea id="boardInlineDraft" class="form-input" rows="8" maxlength="4000" aria-label="Texto da reunião para copiar">${esc(boardMeetingMessage(meetingEvents, selectedMeeting))}</textarea><div class="agenda-actions"><button class="btn btn-ghost" id="boardInlineCopy" type="button">Copiar texto</button>${hasCleaning ? '<button class="btn btn-ghost" id="boardCleaningCopy" type="button">Copiar limpeza</button>' : ''}</div></div></details>
+      <details class="form-panel agenda-board-card" data-agenda-panel="moduleDocuments" ${uiPreferences.board.openPanels.includes('moduleDocuments') ? 'open' : ''}><summary><strong>PDFs dos módulos</strong><span>${Object.keys(visibleDocuments.modules).length} publicado(s)</span></summary><div class="agenda-board-body"><label class="form-field"><span>Período</span><select id="boardDocumentPeriod">${periods.map(period => `<option value="${esc(period)}" ${period === boardDocumentPeriod ? 'selected' : ''}>${esc(formatDocumentMonth(period))}</option>`).join('') || `<option value="${esc(boardDocumentPeriod)}">${esc(formatDocumentMonth(boardDocumentPeriod))}</option>`}</select></label><div class="agenda-module-downloads">${PUBLIC_PDF_MODULES.filter(module=>visibleDocuments.modules[module]).map(module => moduleDownloadRow(module, visibleDocuments.modules[module])).join('') || '<p class="empty-state">Nenhum PDF publicado neste período.</p>'}</div></div></details>
       <details class="form-panel agenda-board-card" data-agenda-panel="adminDocuments" ${uiPreferences.board.openPanels.includes('adminDocuments') ? 'open' : ''}><summary><strong>Documentos do Admin</strong><span>${visibleDocuments.admin.length}</span></summary><div class="agenda-board-body"><div class="agenda-document-list">${visibleDocuments.admin.map(item => `<a class="agenda-document" href="${esc(item.url)}" target="_blank" rel="noopener noreferrer" download><span><strong>${esc(item.nome)}</strong><small>Publicado em ${esc(labelDate(item.criadoEm.slice(0, 10)))}</small></span><b>Baixar</b></a>`).join('') || '<p class="empty-state">Nenhum documento do Admin neste período.</p>'}</div></div></details>
     </div>`
   const sections = root.querySelector('.agenda-board-sections')!
