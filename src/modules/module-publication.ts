@@ -6,7 +6,7 @@ import type { AgendaPublicDocument } from '../types.ts'
 export async function renderPublicationStatus(host:HTMLElement|null,module:PublicPdfModule,periodId:string):Promise<void> {
   if(!host)return
   host.querySelector('[data-publication-state]')?.remove()
-  const label=document.createElement('p');label.className='notice';label.dataset.publicationState='';label.setAttribute('aria-live','polite');label.textContent='Consultando publicação…';host.append(label)
+  const label=document.createElement('p');label.className='notice';label.dataset.publicationState='';label.setAttribute('aria-live','polite');label.textContent='Consultando publicação…';const period=host.querySelector('.task-period-toolbar .module-form-grid,.agenda-toolbar,.module-form-grid');if(period)period.after(label);else host.prepend(label)
   try {
     const response=await apiJson<{hash:string;document:AgendaPublicDocument|null}>('module-publication',{method:'POST',body:JSON.stringify({action:'status',module,periodId})})
     if(!label.isConnected)return

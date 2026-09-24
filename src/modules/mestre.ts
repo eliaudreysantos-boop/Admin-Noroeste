@@ -414,7 +414,7 @@ function renderVinculos(): void {
     try {
       const rows=await auditIntegrations(auditRoot)
       if(!panel.isConnected)return
-      panel.innerHTML='<h3>Integração dos módulos</h3><p>'+rows.length+' ponto(s) para conferir</p>'+rows.map(item=>'<article class="notice"><strong>'+escapeHtml(item.module)+' · '+escapeHtml(item.id)+'</strong><p>'+escapeHtml(item.detail)+'</p><button type="button" class="btn btn-ghost" data-audit-module="'+item.module+'">Abrir módulo</button></article>').join('')
+      panel.innerHTML='<h3>Integração dos módulos</h3><p>'+rows.length+' ponto(s) para conferir</p>'+[...new Set(rows.map(item=>item.module))].map(module=>'<details><summary>'+escapeHtml(module)+' · '+rows.filter(item=>item.module===module).length+' ponto(s)</summary>'+rows.filter(item=>item.module===module).map(item=>'<article class="notice"><strong>'+escapeHtml(item.id)+'</strong><p>'+escapeHtml(item.detail)+'</p></article>').join('')+'<button type="button" class="btn btn-ghost" data-audit-module="'+module+'">Abrir módulo</button></details>').join('')
       panel.querySelectorAll<HTMLButtonElement>('[data-audit-module]').forEach(button=>button.addEventListener('click',()=>void navigateTo(button.dataset.auditModule as ModuleName)))
     }catch{panel.textContent='Não foi possível concluir a auditoria. Use Atualizar para tentar novamente.'}
   })
@@ -631,9 +631,9 @@ function renderPessoas(): void {
 
   mc.innerHTML = `
     <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
-      <input id="pFiltroNome" class="form-input" placeholder="Buscar nome…"
+      <input id="pFiltroNome" aria-label="Buscar pessoa pelo nome" class="form-input" placeholder="Buscar nome…"
         value="${escapeHtml(pessoaFilter.nome)}" style="flex:2;min-width:120px">
-      <select id="pFiltroRole" class="form-select" style="flex:2;min-width:120px">
+      <details class="people-filters" ${pessoaFilter.role || pessoaFilter.sex || pessoaFilter.ativo !== 'true' ? 'open' : ''}><summary>Filtros de pessoas</summary><div class="people-filter-fields"><select id="pFiltroRole" aria-label="Função" class="form-select" style="flex:2;min-width:120px">
         <option value="">Todas funções</option>
         <option value="anciao">Ancião</option>
         <option value="servo-ministerial">Servo ministerial</option>
@@ -641,16 +641,16 @@ function renderPessoas(): void {
         <option value="batizado">Batizado</option>
         <option value="publicador">Publicador</option>
       </select>
-      <select id="pFiltroSex" class="form-select" style="flex:1;min-width:90px">
+      <select id="pFiltroSex" aria-label="Sexo" class="form-select" style="flex:1;min-width:90px">
         <option value="">M + F</option>
         <option value="M">Irmãos</option>
         <option value="F">Irmãs</option>
       </select>
-      <select id="pFiltroAtivo" class="form-select" style="flex:1;min-width:90px">
+      <select id="pFiltroAtivo" aria-label="Situação da pessoa" class="form-select" style="flex:1;min-width:90px">
         <option value="true">Ativos</option>
         <option value="false">Inativos</option>
         <option value="">Todos</option>
-      </select>
+      </select></div></details>
     </div>
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
       <span style="font-size:.8rem;color:var(--ink-3)">
@@ -800,11 +800,16 @@ function openPessoaModal(mid: string | null): void {
     pairing.className='form-panel'
     const button=document.createElement('button');button.type='button';button.className='btn btn-ghost';button.textContent='Gerar código para Minha Agenda'
     const result=document.createElement('p');result.className='form-help';result.setAttribute('aria-live','polite')
-    pairing.append(button,result);overlay.querySelector('.modal')!.append(pairing)
+    const heading=document.createElement('h3');heading.textContent='Acesso à Minha Agenda'
+    const copy=document.createElement('button');copy.type='button';copy.className='btn btn-ghost';copy.textContent='Copiar código';copy.hidden=true
+    let pairingCode=''
+    copy.addEventListener('click',async()=>{try{await navigator.clipboard.writeText(pairingCode);copy.textContent='Código copiado'}catch{result.textContent+=' Não foi possível copiar. Selecione o código e copie manualmente.'}})
+    pairing.append(heading,button,result,copy);overlay.querySelector('.modal')!.append(pairing)
     button.addEventListener('click',async()=>{
       button.disabled=true
       try {
         const response=await apiJson<{code:string;name:string}>('agenda-pairing',{method:'POST',body:JSON.stringify({masterId:mid})})
+        pairingCode=response.code;copy.hidden=false;copy.textContent='Copiar código'
         result.textContent=`${response.name}: ${response.code.match(/.{1,4}/g)!.join('-')} — válido por 10 minutos, uso único. Digite este código na Minha Agenda do aparelho.`
       } catch { result.textContent='Não foi possível gerar o código. Tente novamente.' }
       finally { button.disabled=false }

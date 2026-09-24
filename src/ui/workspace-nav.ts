@@ -6,6 +6,8 @@ export function renderWorkspaceNav(host: HTMLElement, title: string, home: strin
   host.innerHTML = `<div class="workspace-heading"><h1>${title}</h1></div>
     <nav class="workspace-tabs" aria-label="${title}" data-workspace-home="${home}" data-workspace-active="${active}">${tabs.map(tab => button(tab, tab === current)).join('')}</nav>
     ${current?.children ? `<nav class="workspace-subtabs" aria-label="${current.label}">${current.children.map(tab => button(tab, tab.id === active)).join('')}</nav>` : ''}`
+  const activeButton=host.querySelector<HTMLElement>('.workspace-tabs [aria-current="page"]')
+  if(activeButton){const nav=activeButton.parentElement!;nav.scrollLeft=Math.max(0,activeButton.offsetLeft-nav.offsetLeft-12)}
   host.querySelectorAll<HTMLButtonElement>('[data-workspace-tab]').forEach(button => {
     button.addEventListener('click', () => select(button.dataset.workspaceTab!))
   })

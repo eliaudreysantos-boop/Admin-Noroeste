@@ -4,6 +4,7 @@ export function takeMasterCorrection():string|null {const id=masterCorrection;ma
 /** Reveal nested disclosures and focus the visible correction control. Never edits data. */
 export function focusCorrection(target:HTMLElement|null):void {
   if(!target)return
+  target.dispatchEvent(new CustomEvent('reveal-correction',{bubbles:true}))
   for(let parent=target.parentElement;parent;parent=parent.parentElement)if(parent instanceof HTMLDetailsElement)parent.open=true
   document.querySelectorAll('.correction-target').forEach(element=>element.classList.remove('correction-target'))
   target.classList.add('correction-target')

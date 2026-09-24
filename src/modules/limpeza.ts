@@ -175,12 +175,21 @@ function renderContent(): void {
   if (!content) return
   content.innerHTML = `${renderSectionTitle('Limpeza', '')}
     <div id="cleaningGuidance"></div>
-    <div id="cleaningPdf"></div>
+    <nav class="workspace-tabs" aria-label="Limpeza" data-workspace-home="escala" data-workspace-active="escala"><button type="button" data-cleaning-tab="escala" data-workspace-tab="escala" aria-current="page">Escala</button><button type="button" data-cleaning-tab="grupos" data-workspace-tab="grupos" aria-current="false">Grupos</button><button type="button" data-cleaning-tab="config" data-workspace-tab="config" aria-current="false">Configurações</button></nav>
+    <section data-cleaning-panel="escala"><div id="cleaningPdf"></div>
     <div id="cleaningSchedule"></div>
-    <details><summary>Gerar escala</summary><div id="cleaningGenerate"></div></details>
-    <details><summary>Configurações de Limpeza</summary><p class="form-help">Cadastros e regras. A escala do período permanece acima.</p><details><summary>Grupos e participantes</summary><div id="cleaningGroups"></div></details>
+    <details ${selectedPeriodId ? '' : 'open'}><summary>Gerar escala</summary><div id="cleaningGenerate"></div></details>
+    </section><section data-cleaning-panel="grupos" hidden><h3>Grupos e participantes</h3><div id="cleaningGroups"></div></section>
+    <section data-cleaning-panel="config" hidden><h3>Configurações de Limpeza</h3><p class="form-help">Cadastros e regras. Alterar configurações não substitui a escala já gerada.</p>
     <details><summary>Rotação e responsáveis</summary><div id="cleaningConfig"></div></details>
-    <div id="cleaningMessageSettings"></div></details>`
+    <div id="cleaningMessageSettings"></div></section>`
+  const selectPanel=(id:string):void=>{
+    content.querySelector<HTMLElement>('[data-workspace-home]')!.dataset.workspaceActive=id
+    content.querySelectorAll<HTMLElement>('[data-cleaning-panel]').forEach(panel=>panel.hidden=panel.dataset.cleaningPanel!==id)
+    content.querySelectorAll<HTMLElement>('[data-cleaning-tab]').forEach(button=>button.setAttribute('aria-current',button.dataset.cleaningTab===id?'page':'false'))
+  }
+  content.querySelectorAll<HTMLButtonElement>('[data-cleaning-tab]').forEach(button=>button.addEventListener('click',()=>selectPanel(button.dataset.cleaningTab!)))
+  content.querySelectorAll<HTMLElement>('[data-cleaning-panel]').forEach(panel=>panel.addEventListener('reveal-correction',()=>selectPanel(panel.dataset.cleaningPanel!)))
   renderEscala()
   renderPdf()
   renderGrupos()
@@ -541,8 +550,8 @@ function renderPdf(): void {
       <label class="form-field"><span>Escala gerada</span><select id="pdfLimpezaPeriodo" class="form-select" ${Object.keys(periodos).length ? '' : 'disabled'}>${generatedPeriodOptions() || '<option>Nenhuma escala gerada</option>'}</select></label>
       <details><summary>Ajustar PDF</summary><label class="form-field"><span>Fonte base: <strong id="pdfLimpezaFonteValor">${fontSize} pt</strong></span><input id="pdfLimpezaFonte" type="range" min="8" max="22" value="${fontSize}"></label></details>
       <span class="admin-badge">${period?.publicado ? 'Publicado' : 'Rascunho'}</span>
-      <button id="btnGerarPdfLimpeza" class="btn btn-primary btn-full" type="button" ${period ? '' : 'disabled'}>Baixar PDF</button>
-      <button id="btnPublicarPdfLimpeza" class="btn btn-ghost btn-full" style="margin-top:8px" type="button" ${period ? '' : 'disabled'}>${period?.publicado ? 'Reabrir para edição' : 'Publicar no Quadro'}</button>
+      <button id="btnGerarPdfLimpeza" class="btn btn-ghost btn-full" type="button" ${period ? '' : 'disabled'}>Baixar PDF</button>
+      <button id="btnPublicarPdfLimpeza" class="btn ${period?.publicado ? 'btn-ghost' : 'btn-primary'} btn-full" style="margin-top:8px" type="button" ${period ? '' : 'disabled'}>${period?.publicado ? 'Reabrir para edição' : 'Publicar no Quadro'}</button>
     </div>`
   const schedule = document.getElementById('cleaningSchedule')
   if (schedule) schedule.innerHTML = period ? renderPeriodRows(period) : '<p class="empty-state">Nenhuma escala gerada.</p>'

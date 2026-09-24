@@ -352,9 +352,9 @@ function renderEscala(): void {
         <div class="form-group" style="margin:0"><label class="form-label" for="tarefasPeriodMonth">Período</label><input id="tarefasPeriodMonth" class="form-input" type="month" value="${escapeHtml(selectedPeriodMonth)}"></div>
       </div>
       <div class="scale-actions" style="margin-top:8px">
-        <button id="btnGenerateScale" class="btn btn-primary" type="button" ${locked ? 'disabled' : ''}>Gerar escala · ${activeRules} regras</button>
+        <button id="btnGenerateScale" class="btn ${allPeriodMeetings.length ? 'btn-ghost' : 'btn-primary'}" type="button" ${locked ? 'disabled' : ''}>Gerar escala · ${activeRules} regras</button>
         <button id="btnTarefasPdf" class="btn btn-ghost" type="button">Baixar PDF</button>
-        <button id="btnToggleTaskLock" class="btn btn-ghost" type="button" ${allPeriodMeetings.length ? '' : 'disabled'}>${locked ? 'Reabrir para edição' : 'Publicar no Quadro'}</button>
+        <button id="btnToggleTaskLock" class="btn ${locked ? 'btn-ghost' : 'btn-primary'}" type="button" ${allPeriodMeetings.length ? '' : 'disabled'}>${locked ? 'Reabrir para edição' : 'Publicar no Quadro'}</button>
         <details><summary>Mais opções</summary><button id="btnClearTaskScale" class="btn btn-danger" type="button" ${locked || !allPeriodMeetings.length ? 'disabled' : ''}>Limpar escala</button></details>
       </div>
       <details style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border)">
@@ -436,6 +436,7 @@ function renderEscala(): void {
     renderEscala()
   })
   fieldHelp(content,'#tarefasPeriodMode','Mensal mostra um mês; bimestral reúne dois meses. A troca não apaga escalas.')
+  content.querySelectorAll<HTMLDetailsElement>('[data-meeting-key]').forEach(card=>card.addEventListener('toggle',()=>{const key=card.dataset.meetingKey!;if(card.open)expandedTaskMeetings.add(key);else expandedTaskMeetings.delete(key)}))
   bindAssignmentEditors()
   if (pendingTarget?.meetingId) {
     const target=pendingTarget
@@ -791,6 +792,7 @@ function taskDesktopTable(meetings: TarefasMeeting[]): string {
   return `<div class="task-scale-table-wrap"><table class="task-scale-table"><thead><tr><th>Reunião</th>${TASK_ROLES.map(role => `<th>${escapeHtml(TASK_ROLE_LABELS[role])}</th>`).join('')}</tr></thead><tbody>${meetings.map(meeting => { const ref = meetingRefFor(meeting), locked = ref ? periods[ref.periodId]?.locked === true : false; return `<tr data-task-meeting-id="${escapeHtml(ref?.meetingId)}"><th><strong>${escapeHtml(formatDate(meeting.date))}</strong><small>${canonicalMeetingType(meeting.type) === 'midweek' ? 'Meio' : 'Fim'}</small></th>${TASK_ROLES.map(role => `<td>${meetingAllowsRole(meeting, role) && ref ? assignmentEditor(ref.periodId, ref.meetingId, meeting, role, locked) : '<span class="task-not-applicable">—</span>'}</td>`).join('')}</tr>` }).join('')}</tbody></table></div>`
 }
 
+const expandedTaskMeetings=new Set<string>()
 function meetingCard(meeting: TarefasMeeting): string {
   const count = assignmentCount(meeting)
   const type = canonicalMeetingType(meeting.type) === 'midweek' ? 'Meio de semana' : 'Fim de semana'
@@ -803,20 +805,20 @@ function meetingCard(meeting: TarefasMeeting): string {
     : ''
 
   return `
-    <div data-task-meeting-id="${escapeHtml(ref?.meetingId)}" style="background:var(--surface);border:1px solid ${pendingTarget?.meetingId === ref?.meetingId ? '#7E3AF2' : 'var(--border)'};box-shadow:${pendingTarget?.meetingId === ref?.meetingId ? '0 0 0 3px #EAE1FA' : 'none'};border-radius:8px;padding:10px 12px">
-      <div style="display:flex;justify-content:space-between;gap:8px;align-items:center">
+    <details data-meeting-key="${escapeHtml(ref?.periodId+'/'+ref?.meetingId)}" ${pendingTarget?.meetingId === ref?.meetingId || expandedTaskMeetings.has(ref?.periodId+'/'+ref?.meetingId) ? 'open' : ''} data-task-meeting-id="${escapeHtml(ref?.meetingId)}" style="background:var(--surface);border:1px solid ${pendingTarget?.meetingId === ref?.meetingId ? '#7E3AF2' : 'var(--border)'};box-shadow:${pendingTarget?.meetingId === ref?.meetingId ? '0 0 0 3px #EAE1FA' : 'none'};border-radius:8px;padding:10px 12px">
+      <summary class="task-meeting-summary">
         <div style="min-width:0">
           <div style="font-size:.9rem;font-weight:700;color:var(--ink)">${formatDate(meeting.date)}</div>
           <div style="font-size:.76rem;color:var(--ink-3)">${escapeHtml(type)}</div>
         </div>
         <span style="font-size:.75rem;font-weight:700;color:${locked ? '#B3261E' : '#7E3AF2'}">
-          ${locked ? 'Travada' : `${count} função${count === 1 ? '' : 'ões'}`}
+          ${locked ? 'Publicado' : `${count} função${count === 1 ? '' : 'ões'}`}
         </span>
-      </div>
+      </summary>
       <div style="display:flex;flex-direction:column;gap:6px;margin-top:10px">
         ${editors}
       </div>
-    </div>`
+    </details>`
 }
 
 function assignmentEditor(periodId: string, meetingId: string, meeting: TarefasMeeting, role: TaskRole, locked: boolean): string {

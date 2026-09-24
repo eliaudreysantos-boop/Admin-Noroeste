@@ -20,7 +20,7 @@ import {
 } from './escala-output'
 import type { createScaleSchedulePdf } from './escala-documents'
 import { publishModulePeriod, renderPublicationStatus } from './module-publication'
-import { fortalezaCurrentMonth, isValidCivilDate } from './civil-date'
+import { addCivilDays, fortalezaToday, fortalezaCurrentMonth, isValidCivilDate } from './civil-date'
 import { publicationPeriod } from './publication-contract'
 import { mountModuleMessageSettings } from './module-message-settings'
 
@@ -347,7 +347,7 @@ function renderAvailability(): void {
   if (!selectedParticipantId || participants[selectedParticipantId]?.active === false) selectedParticipantId = people[0]?.[0] ?? ''
   if (!local || !selectedParticipantId) { root().innerHTML = '<p class="empty-state">Cadastre um local e participantes ativos primeiro.</p>'; return }
   const marked = availability[selectedLocalId]?.[selectedParticipantId] ?? {}, days = local.daysActive ?? [], slots = localSlots(local), labels = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
-  root().innerHTML = `${periodControls()}<div class="form-group"><label class="form-label">Participante</label><select id="aPerson" class="form-select">${people.map(([id]) => `<option value="${esc(id)}" ${id === selectedParticipantId ? 'selected' : ''}>${esc(name(id))}</option>`).join('')}</select></div><p class="form-help" style="margin-bottom:10px">Clique no dia ou horário do cabeçalho para marcar uma linha ou coluna inteira.</p><div class="availability-wrap"><table class="availability-table"><thead><tr><th>Dia</th>${slots.map(time => `<th><button class="table-toggle" data-atime="${time}">${time}</button></th>`).join('')}</tr></thead><tbody>${days.map(dow => `<tr><th><button class="table-toggle" data-aday="${dow}">${labels[dow]}</button></th>${slots.map(time => { const key = availabilityKey(dow, time); return `<td><input type="checkbox" data-avail="${key}" ${marked[key] ? 'checked' : ''}></td>` }).join('')}</tr>`).join('')}</tbody></table></div><div style="text-align:right;margin-top:10px"><button id="aConfirm" class="btn btn-primary">Confirmar revisão</button></div>`
+  root().innerHTML = `${periodControls()}<div class="form-group"><label class="form-label">Participante</label><select id="aPerson" class="form-select">${people.map(([id]) => `<option value="${esc(id)}" ${id === selectedParticipantId ? 'selected' : ''}>${esc(name(id))}</option>`).join('')}</select></div><p class="form-help" style="margin-bottom:10px">Toque no dia para marcar todos os seus horários. Cada alteração é salva automaticamente.</p><p id="availabilitySaveStatus" role="status" aria-live="polite"></p><div class="availability-wrap"><table class="availability-table"><thead><tr><th>Dia</th>${slots.map(time => `<th><button class="table-toggle" data-atime="${time}">${time}</button></th>`).join('')}</tr></thead><tbody>${days.map(dow => `<tr><th><button class="table-toggle" data-aday="${dow}">${labels[dow]}</button></th>${slots.map(time => { const key = availabilityKey(dow, time); return `<td data-time="${esc(time)}"><input aria-label="${labels[dow]} às ${esc(time)}" type="checkbox" data-avail="${key}" ${marked[key] ? 'checked' : ''}></td>` }).join('')}</tr>`).join('')}</tbody></table></div><div style="text-align:right;margin-top:10px"><button id="aConfirm" class="btn btn-primary">Confirmar revisão</button></div>`
   fieldHelp(root(),'#aPerson','A disponibilidade vale para o local selecionado. Marcar ou desmarcar salva imediatamente.')
   bindPeriod(renderAvailability)
   document.getElementById('aPerson')!.addEventListener('change', e => { selectedParticipantId = (e.target as HTMLSelectElement).value; renderAvailability() })
@@ -361,13 +361,19 @@ async function toggleGroup(keys: string[]): Promise<void> {
   await saveAvailability(keys, keys.some(key => !current[key]), true)
 }
 async function saveAvailability(keys: string[], on: boolean, rerender = false): Promise<void> {
-  const stamp = now(), patch: Record<string, unknown> = { [`participants/${selectedParticipantId}/availabilityUpdatedAt`]: stamp }
-  keys.forEach(key => { patch[`availability/${selectedLocalId}/${selectedParticipantId}/${key}`] = on ? true : null })
+  const participantId=selectedParticipantId,localId=selectedLocalId
+  const release=editorBusy(root())
+  const status=document.getElementById('availabilitySaveStatus')
+  if(status)status.textContent='Salvando disponibilidade…'
+  const stamp = now(), patch: Record<string, unknown> = { [`participants/${participantId}/availabilityUpdatedAt`]: stamp }
+  keys.forEach(key => { patch[`availability/${localId}/${participantId}/${key}`] = on ? true : null })
   try {
-    await update(escalaRef, patch); availability[selectedLocalId] ??= {}; availability[selectedLocalId][selectedParticipantId] ??= {}
-    keys.forEach(key => { if (on) availability[selectedLocalId][selectedParticipantId][key] = true; else delete availability[selectedLocalId][selectedParticipantId][key] })
-    participants[selectedParticipantId].availabilityUpdatedAt = stamp; if (rerender) renderAvailability()
-  } catch { toast('Não foi possível salvar a disponibilidade'); renderAvailability() }
+    await update(escalaRef, patch); availability[localId] ??= {}; availability[localId][participantId] ??= {}
+    keys.forEach(key => { if (on) availability[localId][participantId][key] = true; else delete availability[localId][participantId][key] })
+    participants[participantId].availabilityUpdatedAt = stamp; if (rerender) renderAvailability()
+    const feedback=document.getElementById('availabilitySaveStatus');if(feedback)feedback.textContent='Disponibilidade salva. Confirmar revisão apenas registra que você conferiu os horários.'
+  } catch { renderAvailability(); const feedback=document.getElementById('availabilitySaveStatus');if(feedback){feedback.setAttribute('role','alert');feedback.textContent='Não foi possível salvar. A seleção anterior foi restaurada. Tente novamente.'} }
+  finally {release()}
 }
 async function confirmAvailability(participantId = selectedParticipantId): Promise<void> {
   if (!participantId || !participants[participantId]) return
@@ -390,9 +396,15 @@ function renderScale(): void {
   const table = tables[selectedLocalId]?.[selectedMonth], published = monthLocked()
   const dates = table ? Object.keys(table.rows ?? {}).sort() : activeDates(selectedMonth, local.daysActive ?? [], exclusions[selectedMonth] ?? [])
   const slots = table?.slots ?? localSlots(local)
+  const weeks=new Map<string,string[]>()
+  for(const date of dates){const dow=new Date(date+'T12:00:00Z').getUTCDay();const start=addCivilDays(date,-((dow+6)%7));weeks.set(start,[...(weeks.get(start)??[]),date])}
+  const current=fortalezaToday(),initialWeek=[...weeks.keys()].find(start=>addCivilDays(start,6)>=current)??[...weeks.keys()][0]
+  const dayHtml=(date:string)=>'<section class="scale-day" data-scale-date="'+date+'"><h3>'+esc(dayLabel(date))+'</h3>'+slots.map(time=>slotHtml(date,time,table)).join('')+'</section>'
+  const weeksHtml=[...weeks].map(([start,days])=>'<details class="scale-week" '+(start===initialWeek?'open':'')+'><summary>'+esc(dayLabel(days[0]))+' — '+esc(dayLabel(days[days.length-1]))+' · '+days.length+' dia(s)</summary>'+days.map(dayHtml).join('')+'</details>').join('')
   const activeRules = Object.values(normalizeEscalaGenerationRules(settings.engineRules)).filter(Boolean).length
-  root().innerHTML = `${periodControls()}<span class="admin-badge">${published ? 'Publicado' : 'Rascunho'}</span>${published ? '<div class="notice warning">Este mês está publicado e bloqueado para edição.</div>' : ''}<div class="scale-actions"><button id="sGenerateAll" class="btn btn-primary" ${published ? 'disabled' : ''}>${hasData(selectedMonth) ? 'Completar mês' : 'Gerar mês'} · ${activeRules} regras</button><button id="sPdf" class="btn btn-ghost" ${hasData(selectedMonth) ? '' : 'disabled'}>Baixar PDF</button>${!published ? `<button id="sPublish" class="btn btn-ghost" ${hasData(selectedMonth) ? '' : 'disabled'}>Publicar no Quadro</button>` : ''}${published ? '<button id="sUnpublish" class="btn btn-ghost">Reabrir para edição</button>' : `${hasData(selectedMonth) ? '<details><summary>Mais opções</summary><button id="sDelete" class="btn btn-danger">Apagar mês</button></details>' : ''}`}</div><div class="scale-days">${dates.map(date => `<section class="scale-day"><h3>${esc(dayLabel(date))}</h3>${slots.map(time => slotHtml(date, time, table)).join('')}</section>`).join('') || '<p class="empty-state">Este local não tem dias ativos neste mês.</p>'}</div>`
+  root().innerHTML = `${periodControls()}<span class="admin-badge">${published ? 'Publicado' : 'Rascunho'}</span>${published ? '<div class="notice warning">Este mês está publicado e bloqueado para edição.</div>' : ''}<div class="scale-actions"><button id="sGenerateAll" class="btn ${hasData(selectedMonth) ? 'btn-ghost' : 'btn-primary'}" ${published ? 'disabled' : ''}>${hasData(selectedMonth) ? 'Completar mês' : 'Gerar mês'} · ${activeRules} regras</button><button id="sPdf" class="btn btn-ghost" ${hasData(selectedMonth) ? '' : 'disabled'}>Baixar PDF</button>${!published ? `<button id="sPublish" class="btn btn-primary" ${hasData(selectedMonth) ? '' : 'disabled'}>Publicar no Quadro</button>` : ''}${published ? '<button id="sUnpublish" class="btn btn-ghost">Reabrir para edição</button>' : `${hasData(selectedMonth) ? '<details><summary>Mais opções</summary><button id="sDelete" class="btn btn-danger">Apagar mês</button></details>' : ''}`}</div><button type="button" id="scaleToday" class="btn btn-ghost">Ir para hoje ou próximo dia</button><div class="scale-days">${weeksHtml || '<p class="empty-state">Este local não tem dias ativos neste mês.</p>'}</div>`
   bindPeriod(renderScale)
+  document.getElementById('scaleToday')?.addEventListener('click',()=>{const target=[...root().querySelectorAll<HTMLElement>('[data-scale-date]')].find(day=>day.dataset.scaleDate!>=fortalezaToday());if(target)focusCorrection(target);else toast('Não há dias futuros neste período.')})
   document.getElementById('sGenerateAll')!.addEventListener('click', () => void generate())
   document.getElementById('sPdf')!.addEventListener('click', () => void printPdf())
   document.getElementById('sPublish')?.addEventListener('click', () => void publish())

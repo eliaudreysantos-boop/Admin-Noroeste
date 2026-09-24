@@ -22,6 +22,7 @@ let boardMeetingDate = ''
 let uiPreferences = defaultAgendaUiPreferences(month)
 let uiPreferencesKey = ''
 let selectedPersonId = ''
+let lastSuccessfulSync:number|null=null
 let loadingAssignments = true
 let offlinePersonalEvents: AgendaEvent[] | null = null
 let offlineAnnouncementEvents: AnnouncementEvent[] | null = null
@@ -58,6 +59,7 @@ const fortalezaDate = fortalezaToday
 export default function mount(context: AppContext): void {
   ctx = context
   syncGeneration++
+  lastSuccessfulSync=null
   failedSources=[]
   data={}
   uiPreferencesKey = ''
@@ -70,6 +72,7 @@ export default function mount(context: AppContext): void {
   root.innerHTML = '<div id="individualRoot"><p class="empty-state">Carregando sua agenda...</p></div>'
   const cached = standaloneAgenda() ? readOfflineCache(context.usuario.masterId ?? '') : null
   if (cached) {
+    lastSuccessfulSync=cached.savedAt
     offlinePersonalEvents = cached.events
     offlineAnnouncementEvents = cached.announcements
     data = { master:{ pessoas:cached.person ? { [cached.masterId]:cached.person } : {} }, agenda:cached.agenda } as RawRoot
@@ -195,6 +198,7 @@ async function load(retrySources?:string[]):Promise<void> {
     const person=response.person?{name:response.person.name,active:response.person.active,whatsapp:'',sex:null,role:null,limpeza:{grupo:null}} satisfies MasterPessoa:undefined
     data={...data,master:{pessoas:isAdmin()?people():person?{[masterId]:person}:{}},...(completed.includes('quadro')?{agenda:response.agenda}:{})} as RawRoot
     if(!failedSources.length) {
+      lastSuccessfulSync=Date.now()
       recordAgendaHistory(masterId,offlinePersonalEvents)
       saveOfflineCache()
     }
@@ -269,11 +273,11 @@ function render(): void {
   const calendar = [...Array(firstDow).fill(''), ...Array.from({ length:totalDays }, (_, index) => String(index + 1))]
   const listEvents = uiPreferences.personal.view === 'upcoming' ? future.slice(1, 9) : events
   root.innerHTML = `${moduleTitle('Minha agenda')}${screenTabs()}${loadingAssignments ? '<div class="notice">Atualizando designações dos módulos...</div>' : ''}${adminPersonPicker()}
-    <span class="admin-badge">${loadingAssignments ? 'Sincronizando' : 'Histórico local deste aparelho'}</span>${nextCommitment(future[0])}${historyPanel()}
+    <span class="admin-badge">${loadingAssignments ? 'Sincronizando' : lastSuccessfulSync ? 'Última sincronização: '+esc(new Intl.DateTimeFormat('pt-BR',{dateStyle:'short',timeStyle:'short',timeZone:'America/Fortaleza'}).format(lastSuccessfulSync)) : 'Sincronização ainda não concluída'}</span>${nextCommitment(future[0])}
     <div class="program-period-modes agenda-view-modes" role="tablist" aria-label="Visualização dos compromissos"><button class="program-period-mode" role="tab" type="button" data-personal-view="upcoming" aria-selected="${uiPreferences.personal.view === 'upcoming'}">Próximos</button><button class="program-period-mode" role="tab" type="button" data-personal-view="month" aria-selected="${uiPreferences.personal.view === 'month'}">Mês</button></div>
     <div class="agenda-list">${eventRows(listEvents) || `<p class="empty-state">${uiPreferences.personal.view === 'upcoming' ? 'Nenhum outro compromisso futuro.' : 'Nenhuma designação neste mês.'}</p>`}</div>
     <details class="form-panel agenda-board-card agenda-personal-panel" data-agenda-panel="calendar" ${uiPreferences.personal.openPanels.includes('calendar') ? 'open' : ''}><summary><strong>Calendário mensal</strong><span>${esc(month)}</span></summary><div class="agenda-board-body"><div class="agenda-toolbar"><button class="btn btn-ghost" id="agendaPrev" type="button" aria-label="Mês anterior">‹</button><label class="sr-only" for="agendaMonth">Mês do calendário pessoal</label><input class="form-input" id="agendaMonth" type="month" value="${month}"><button class="btn btn-ghost" id="agendaNext" type="button" aria-label="Próximo mês">›</button></div><div class="agenda-calendar"><div class="agenda-weekdays">${['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'].map(day => `<strong>${day}</strong>`).join('')}</div><div class="agenda-days">${calendar.map(day => day ? `<div class="agenda-day ${byDay.has(Number(day)) ? 'has-events' : ''}"><span>${day}</span>${(byDay.get(Number(day)) ?? []).slice(0, 3).map(event => `<i class="${event.source}" aria-hidden="true"></i>`).join('')}</div>` : '<div class="agenda-day empty"></div>').join('')}</div></div></div></details>
-    ${calendarExportPanel()}`
+    ${calendarExportPanel()}${historyPanel()}`
   bind()
 }
 

@@ -1,4 +1,6 @@
 import './style.css'
+import { installDialogAccessibility } from './ui/dialog-accessibility'
+installDialogAccessibility()
 import { installMonthNavigation } from './ui/month-navigation'
 installMonthNavigation()
 import type { MasterPessoa, Usuario } from './types'

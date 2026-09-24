@@ -87,6 +87,8 @@ let events: Record<string, SpeakerEvent> = {}
 let planning: Planning = {}
 let taskPeople: Record<string, TaskPerson> = {}
 let selectedMonth = localStorage.getItem('noroeste_oradores_month') ?? fortalezaCurrentMonth()
+let scheduleReturnY=0
+let scheduleEditorOpen=false
 let editingId = ''
 let rawSchedule:Record<string, unknown> = {}
 let scheduleDraft: Record<string, string> | null = null
@@ -142,6 +144,7 @@ async function load(): Promise<boolean> {
 async function openScreen(next: Screen, substitutionDate=''): Promise<void> {
   if (!allowLeave()) return
   if(next==='emergencia')emergencyDate=substitutionDate
+  root().classList.remove('mobile-schedule-editor');scheduleEditorOpen=false
   screen=next; editingId=''; renderNavigation(); root().innerHTML='<p class="empty-state">Carregando dados...</p>'
   loadPromise ??= load()
   const loaded=await loadPromise
@@ -228,6 +231,11 @@ function renderSchedule(): void {
   root().innerHTML=`${sectionTitle('Programação de oradores')}${periodControl()}<div class="service-actions"><button id="newSchedule" class="btn btn-primary" type="button">Nova programação</button><button id="fillScheduleDates" class="btn btn-ghost" type="button">Criar datas do mês</button><button id="speakerSchedulePdf" class="btn btn-ghost" type="button" ${monthRows.length?'':'disabled'}>Baixar PDF</button><button id="speakerSchedulePublish" class="btn btn-ghost" type="button" ${monthRows.length?'':'disabled'}>Publicar no Quadro</button></div><p id="speakerPublicationStatus" class="notice" aria-live="polite">Consultando publicação…</p><p class="form-help">Confirmar registra a resposta do orador. Publicar no Quadro atualiza o PDF; editar a programação não atualiza o arquivo já publicado.</p>${scheduleEditor()}<div class="service-actions">${[['','Todos'],['speaker','Sem orador'],['theme','Sem tema'],['confirm','A confirmar'],['reconfirm','Reconfirmar']].map(([key,label])=>`<button class="btn ${scheduleFilter===key?'btn-primary':'btn-ghost'}" data-schedule-filter="${key}" aria-pressed="${scheduleFilter===key}">${label}: ${monthRows.filter(([,item])=>matchesFilter(item,key!)).length}</button>`).join('')}</div>
     ${field('Buscar na programação',`<input id="scheduleSearch" type="search" value="${esc(scheduleQuery)}" placeholder="Orador, número ou título do tema">`)}
     <label class="oradores-check"><input id="scheduleOnlyFuture" type="checkbox" ${onlyFuture?'checked':''}> Só o que falta (datas de hoje em diante)</label><div class="oradores-list">${rows.map(([id,item])=>scheduleCard(id,item)).join('')||empty(monthRows.length?'Nenhum resultado para esta busca ou filtro.':'Nenhuma programação neste mês.')}</div>${scheduleQuery||scheduleFilter||onlyFuture?'<button id="clearScheduleFilters" class="btn btn-ghost">Limpar filtros</button>':''}<div id="oradoresMessageSettings"></div>`
+  const mobileEditor=Boolean(editingId)&&window.matchMedia('(max-width:560px)').matches
+  root().classList.toggle('mobile-schedule-editor',mobileEditor)
+  if(mobileEditor&&!scheduleEditorOpen){scheduleReturnY=window.scrollY;document.getElementById('speakerScheduleForm')?.scrollIntoView({block:'start'})}
+  if(!mobileEditor&&scheduleEditorOpen)window.scrollTo({top:scheduleReturnY,behavior:'instant'})
+  scheduleEditorOpen=mobileEditor
   bindPeriod()
   void showPublicationStatus()
   document.getElementById('clearScheduleFilters')?.addEventListener('click',()=>{if(!allowLeave())return;scheduleQuery='';scheduleFilter='';onlyFuture=false;renderSchedule()})

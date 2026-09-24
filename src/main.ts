@@ -1,4 +1,6 @@
 import './style.css'
+import { installDialogAccessibility } from './ui/dialog-accessibility'
+installDialogAccessibility()
 import { installPersonSearch } from './ui/person-search'
 import { installEditorFeedback } from './ui/editor-feedback'
 installPersonSearch()
