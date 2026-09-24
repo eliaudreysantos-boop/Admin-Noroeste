@@ -1,6 +1,5 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { operationsSummary } from '../src/modules/operations-domain.ts'
 import { taskSubstitutes,fieldSubstitutes } from '../src/modules/substitution-domain.ts'
 import { replaceCleaningGroup } from '../src/modules/limpeza-domain.ts'
 import { auditedWrite } from '../netlify/lib/audited-write.ts'
@@ -15,31 +14,6 @@ const person=name=>({name,active:true,sex:'M',limpeza:{grupo:1}})
 const people={m1:person('Ana'),m2:person('Beto'),m3:person('Caio')}
 const entry={id:'event-1',at:'2026-10-01T12:00:00Z',actorId:'u1',actorName:'Admin',module:'tarefas',action:'alterar',paths:[]}
 const fixture=()=>({master:{pessoas:people},tarefas:{people:{p1:{masterId:'m1',roles:{microfone:true}},p2:{masterId:'m2',roles:{microfone:true}},p3:{masterId:'m3',roles:{microfone:true}}},scale:{periods:{'2026-10':{meetings:{a:{date:'2026-10-04',type:'weekend',assignments:{mic1:'p1'}}}}}}}})
-test('resumo respeita permissões e inclui participantes com zero designações',()=>{
- const root=fixture();root.servicoCampo={leaders:{m1:true},periods:{}}
- const result=operationsSummary(root,apps,'2026-10','2026-10-01')
- assert.ok(result.issues.every(i=>i.module==='tarefas'))
- assert.deepEqual(result.workload.map(r=>[r.name,r.count]),[['Ana',1],['Beto',0],['Caio',0]])
- assert.equal(operationsSummary(root,{...apps,tarefas:false},'2026-10','2026-10-01').workload.length,0)
-})
-test('pendências ignoram reuniões passadas e seção retirada',()=>{
- const root=fixture();root.tarefas.scale.periods['2026-10'].meetings.b={date:'2026-10-08',type:'weekend_s1',assignments:{mic1:'p2'}}
- const result=operationsSummary(root,apps,'2026-10','2026-10-05')
- assert.equal(result.issues.length,0);assert.equal(result.workload.find(r=>r.id==='m2').count,0)
-})
-test('TPL respeita horários bloqueados e não transforma vaga vazia em pendência',()=>{
- const root={master:{pessoas:people},escala:{scales:{l:{active:true,daysActive:[0],slots:['09:00']}},monthExclusions:{'2026-10':['2026-10-11','2026-10-18','2026-10-25']}}}
- const result=operationsSummary(root,{...apps,tarefas:false,escala:true},'2026-10','2026-10-01')
- assert.equal(result.issues.length,0)
-})
-test('contagem de Limpeza não duplica responsável que também é membro, nem períodos sobrepostos',()=>{
- const week={referencia:'2026-10-07',superintendenteMid:'m1',ajudantesMid:['m2'],membrosMid:['m1','m2']}
- const period={inicio:'2026-10-01',fim:'2026-10-31',semanas:[week]}
- const root={master:{pessoas:people,config:{limpeza:{ativa:true,inicioRotacao:'2026-10-01'}}},limpeza:{periodos:{'2026-09-bimester':{...period,inicio:'2026-09-01'},'2026-10':period}}}
- const result=operationsSummary(root,{...apps,tarefas:false,limpeza:true},'2026-10','2026-10-01')
- assert.equal(result.workload.find(r=>r.id==='m1').count,1)
- assert.equal(result.workload.find(r=>r.id==='m2').count,1)
-})
 test('substituição em Tarefas exclui atual, bloqueia indisponível e ordena por uso',()=>{
  const root=fixture(),profiles=root.tarefas.people
  profiles.p1.name='Ana';profiles.p2.name='Beto';profiles.p3.name='Caio';profiles.p2.unavailableDates=['2026-10-04']

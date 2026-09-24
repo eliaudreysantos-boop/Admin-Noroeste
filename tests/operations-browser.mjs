@@ -37,14 +37,10 @@ try {
   })
   const home=async()=>{await page.goto(process.env.APP_TEST_URL);await page.locator('[data-menu-card="tarefas"]').first().waitFor()}
   await home()
-  assert.equal(await page.getByRole('heading',{name:'Painel de trabalho'}).count(),1)
-  assert.equal(await page.locator('.home-publication-row').count(),5)
+  assert.equal(await page.getByRole('heading',{name:'Painel de trabalho'}).count(),0)
+  assert.equal(await page.locator('.home-publication-row').count(),0)
   assert.equal(await page.locator('[data-menu-card="mestre"]').count(),1)
   assert.equal(await page.locator('[data-menu-card="individual"]').count(),1)
-  await page.locator('[data-home-publication="tarefas"]').getByText('Ainda não publicado').waitFor()
-  await page.locator('[data-workload] > summary').click();await page.locator('[data-workload-module]').selectOption('tarefas')
-  assert.match(await page.locator('[data-workload-rows]').textContent(),/2 participantes ativos sem designação/)
-  await page.locator('[data-operation-history] > summary').click();await page.getByText('Nenhuma alteração registrada.').waitFor()
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true)
   await page.locator('[data-menu-card="tarefas"]').first().click();await page.locator('[data-workspace-tab="escala"]').waitFor()
   await page.locator('[data-workspace-tab="escala"]').click()
@@ -58,7 +54,7 @@ try {
   assert.equal(data.tarefas.scale.periods[month].meetings.a.assignments.mic1,'p1')
   failWrite=false;await dialog.locator('[data-sub-save]').click();await page.locator('.modal').waitFor({state:'detached'})
   assert.equal(data.tarefas.scale.periods[month].meetings.a.assignments.mic1,'p2')
-  await home();await page.locator('[data-operation-history] > summary').click();await page.getByText(/Alteração salva · Tarefas/).waitFor()
+  await home()
   await page.locator('[data-menu-card="servicoCampo"]').click();await page.locator('.service-assignment summary').first().click()
   await page.locator('[data-service-substitute="s"]').click()
   assert.equal(await page.locator('.modal label').filter({hasText:'Beto'}).locator('input').isDisabled(),true)
@@ -73,14 +69,12 @@ try {
   assert.equal(await page.locator('#pair1').inputValue(),'p3');await page.locator('#pairSave').click();await page.locator('.modal').waitFor({state:'detached'})
   assert.equal(data.escala.tables.l[month].rows['2026-10-04'].slots['09:00'].p1,'p3')
   await home();assert.equal(Object.keys(data.historicoOperacionalPrivado).length,4)
-  // Restricted users can reach summary/history even with a single module.
+  // A single-module user opens that module directly, without a cross-module panel.
   session.usuario.apps={mestre:false,tarefas:false,escala:false,limpeza:false,servicoCampo:true}
-  await page.goto(process.env.APP_TEST_URL);await page.locator('[data-operations-home]').click();await page.locator('[data-operation-open="servicoCampo"]').waitFor()
-  assert.equal(await page.locator('[data-operation-open]').count(),1)
-  await page.locator('[data-operation-history] > summary').click();await page.locator('[data-history-list]').waitFor()
-  assert.ok(!(await page.locator('[data-history-list]').textContent()).includes('Tarefas'))
+  await page.goto(process.env.APP_TEST_URL);await page.locator('.service-summary').waitFor()
+  assert.equal(await page.locator('.operations-overview').count(),0)
   assert.deepEqual(errors,[])
-  console.log(`Operação ${width}px: resumo, distribuição, quatro substituições, falha/retry, histórico e permissões OK`)
+  console.log(`Operação ${width}px: entrada simples, quatro substituições, falha/retry e permissões OK`)
   await page.close()
  }
 }finally{await browser.close()}

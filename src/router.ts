@@ -1,6 +1,5 @@
 import type { AppContext, ModuleName, AppPermissions } from './types'
 import { renderMenuCards, type ItemMenu } from './ui/menu-cards'
-import { mountOperationsOverview } from './ui/operations-overview'
 
 // ─── Mapa de módulos ────────────────────────────────────────────────────────
 
@@ -138,25 +137,10 @@ function renderMenu(list: ModuleName[]): void {
   _currentModule = null
   emitRouteState()
   const content = document.getElementById('appContent')!
-  const fullAccess=_ctx?.usuario.apps.mestre===true
-  const ordered=fullAccess ? list.filter(m=>m!=='mestre'&&m!=='individual') : list
-  const items: ItemMenu[] = ordered.map((m) => {
+  const items: ItemMenu[] = list.map((m) => {
     const meta = MODULE_META[m]
     return { id: m, titulo: meta.label, subtitulo: meta.desc, icone: meta.icon, corFundo: meta.color }
   })
   renderMenuCards(content, items, id => void navigateTo(id as ModuleName))
-  if(fullAccess){
-    const menu=content.querySelector('.module-menu')
-    if(menu){
-      const heading=document.createElement('h2');heading.className='home-section-title';heading.textContent='Áreas de trabalho';menu.before(heading)
-      const secondary=document.createElement('div');secondary.className='home-secondary'
-      secondary.innerHTML='<h2 class="home-section-title">Seu espaço e gestão</h2><div class="home-secondary-actions"><button type="button" class="btn btn-ghost" data-menu-card="individual" data-home-individual>Minha agenda</button><button type="button" class="btn btn-ghost" data-menu-card="mestre" data-home-admin>Admin e configurações</button></div>'
-      menu.after(secondary)
-      secondary.querySelector('[data-home-individual]')?.addEventListener('click',()=>void navigateTo('individual'))
-      secondary.querySelector('[data-home-admin]')?.addEventListener('click',()=>void navigateTo('mestre'))
-    }
-  }
-  const overview=document.createElement('div');content.prepend(overview)
-  if(_ctx)mountOperationsOverview(overview,_ctx,(module,month)=>void navigateTo(module,{month,pending:true}),fullAccess)
   animateRoute(content)
 }

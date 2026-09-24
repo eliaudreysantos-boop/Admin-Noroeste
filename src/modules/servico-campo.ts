@@ -2,7 +2,7 @@ import { renderPublicationStatus } from './module-publication'
 import { substitutionDialog } from '../ui/substitution-dialog'
 import { fieldSubstitutes } from './substitution-domain'
 import { focusCorrection, fieldHelp } from '../ui/field-guidance'
-import { fortalezaCurrentMonth, isValidCivilDate } from './civil-date'
+import { fortalezaCurrentMonth, fortalezaToday, isValidCivilDate, nextCivilMonth } from './civil-date'
 import { editorBusy, editorError } from '../ui/editor-feedback'
 import { lockPublicationUi } from '../ui/publication-busy'
 import type { AppContext, ConfigCongregacao, MasterPessoa, RawPessoas } from '../types'
@@ -132,7 +132,11 @@ function assignmentRow(assignment: FieldServiceAssignment, locked: boolean): str
 function renderSchedule(): void {
   const period = currentPeriod(), assignments = Object.values(period?.assignments ?? {}).sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time) || a.location.localeCompare(b.location, 'pt-BR')), locked = period?.published === true
   const eligible = new Set(leaderIds()), blank = assignments.filter(item => !item.leaderId || !eligible.has(item.leaderId)).length
+  const nextMonth = nextCivilMonth(fortalezaToday())
+  const prepareNext = !periods()[nextMonth] && Object.values(templates()).some(item => item.active !== false)
   root().innerHTML = `${sectionTitle('Programação de Serviço de Campo')}<button id="serviceConfig" class="btn btn-ghost" type="button">Configurações</button>${periodControl()}<span class="admin-badge">${locked ? 'Publicado' : 'Rascunho'}</span>${locked ? '<div class="notice">Este mês está publicado no Quadro e bloqueado para edição.</div>' : ''}<div class="service-summary"><div><strong>${assignments.length}</strong><span>Saídas</span></div><div><strong>${new Set(assignments.map(item => item.date)).size}</strong><span>Dias</span></div><div><strong>${blank}</strong><span>Sem dirigente</span></div><div><strong>${leaderIds().length}</strong><span>No rodízio</span></div></div><div class="service-actions"><button id="serviceGenerate" class="btn ${assignments.length ? 'btn-ghost' : 'btn-primary'}" type="button" ${locked ? 'disabled' : ''}>${assignments.length ? 'Completar mês' : 'Gerar rodízio'}</button><button id="servicePdf" class="btn btn-ghost" type="button" ${assignments.length ? '' : 'disabled'}>Baixar PDF</button>${!locked ? `<button id="servicePublish" class="btn btn-primary" type="button" ${assignments.length ? '' : 'disabled'}>Publicar no Quadro</button>` : ''}${locked ? '<button id="serviceReopen" class="btn btn-ghost" type="button">Reabrir para edição</button>' : ''}</div>${locked ? '' : manualAssignmentForm()}<div class="service-assignment-list">${assignments.map(item => assignmentRow(item, locked)).join('') || '<p class="empty-state">Configure as saídas e gere o rodízio deste mês.</p>'}</div>`
+  if (prepareNext) root().querySelector('.service-summary')?.insertAdjacentHTML('beforebegin', `<div class="notice">Prepare o rodízio de ${nextMonth.slice(5,7)}/${nextMonth.slice(0,4)} antes do dia 1º. <button id="servicePrepareNext" class="btn btn-ghost" type="button">Abrir próximo mês</button></div>`)
+  document.getElementById('servicePrepareNext')?.addEventListener('click', () => { selectedMonth=nextMonth; localStorage.setItem(MONTH_KEY,nextMonth); render() })
   const problems=assignments.filter(item=>!item.leaderId||!eligible.has(item.leaderId)||fieldServiceConflicts(assignments).some(conflict=>conflict.id===item.id))
   const notices=document.createElement('div');notices.className='module-option-list'
   notices.innerHTML=problems.map(item=>`<button type="button" class="oradores-pending" data-field-pending="${esc(item.id)}"><span><strong>Impede publicar · ${esc(dateLabel(item.date))} · ${esc(item.time)}</strong><small>${item.leaderId&&eligible.has(item.leaderId)?'Dirigente com saídas simultâneas':'Defina um dirigente ativo'} — toque para corrigir.</small></span><span aria-hidden="true">›</span></button>`).join('')

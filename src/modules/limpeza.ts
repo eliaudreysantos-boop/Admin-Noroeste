@@ -1,7 +1,7 @@
 import { renderPublicationStatus } from './module-publication'
 import { substitutionDialog } from '../ui/substitution-dialog'
 import { focusCorrection, fieldHelp } from '../ui/field-guidance'
-import { fortalezaToday, isValidCivilDate } from './civil-date'
+import { fortalezaToday, isValidCivilDate, nextCivilMonth } from './civil-date'
 import { editorBusy, editorError, editorSaved } from '../ui/editor-feedback'
 import { lockPublicationUi } from '../ui/publication-busy'
 import type {
@@ -206,9 +206,10 @@ function renderContent(): void {
 
 function renderCleaningGuidance():void {
   const issues:{selector:string;label:string}[]=[]
+  const nextMonth=nextCivilMonth(fortalezaToday())
   if(!limpeza.ativa)issues.push({selector:'#lAtiva',label:'Rotação desativada — ative para gerar a escala.'})
   if(!limpeza.inicioRotacao)issues.push({selector:'#lInicio',label:'Informe a data inicial da rotação.'})
-  if(!Object.keys(periodos).length)issues.push({selector:'#limpezaPeriodAnchor',label:'Nenhuma escala gerada — escolha o período.'})
+  if(!Object.values(periodos).some(period=>period.inicio<=`${nextMonth}-01`&&period.fim>=`${nextMonth}-01`))issues.push({selector:'#limpezaPeriodAnchor',label:`Prepare a escala de ${nextMonth.slice(5,7)}/${nextMonth.slice(0,4)} antes do dia 1º.`})
   const content=document.getElementById('limpezaContent');if(!content)return
   const guidance=document.getElementById('cleaningGuidance');if(!guidance)return
   guidance.innerHTML=issues.map((item,index)=>`<button type="button" class="oradores-pending" data-cleaning-pending="${index}"><span>${escapeHtml(item.label)}</span><span aria-hidden="true">›</span></button>`).join('')
