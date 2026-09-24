@@ -5,6 +5,12 @@ export function fortalezaToday(now: Date = new Date()): string {
   return `${part('year')}-${part('month')}-${part('day')}`
 }
 export const fortalezaCurrentMonth = (now: Date = new Date()): string => fortalezaToday(now).slice(0, 7)
+export function nextCivilMonth(today: string): string {
+  if (!isValidCivilDate(today)) throw new Error('Data inválida.')
+  const date = new Date(`${today.slice(0, 7)}-01T12:00:00Z`)
+  date.setUTCMonth(date.getUTCMonth() + 1)
+  return date.toISOString().slice(0, 7)
+}
 export function isValidCivilDate(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
   const date = new Date(`${value}T12:00:00Z`)

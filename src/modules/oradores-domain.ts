@@ -37,6 +37,7 @@ export interface SpeakerCongregation {
   mapa?: string
   localizacao: string
   observacoes: string
+  horizonteDatas?: 90 | 180 | 365
   secao?: SpeakerSection
 }
 
@@ -132,7 +133,7 @@ export function normalizeSpeakersRoot(value: unknown): SpeakersRoot {
   }))
   const themes = Object.fromEntries(Object.entries(row(source['temas'])).map(([id, raw]) => { const item=row(raw); return [id, { numero:Number(item['numero']) || 0, titulo:text(item['titulo']), ativo:bool(item['ativo'], true) } satisfies TalkTheme] }))
   const congregations = Object.fromEntries(Object.entries(row(source['congregacoes'])).map(([id, raw]) => { const item=row(raw); return [id, {
-    nome:text(item['nome']), cidade:text(item['cidade']), tipo:item['tipo'] === 'local' ? 'local' : 'visitante', ativa:bool(item['ativa'], true), contato:text(item['contato']), telefone:text(item['telefone']), diaReuniao:text(item['diaReuniao']), horario:text(item['horario']), localizacao:text(item['localizacao']), mapa:text(item['mapa']), observacoes:text(item['observacoes']), ...(section(item['secao']) ? { secao:section(item['secao']) } : {}),
+    nome:text(item['nome']), cidade:text(item['cidade']), tipo:item['tipo'] === 'local' ? 'local' : 'visitante', ativa:bool(item['ativa'], true), contato:text(item['contato']), telefone:text(item['telefone']), diaReuniao:text(item['diaReuniao']), horario:text(item['horario']), localizacao:text(item['localizacao']), mapa:text(item['mapa']), observacoes:text(item['observacoes']), ...([90,180,365].includes(Number(item['horizonteDatas'])) ? { horizonteDatas:Number(item['horizonteDatas']) as 90|180|365 } : {}), ...(section(item['secao']) ? { secao:section(item['secao']) } : {}),
   } satisfies SpeakerCongregation] }))
   const schedule = Object.fromEntries(Object.entries(row(source['programacao'])).map(([id, raw]) => { const item=row(raw), confirmation=row(item['confirmacao']), reconfirmation=row(item['reconfirmacao']); const kind = ['discurso_local','discurso_visitante','saida_orador'].includes(text(item['tipo'])) ? text(item['tipo']) as TalkKind : 'discurso_local'; const explicit = text(item['status']); const confirmed = confirmation['status'] === true || explicit === 'confirmado'; const status:TalkStatus = confirmed ? 'confirmado' : explicit === 'por_confirmar' ? 'por_confirmar' : 'por_definir'; return [id, {
     ...item, data:text(item['data']), tipo:kind, status, ...(section(item['secao']) ? { secao:section(item['secao']) } : {}),

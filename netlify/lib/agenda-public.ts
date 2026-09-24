@@ -1,4 +1,5 @@
 import type { AgendaConfig, AgendaPublicDocument, AgendaReminderModule } from '../../src/types.ts'
+import { pdfHasExpired } from '../../src/modules/pdf-expiry.ts'
 import type { AgendaEvent, AgendaSource, AgendaStatus, AnnouncementEvent } from '../../src/modules/individual-domain.ts'
 
 const SOURCES = new Set<AgendaSource>(['tarefas', 'oradores', 'limpeza', 'escala', 'servicoCampo'])
@@ -40,7 +41,7 @@ export function publicAgendaDocuments(value: unknown): Record<string, AgendaPubl
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return
     const item = raw as Record<string, unknown>, modulo = text(item['modulo'], 40)
     const url = httpsUrl(item['url']), id = text(item['id'], 240) || text(key, 240)
-    if (!DOCUMENT_MODULES.has(modulo) || !id || !url) return
+    if (!DOCUMENT_MODULES.has(modulo) || !id || !url || pdfHasExpired(item['criadoEm'])) return
     result[key] = {
       id, modulo:modulo as AgendaPublicDocument['modulo'], url,
       tipo:item['tipo'] === 'admin' || modulo === 'admin' ? 'admin' : 'modulo',

@@ -61,9 +61,9 @@ export function confirmationMessage(item:TalkSchedule,root:SpeakersRoot,template
   const details=[messageDate(item.data,time),themeLine(item,root),address?`📍 Endereço: ${address}`:''].filter(Boolean).join('\n')
   return contextualMessage('oradores',template,`Olá, ${name}! Confirmando seu discurso:\n\n${details}\n\nPode confirmar?`,`${details}\n\nPode confirmar?`,name)
 }
-export function exchangesMessage(root:SpeakersRoot,id:string,today:string,template?:string,localTime=''):string {
+export function exchangesMessage(root:SpeakersRoot,id:string,today:string,template?:string,localTime='',confirmedOnly=false):string {
   const congregation=root.congregacoes?.[id],name=congregation?.contato||''
-  const rows=Object.values(root.programacao??{}).filter(item=>item.secao!=='s1'&&item.data>=today&&item.tipo!=='discurso_local'&&scheduleCongregationId(item)===id).sort((a,b)=>a.data.localeCompare(b.data))
+  const rows=Object.values(root.programacao??{}).filter(item=>item.secao!=='s1'&&item.data>=today&&item.tipo!=='discurso_local'&&scheduleCongregationId(item)===id&&(!confirmedOnly||item.status==='confirmado')).sort((a,b)=>a.data.localeCompare(b.data))
   const groups=[['discurso_visitante','🎙️ *Convites*'],['saida_orador','🚗 *Saídas*']].map(([kind,label])=>{
     const matches=rows.filter(item=>item.tipo===kind)
     return matches.length?`${label}\n\n${matches.map(item=>[messageDate(item.data,kind==='saida_orador'?congregation?.horario:item.horarioLocal||localTime||localCongregation(root,item)?.horario),`👤 ${root.oradores?.[item.oradorId??'']?.nome||item.oradorNome||'A definir'}`,themeLine(item,root)].join('\n')).join('\n\n')}`:''

@@ -28,6 +28,13 @@ test('cada módulo altera somente as próprias mensagens da Agenda', () => {
   assert.equal(canAccessData('agenda/config/icsReminders/tarefas', tasks, true), false)
 })
 
+test('responsáveis de TPL e Tarefas podem salvar as preferências do próprio motor', () => {
+  assert.equal(canAccessData('escala/settings/engineRules', apps({ escala:true }), true), true)
+  assert.equal(canAccessData('tarefas/planning/engineRules', apps({ tarefas:true }), true), true)
+  assert.equal(canAccessData('escala/settings/engineRules', apps({ tarefas:true }), true), false)
+  assert.equal(canAccessData('tarefas/planning/engineRules', apps({ escala:true }), true), false)
+})
+
 test('Oradores altera somente discursos e eventos e lê os cadastros necessários', () => {
   const speakers = apps({ oradores:true })
   assert.equal(canAccessData('tarefas/discursos', speakers, true), true)

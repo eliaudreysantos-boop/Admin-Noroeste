@@ -1,6 +1,7 @@
 import { getStore } from '@netlify/blobs'
 import type { AppPermissions } from '../../src/types.ts'
 import { appSession, json, objectBody, validCsrf } from '../lib/secure-session.ts'
+import { pdfHasExpired } from '../../src/modules/pdf-expiry.ts'
 
 const MAX_PDF_BYTES = 4 * 1024 * 1024
 const PDF_STORE = 'admin-noroeste-pdfs'
@@ -48,6 +49,7 @@ export async function storageFileResponse(
     try {
       const item = await store.getWithMetadata(path, { type:'arrayBuffer', consistency:'strong' })
       if (!item) return json(404, { error:'PDF não encontrado.' })
+      if (pdfHasExpired(item.metadata?.['createdAt'])) return json(410, { error:'PDF expirado.' })
       const filename = path.slice(path.lastIndexOf('/') + 1) || 'documento.pdf'
       return new Response(item.data, {
         status:200,

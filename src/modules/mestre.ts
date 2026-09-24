@@ -47,6 +47,7 @@ import {
   stableUserMasterId,
 } from './mestre-domain'
 import { fortalezaCurrentMonth } from './civil-date'
+import { pdfHasExpired, pdfExpiryTime } from './pdf-expiry'
 import { navigateTo } from '../router'
 import { apiJson } from '../secure-api'
 
@@ -75,6 +76,7 @@ const BACKUP_CHECK_KEY='noroeste_backup_check_v1'
 let activeConfigSection: 'congregacao' | 'agenda' = 'congregacao'
 
 let pessoaFilter = { nome: '', role: '', ativo: 'true', sex: '' }
+let selectedMasterPersonId = ''
 
 // ─── Constantes ──────────────────────────────────────────────────────────────
 
@@ -544,7 +546,7 @@ function renderSaude():void {
   const count=(status:PdfInventoryFile['status'])=>pdfInventory?.files.filter(item=>item.status===status).length??0
   mc.innerHTML=`<section class="form-panel"><h3>Saúde do sistema</h3><p class="notice">${pdfInventoryLoading?'Conferindo serviços…':pdfInventoryError?escapeHtml(pdfInventoryError):`Banco: ${escapeHtml(pdfInventory?.health.database)} · PDFs: ${escapeHtml(pdfInventory?.health.storage)} · Versão: ${escapeHtml(pdfInventory?.health.version)} · conferido em ${escapeHtml(new Date(pdfInventory!.checkedAt).toLocaleString('pt-BR'))}`}</p><button id="refreshPdfInventory" class="btn btn-ghost" type="button">Conferir novamente</button></section>
     <section class="form-panel"><h3>Verificação de backup</h3><p class="notice">${escapeHtml(backupCheckLabel())}</p><p>Selecione um backup para validar estrutura e SHA-256 sem restaurar dados. A informação fica somente neste aparelho.</p><input id="verifyBackupFile" class="form-input" type="file" accept="application/json,.json" aria-label="Selecionar backup para conferência"></section>
-    <section class="form-panel"><h3>Inventário de PDFs</h3><p class="notice">${count('ativo')} ativos · ${count('retido')} em retenção · ${count('elegivel')} elegíveis · ${count('desconhecido')} com idade desconhecida. Retenção mínima: 90 dias. Arquivos ativos ou de idade desconhecida nunca entram na limpeza.</p>
+    <section class="form-panel"><h3>Inventário de PDFs</h3><p class="notice">${count('ativo')} ativos · ${count('retido')} em retenção · ${count('elegivel')} elegíveis · ${count('desconhecido')} com idade desconhecida. Prazo padrão: ${pdfInventory?.retentionDays ?? 60} dias. Arquivos ativos ou de idade desconhecida não entram na limpeza manual.</p>
     ${pdfInventory?.files.map(item=>`<label class="pdf-inventory-row"><span>${item.status==='elegivel'?`<input type="checkbox" data-pdf-clean="${escapeHtml(item.path)}">`:''}<strong>${escapeHtml(item.status)}</strong> ${escapeHtml(item.path)}<small>${item.createdAt?escapeHtml(new Date(item.createdAt).toLocaleDateString('pt-BR')):'Data desconhecida'}${item.bytes?` · ${item.bytes} bytes`:''}</small></span><a class="btn btn-ghost" target="_blank" rel="noopener" href="/.netlify/functions/storage-file?path=${encodeURIComponent(item.path)}">Visualizar</a></label>`).join('')??''}
     ${eligible.length?'<p>Selecione até 20 PDFs elegíveis, visualize-os e digite EXCLUIR PDFs para confirmar. O servidor confere as referências e a idade novamente.</p><input id="pdfDeletePhrase" class="form-input" placeholder="EXCLUIR PDFs" autocomplete="off"><button id="deleteSelectedPdfs" class="btn btn-danger" type="button">Excluir PDFs selecionados</button>':''}</section>`
   document.getElementById('refreshPdfInventory')?.addEventListener('click',()=>void loadPdfInventory())
@@ -691,6 +693,7 @@ function renderPessoas(): void {
     if (pessoaFilter.nome  && !p.name.toLowerCase().includes(pessoaFilter.nome.toLowerCase())) return false
     return true
   }).sort((a, b) => a[1].name.localeCompare(b[1].name, 'pt-BR'))
+  if(!filtered.some(([id])=>id===selectedMasterPersonId))selectedMasterPersonId=filtered[0]?.[0]??''
 
   mc.innerHTML = `
     <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
@@ -724,9 +727,10 @@ function renderPessoas(): void {
         + Adicionar
       </button>
     </div>
+    <label class="form-group"><span class="form-label">Pessoa selecionada</span><select id="masterPersonContext" class="form-select">${filtered.map(([mid,p])=>`<option value="${escapeHtml(mid)}" ${mid===selectedMasterPersonId?'selected':''}>${escapeHtml(p.name)}</option>`).join('')}</select></label>
     <div id="pessoaList">
       ${filtered.length
-        ? filtered.map(([mid, p]) => pessoaCard(mid, p)).join('')
+        ? filtered.filter(([mid])=>mid===selectedMasterPersonId).map(([mid, p]) => pessoaCard(mid, p)).join('')
         : '<p style="color:var(--ink-3);text-align:center;padding:24px 0">Nenhuma pessoa encontrada.</p>'}
     </div>`
 
@@ -752,6 +756,7 @@ function renderPessoas(): void {
   })
   document.getElementById('btnAddPessoa')!
     .addEventListener('click', () => openPessoaModal(null))
+  document.getElementById('masterPersonContext')?.addEventListener('change',e=>{selectedMasterPersonId=(e.currentTarget as HTMLSelectElement).value;renderPessoas()})
 
   document.querySelectorAll<HTMLButtonElement>('[data-edit-pessoa]').forEach(btn => {
     btn.addEventListener('click', () => openPessoaModal(btn.dataset['editPessoa']!))
@@ -929,6 +934,7 @@ async function savePessoa(mid: string | null, overlay: HTMLElement): Promise<voi
       Object.values(usuarios).forEach(user => { if (user.masterId === finalMid) user.nome = pessoa.name })
     } else await set(pessoaRef(finalMid), pessoa)
     pessoas[finalMid] = existing ? { ...existing, ...pessoa } : pessoa
+    selectedMasterPersonId=finalMid
     rootData = null
     overlay.remove()
     toast(mid ? 'Pessoa atualizada ✓' : 'Pessoa adicionada ✓')
@@ -1296,7 +1302,7 @@ function renderConfigAgenda(): void {
   editorSaved(el);el.dataset.editorScope='true'
   const reminders = agendaConfig.icsReminders ?? {}
   const moduleWhatsApp = agendaConfig.moduleWhatsApp ?? {}
-  const manualDocuments = Object.values(agendaDocuments).filter(item => item.modulo === 'admin').sort((a, b) => b.criadoEm.localeCompare(a.criadoEm))
+  const manualDocuments = Object.values(agendaDocuments).filter(item => item.modulo === 'admin' && !pdfHasExpired(item.criadoEm)).sort((a, b) => b.criadoEm.localeCompare(a.criadoEm))
   const rows = AGENDA_REMINDER_MODULES.map(module => {
     const values = reminders[module.id] ?? module.defaults
     return `<div class="admin-reminder-grid admin-reminder-row">
@@ -1320,14 +1326,15 @@ function renderConfigAgenda(): void {
     </div>
     <button id="btnSalvarAgendaConfig" class="btn btn-primary btn-full" style="margin-top:16px">Salvar configurações da Agenda</button>
     <div class="form-panel admin-agenda-documents">
-      <h3 style="margin-top:0">PDFs do Quadro</h3>
+      <h3 style="margin-top:0">Outros anúncios</h3>
       <div class="module-form-grid">
         <label class="form-field"><span>Arquivo PDF</span><input id="agendaPdfFile" type="file" accept="application/pdf,.pdf"></label>
         <label class="form-field"><span>Nome exibido</span><input id="agendaPdfName" maxlength="100" placeholder="Usar nome do arquivo"></label>
         <label class="form-field"><span>Período</span><input id="agendaPdfPeriod" type="month" value="${fortalezaCurrentMonth()}"></label>
       </div>
       <div class="service-actions"><button id="uploadAgendaPdf" class="btn btn-primary" type="button">Publicar no Quadro</button></div>
-      <div class="module-option-list" style="margin-top:12px">${manualDocuments.map(item => `<div class="module-list-row"><div><strong>${escapeHtml(item.nome)}</strong><small>${escapeHtml(item.periodo)} · ${escapeHtml(item.criadoEm.slice(0, 10).split('-').reverse().join('/'))}</small></div><a class="btn btn-ghost" href="${escapeHtml(item.url)}" download="${escapeHtml(item.nome)}">Baixar PDF</a><button class="btn btn-danger" type="button" data-delete-agenda-pdf="${escapeHtml(item.id)}" title="Remover PDF">✕</button></div>`).join('') || '<p class="empty-state">Nenhum PDF enviado manualmente.</p>'}</div>
+      <p class="form-help">Cada PDF expira 60 dias após a publicação e é excluído automaticamente.</p>
+      <div class="module-option-list" style="margin-top:12px">${manualDocuments.map(item => `<div class="module-list-row"><div><strong>${escapeHtml(item.nome)}</strong><small>${escapeHtml(item.periodo)} · publicado em ${escapeHtml(item.criadoEm.slice(0, 10).split('-').reverse().join('/'))} · expira em ${escapeHtml(new Date(pdfExpiryTime(item.criadoEm) ?? Date.now()).toLocaleDateString('pt-BR', { timeZone:'America/Fortaleza' }))}</small></div><a class="btn btn-ghost" href="${escapeHtml(item.url)}" download="${escapeHtml(item.nome)}">Baixar PDF</a><button class="btn btn-danger" type="button" data-delete-agenda-pdf="${escapeHtml(item.id)}" title="Remover PDF">✕</button></div>`).join('') || '<p class="empty-state">Nenhum PDF enviado manualmente.</p>'}</div>
     </div>`
 
   document.getElementById('btnSalvarAgendaConfig')?.addEventListener('click', () => void saveConfigAgenda())
@@ -1338,7 +1345,7 @@ function renderConfigAgenda(): void {
 function selectedAgendaPdf(): File | null {
   const file = (document.getElementById('agendaPdfFile') as HTMLInputElement | null)?.files?.[0] ?? null
   if (!file || (!file.name.toLowerCase().endsWith('.pdf') && file.type !== 'application/pdf')) { toast('Selecione um arquivo PDF válido'); return null }
-  if (file.size > 20 * 1024 * 1024) { toast('O PDF deve ter no máximo 20 MB'); return null }
+  if (file.size > 4 * 1024 * 1024) { toast('Cada PDF deve ter no máximo 4 MB'); return null }
   return file
 }
 

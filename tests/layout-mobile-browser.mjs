@@ -59,11 +59,17 @@ try {
     await page.locator('[data-cleaning-tab="escala"]').click()
    }
    if(module==='escala'){
-    await page.locator('[data-workspace-tab="participantes"]').click()
-    await page.locator('[data-workspace-tab="disponibilidade"]').click()
+    await page.locator('[data-workspace-tab="participantes"]').first().click()
+    assert.equal(await page.locator('#pContext').inputValue(),'p')
+    assert.equal(await page.locator('#pList .entity-card').count(),1)
+    await page.locator('[data-person-availability="p"]').click()
     await page.locator('[data-avail]').first().waitFor()
+    assert.equal(await page.locator('#aPerson').inputValue(),'p')
     assert.ok(await page.locator('[data-avail]').first().getAttribute('aria-label'))
     if(width<=560)assert.equal(await page.locator('.availability-table').evaluate(el=>el.scrollWidth<=el.clientWidth+1),true)
+    await page.locator('[data-workspace-tab="participantes"]').first().click()
+    await page.locator('[data-person-confirmation="p"]').click()
+    assert.equal(await page.locator('#mTarget').inputValue(),'p')
    }
    if(module==='servicoCampo'){
     assert.equal(await page.locator('[data-service-leader]').isVisible(),false)

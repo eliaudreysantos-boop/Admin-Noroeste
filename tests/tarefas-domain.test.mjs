@@ -48,11 +48,20 @@ test('geração exclui orador S2 e respeita checkbox desativado', () => {
   context.discursos={oradores:{o1:{pessoaId:'p1'}},programacao:{d1:{data:'2026-09-12',secao:'s2',oradorId:'o1'}}}
   const run=enabled=>computeGeneration(context,'2026-09-01','entrada','2026-09-01T00:00:00Z','2026-09',false,'',{evitarConflitosOradores:enabled})
   const blocked=run(true),allowed=run(false)
-  assert.equal(blocked.aborted,true)
-  assert.ok(blocked.errors.some(message=>message.includes('sem candidato para Entrada')))
+  assert.equal(blocked.aborted,false)
+  assert.equal(blocked.patch['2026-09/meetings/m1/assignments/entrada'],null)
   assert.equal(allowed.aborted,false)
   assert.ok(!Object.values(blocked.patch).includes('p1'))
   assert.ok(Object.values(allowed.patch).includes('p1'))
+})
+
+test('uma pessoa gera escala parcial sem exigir todas as funções', () => {
+  const context=baseContext({p1:basePerson()})
+  const result=computeGeneration(context,'2026-09-01',null,'2026-09-01T12:00:00Z','2026-09')
+  assert.equal(result.aborted,false)
+  assert.ok(result.generated>=1)
+  assert.equal(result.patch['2026-09/generatedAt'],'2026-09-01T12:00:00Z')
+  assert.ok(TASK_ROLES.some(role=>result.patch[`2026-09/meetings/m1/assignments/${role}`]===null))
 })
 
 test('meio de semana não aplica Presidente nem Leitor', () => {

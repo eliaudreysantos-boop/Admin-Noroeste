@@ -21,7 +21,7 @@ import {
 } from './escala-output'
 import type { createScaleSchedulePdf } from './escala-documents'
 import { publishModulePeriod, renderPublicationStatus } from './module-publication'
-import { addCivilDays, fortalezaToday, fortalezaCurrentMonth, isValidCivilDate } from './civil-date'
+import { addCivilDays, fortalezaToday, fortalezaCurrentMonth, isValidCivilDate, nextCivilMonth } from './civil-date'
 import { publicationPeriod } from './publication-contract'
 import { mountModuleMessageSettings } from './module-message-settings'
 
@@ -72,6 +72,7 @@ const name = (id: string) => pessoas[centralId(id)]?.name ?? participantName(par
 const phoneOf = (id: string) => pessoas[centralId(id)]?.whatsapp ?? participants[id]?.phone ?? ''
 const now = () => new Date().toISOString()
 const isAdmin = () => context.usuario.apps.mestre === true
+const canConfigureRules = () => isAdmin() || context.usuario.apps.escala === true
 
 function monthNow(): string {
   return fortalezaCurrentMonth()
@@ -252,20 +253,26 @@ async function deleteLocal(id: string, overlay: HTMLElement): Promise<void> {
 
 function renderParticipants(): void {
   const unlinked = orderedPeople().filter(([id]) => !centralId(id)).length
-  root().innerHTML = `${unlinked ? `<div class="notice warning">${unlinked} participante(s) legado(s) sem vínculo com o cadastro do Admin.</div>` : ''}<div style="display:flex;gap:8px;margin-bottom:12px"><input id="pSearch" class="form-input" type="search" placeholder="Buscar participante" style="flex:1">${isAdmin() ? '<button id="pNew" class="btn btn-primary" type="button">Vincular pessoa</button>' : ''}</div><div id="pList" class="module-option-list"></div>`
+  root().innerHTML = `${unlinked ? `<div class="notice warning">${unlinked} participante(s) legado(s) sem vínculo com o cadastro do Admin.</div>` : ''}<div style="display:flex;gap:8px;margin-bottom:12px"><input id="pSearch" class="form-input" type="search" placeholder="Buscar participante" aria-label="Buscar participante" style="flex:1">${isAdmin() ? '<button id="pNew" class="btn btn-primary" type="button">Vincular pessoa</button>' : ''}</div><label class="form-group"><span class="form-label">Participante</span><select id="pContext" class="form-select"></select></label><div id="pList" class="module-option-list"></div>`
   const list = () => {
     const term = (document.getElementById('pSearch') as HTMLInputElement).value.trim().toLocaleLowerCase('pt-BR')
-    document.getElementById('pList')!.innerHTML = orderedPeople().filter(([id]) => name(id).toLocaleLowerCase('pt-BR').includes(term)).map(([id, p]) => {
+    const rows=orderedPeople().filter(([id]) => name(id).toLocaleLowerCase('pt-BR').includes(term))
+    if(!rows.some(([id])=>id===selectedParticipantId))selectedParticipantId=rows[0]?.[0]??''
+    const selector=document.getElementById('pContext') as HTMLSelectElement
+    selector.innerHTML=rows.map(([id])=>`<option value="${esc(id)}" ${id===selectedParticipantId?'selected':''}>${esc(name(id))}</option>`).join('')||'<option value="">Nenhum participante encontrado</option>'
+    document.getElementById('pList')!.innerHTML = rows.filter(([id])=>id===selectedParticipantId).map(([id, p]) => {
       const count = Object.values(availability).reduce((sum, byPerson) => sum + Object.values(byPerson[id] ?? {}).filter(Boolean).length, 0)
       const details = [p.active === false ? 'Inativo' : 'Ativo', p.pioneer ? 'Pioneiro' : '', p.capPerMonth ? `Máx. ${p.capPerMonth}/mês` : 'Sem limite mensal', p.startFromDate ? `A partir de ${p.startFromDate}` : '', p.onlyWithId ? `Só com ${name(p.onlyWithId)}` : '', `${count} horários`].filter(Boolean).join(' · ')
-      return `<button class="module-menu-btn" type="button" data-person="${esc(id)}"><div class="mod-icon" style="background:#1A6B3C20;color:#1A6B3C">${esc(name(id).charAt(0).toUpperCase())}</div><div><div class="mod-label">${esc(name(id))}</div><div class="mod-desc">${esc(details)}</div></div></button>`
+      return `<article class="entity-card"><div class="entity-card-head"><div><strong>${esc(name(id))}</strong><small>${esc(details)}</small></div><span class="status-pill">${p.active===false?'Inativo':'Ativo'}</span></div><div class="service-actions">${isAdmin()?`<button class="btn btn-ghost" type="button" data-person="${esc(id)}">Editar</button>`:''}<button class="btn btn-ghost" type="button" data-person-availability="${esc(id)}">Disponibilidade</button><button class="btn btn-primary" type="button" data-person-confirmation="${esc(id)}">Preparar confirmação</button></div></article>`
     }).join('') || '<p class="empty-state">Nenhum participante encontrado.</p>'
     document.querySelectorAll<HTMLButtonElement>('[data-person]').forEach(button => button.addEventListener('click', () => {
       if (!isAdmin()) { toast('Somente o Admin pode editar participantes'); return }
       participantModal(button.dataset['person']!)
     }))
+    document.querySelector('[data-person-availability]')?.addEventListener('click',()=>{void go('disponibilidade')})
+    document.querySelector('[data-person-confirmation]')?.addEventListener('click',()=>{void go('mensagens')})
   }
-  list(); document.getElementById('pSearch')!.addEventListener('input', list); document.getElementById('pNew')?.addEventListener('click', () => participantModal(''))
+  list(); document.getElementById('pSearch')!.addEventListener('input', list); document.getElementById('pContext')!.addEventListener('change',event=>{selectedParticipantId=(event.currentTarget as HTMLSelectElement).value;list()}); document.getElementById('pNew')?.addEventListener('click', () => participantModal(''))
   if (pendingParticipantId && participants[pendingParticipantId] && isAdmin()) participantModal(pendingParticipantId)
 }
 function participantModal(id: string): void {
@@ -528,11 +535,12 @@ function renderMessages(): void {
   root().innerHTML = `${periodControls(false)}<div class="notice">Avisos de designação ficam no Quadro de Anúncios. Aqui permanece somente a confirmação administrativa de disponibilidade.</div><div class="form-group"><label class="form-label">Pessoa</label><select id="mTarget" class="form-select">${confirmationPeople.map(({ id, person }) => `<option value="${esc(id)}">${esc(name(id))} · ${person.availabilityUpdatedAt ? `revisada em ${esc(String(person.availabilityUpdatedAt).slice(0, 10))}` : 'nunca revisada'}</option>`).join('')}</select></div><div class="form-group"><label class="form-label">Texto</label><textarea id="mText" class="form-input" rows="10"></textarea></div><div class="scale-actions"><button id="mConfirmDone" class="btn btn-ghost" type="button">Respondeu que está certo</button><button id="mCopy" class="btn btn-ghost">Copiar</button><button id="mWhats" class="btn btn-primary">Abrir WhatsApp</button></div>`
   bindPeriod(renderMessages)
   const target = document.getElementById('mTarget') as HTMLSelectElement
+  if(confirmationPeople.some(({id})=>id===selectedParticipantId))target.value=selectedParticipantId
   const enabled = confirmationPeople.length > 0
   ;(document.getElementById('mCopy') as HTMLButtonElement).disabled = !enabled
   ;(document.getElementById('mWhats') as HTMLButtonElement).disabled = !enabled
   ;(document.getElementById('mConfirmDone') as HTMLButtonElement).disabled = !enabled
-  target.addEventListener('change', fillMessage); fillMessage()
+  target.addEventListener('change',()=>{selectedParticipantId=target.value;fillMessage()}); fillMessage()
   document.getElementById('mConfirmDone')!.addEventListener('click', () => void confirmAvailability(target.value))
   document.getElementById('mCopy')!.addEventListener('click', () => void copyMessage())
   document.getElementById('mWhats')!.addEventListener('click', () => void openWhatsApp())
@@ -555,7 +563,8 @@ async function openWhatsApp(): Promise<void> {
 }
 
 function renderPending(): void {
-  const pending: { level: string; title: string; detail: string; target: Tab; personId?: string; localId?: string; date?:string; time?:string; field?:string }[] = [], active = orderedPeople(true)
+  const pending: { level: string; title: string; detail: string; target: Tab; personId?: string; localId?: string; month?:string; date?:string; time?:string; field?:string }[] = [], active = orderedPeople(true)
+  const preparationMonth = nextCivilMonth(fortalezaToday())
   const stuck = active.filter(([, p]) => p.onlyWithId && (!participants[p.onlyWithId] || participants[p.onlyWithId]?.active === false))
   stuck.forEach(([id])=>pending.push({level:'high',title:name(id)+' vinculado a uma pessoa inativa',detail:'Revise a restrição Só participa com.',target:'participantes',personId:id,field:'pmOnly'}))
   const noPhone = active.filter(([id]) => !digits(phoneOf(id)))
@@ -565,8 +574,11 @@ function renderPending(): void {
   const stale = active.filter(([id, p]) => Object.values(availability).some(byPerson => Object.values(byPerson[id] ?? {}).some(Boolean)) && (!p.availabilityUpdatedAt || Date.now() - new Date(p.availabilityUpdatedAt).getTime() > 30 * 86_400_000))
   stale.forEach(([id])=>pending.push({level:'low',title:name(id)+' precisa revisar disponibilidade',detail:'Última revisão há mais de 30 dias ou ainda não registrada.',target:'mensagens',personId:id,field:'mText'}))
   for (const [localId, local] of orderedLocals()) {
+    const dates = activeDates(preparationMonth, local.daysActive ?? [], exclusions[preparationMonth] ?? [])
+    if (dates.length && dates.some(date => !tables[localId]?.[preparationMonth]?.rows?.[date])) pending.push({ level:'medium', title:`Gerar ${local.name ?? localId} antes de 01/${preparationMonth.slice(5, 7)}`, detail:`Prepare ${monthLabel(preparationMonth)}; horários sem dupla podem permanecer vagos.`, target:'escalaAtual', localId, month:preparationMonth })
+  }
+  for (const [localId, local] of orderedLocals()) {
     const table = tables[localId]?.[selectedMonth]
-    if (!table || !Object.values(table.rows ?? {}).some(row => Object.values(row.slots ?? {}).some(cell => cell.p1 || cell.p2))) pending.push({ level: 'medium', title: `${local.name ?? localId} sem escala em ${monthLabel(selectedMonth)}`, detail: 'Gere o mês e revise os horários vagos.', target: 'escalaAtual', localId })
     Object.entries(table?.rows??{}).forEach(([date,row])=>Object.entries(row.slots??{}).forEach(([time,cell])=>{
       if(Boolean(cell.p1)!==Boolean(cell.p2))pending.push({level:'high',title:(local.name??localId)+' · '+dayLabel(date)+' · '+time,detail:'Dupla incompleta. Abra este horário para corrigir.',target:'escalaAtual',localId,date,time})
     }))
@@ -581,6 +593,7 @@ function renderPending(): void {
     pendingParticipantId = item.target==='participantes'?(item.personId??''):''
     if (item.personId) selectedParticipantId = item.personId
     if (item.localId) selectedLocalId = item.localId
+    if (item.month) selectedMonth = item.month
     void go(item.target).then(()=>{
       if(tab!==item.target)return
       if(item.date&&item.time){if(monthLocked())focusCorrection(document.getElementById('sUnpublish'));else{pairModal(item.date,item.time);focusCorrection(document.getElementById(tables[selectedLocalId]?.[selectedMonth]?.rows?.[item.date]?.slots?.[item.time]?.p1?'pair2':'pair1'))}}
@@ -596,8 +609,9 @@ function renderConfig(): void {
   const hasLocals = orderedLocals().length > 0
   const scope = '__persist__'
   root().innerHTML = `${periodControls()}<div data-editor-scope id="scalePrintSettings"><div class="form-group"><label class="form-label">Tamanho máximo no PDF: <strong id="cFontValue">${font}pt</strong></label><input id="cFont" type="range" min="8" max="18" value="${font}" style="width:100%"><p class="form-help">O app reduz a partir deste teto até encontrar a maior letra que caiba sem quebrar nomes.</p></div><div class="form-group"><label class="form-label">Confirmação de disponibilidade</label><textarea id="cConfirm" class="form-input">${esc(greetings.confirm ?? '')}</textarea></div><button id="cSave" class="btn btn-primary">Salvar confirmação e impressão</button></div><hr style="border:0;border-top:1px solid var(--border);margin:18px 0"><h3 style="font-size:.9rem;margin-bottom:8px">Exceções de ${esc(monthLabel(selectedMonth))}</h3><div style="display:flex;gap:8px;margin-bottom:8px"><input id="cExclusion" class="form-input" type="date" min="${selectedMonth}-01" max="${selectedMonth}-31"><button id="cAddExclusion" class="btn btn-ghost">Adicionar</button></div><div class="module-option-list">${(exclusions[selectedMonth] ?? []).map(date => `<div class="module-menu-btn" style="cursor:default"><div><div class="mod-label">${esc(dayLabel(date))}</div><div class="mod-desc">Sem carrinho em todos os locais</div></div><button class="btn btn-danger" data-remove-exclusion="${date}">Remover</button></div>`).join('') || '<p class="empty-state">Nenhuma data excluída neste mês.</p>'}</div>${hasLocals ? `<hr style="border:0;border-top:1px solid var(--border);margin:18px 0"><div class="module-form-grid" style="margin-bottom:8px"><div class="form-group"><label class="form-label">Bloqueios</label><select id="cBlockScope" class="form-select"><option value="__persist__">Todos os meses</option><option value="${selectedMonth}">Somente este mês</option></select></div><div class="form-group"><label class="form-label">Vale para</label><select id="cBlockTarget" class="form-select"><option value="__all__">Todos os locais</option>${orderedLocals().map(([id, local]) => `<option value="${esc(id)}" ${id === selectedLocalId ? 'selected' : ''}>${esc(local.name ?? id)}</option>`).join('')}</select></div></div><div id="cBlocks">${blockGrid(selectedLocalId, scope)}</div>` : ''}<div id="scaleMessageSettings"></div>`
-  const rules = normalizeEscalaGenerationRules(settings.engineRules), canEditRules = isAdmin()
+  const rules = normalizeEscalaGenerationRules(settings.engineRules), canEditRules = canConfigureRules()
   root().querySelector('hr')?.insertAdjacentHTML('beforebegin', `<div class="form-panel" data-editor-scope style="margin-top:16px"><h3 style="margin-top:0">Regras do motor</h3><p class="form-help">As mudanças valem para a próxima geração. Disponibilidade, vínculos e regras de dupla continuam obrigatórios.</p><div class="engine-rule-list"><label><input id="scaleRulePioneer" type="checkbox" ${rules.prioridadePioneiroRegular ? 'checked' : ''} ${canEditRules ? '' : 'disabled'}> Dar prioridade ao pioneiro regular na formação da dupla</label><label><input id="scaleRuleBalance" type="checkbox" ${rules.equilibrarDesignacoes ? 'checked' : ''} ${canEditRules ? '' : 'disabled'}> Equilibrar o total de designações</label></div>${canEditRules ? '<div class="scale-actions" style="margin-top:12px"><button id="saveScaleRules" class="btn btn-primary">Salvar regras</button><button id="restoreScaleRules" class="btn btn-ghost">Restaurar padrões</button></div>' : '<div class="notice">Somente o Admin pode alterar estas regras.</div>'}</div>`)
+  document.getElementById('scaleRulePioneer')?.closest('.form-panel')?.insertAdjacentHTML('beforeend', '<details class="workspace-disclosure"><summary>Regras fixas sem liga/desliga</summary><p class="form-help">O motor sempre respeita pessoa ativa, início e limite mensal, folga e disponibilidade configurados, evita a mesma pessoa em dois locais ou horários próximos e preserva as restrições individuais de dupla. Essas proteções não são preferências de distribuição.</p></details>')
   bindPeriod(renderConfig)
   document.getElementById('cFont')!.addEventListener('input', e => { document.getElementById('cFontValue')!.textContent = `${(e.target as HTMLInputElement).value}pt` })
   document.getElementById('cSave')!.addEventListener('click', () => void saveConfig())
@@ -617,7 +631,7 @@ function renderConfig(): void {
   void mountModuleMessageSettings('scaleMessageSettings', 'escala', toast)
 }
 async function saveScaleRules(value?: EscalaGenerationRules): Promise<void> {
-  if (!isAdmin()) { toast('Somente o Admin pode alterar as regras'); return }
+  if (!canConfigureRules()) { toast('Sem permissão para configurar a Escala TPL'); return }
   const next = value ?? { prioridadePioneiroRegular:(document.getElementById('scaleRulePioneer') as HTMLInputElement).checked, equilibrarDesignacoes:(document.getElementById('scaleRuleBalance') as HTMLInputElement).checked }
   const scope=document.getElementById('saveScaleRules')!.closest<HTMLElement>('[data-editor-scope]')!,release=editorBusy(scope)
   try { await update(escalaRef, { 'settings/engineRules':{ ...next, version:1 } }); settings.engineRules = next; toast(value ? 'Padrões restaurados' : 'Regras salvas'); renderConfig() }

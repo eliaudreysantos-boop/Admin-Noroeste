@@ -42,6 +42,9 @@ test('intercâmbios separam grupos e usam horário de quem recebe',()=>{
   const msg=exchangesMessage(root,'dest','2026-10-01',undefined,'09:45')
   for(const value of ['Olá, José!','🎙️ *Convites*','🚗 *Saídas*','👤 Visitante','👤 Beto','09:45','18:00','Tema 70'])assert.ok(msg.includes(value))
   assert.ok(!exchangesMessage(root,'dest','2026-10-20').includes('🚗'))
+  const finalized=exchangesMessage({...root,programacao:{...root.programacao,out:{...root.programacao.out,status:'confirmado'},incoming:{...root.programacao.incoming,status:'por_confirmar'}}},'dest','2026-10-01',undefined,'09:45',true)
+  assert.match(finalized,/🚗 \*Saídas\*/)
+  assert.ok(!finalized.includes('🎙️ *Convites*'))
 })
 test('datas livres respeitam dia, exclusões, eventos, S2 e não confundem saída com ocupação local',()=>{
   const dates=availableDates(root,{e:{data:'2026-11-01',tipo:'celebracao'}},{meetingDays:{weekendDow:0},excludedDates:['2026-11-08']},'2026-10-01',40)

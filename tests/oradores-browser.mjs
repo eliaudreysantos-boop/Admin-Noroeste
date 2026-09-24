@@ -50,6 +50,7 @@ try {
         writes.push({path,body})
         if(path==='agenda/documentos')for(const [id,value] of Object.entries(body.value))data[`agenda/documentos/${id}`]=value
         if(path?.startsWith('tarefas/discursos/programacao/'))data['tarefas/discursos'].programacao[path.split('/').pop()]=body.value
+        if(path?.startsWith('tarefas/discursos/congregacoes/'))data['tarefas/discursos'].congregacoes[path.split('/').pop()]=body.value
         if(path==='tarefas/discursos/oradores')data['tarefas/discursos'].oradores=body.value
         return route.fulfill({json:endpoint==='storage-file'?{url:'https://example.test/oradores.pdf'}:{ok:true}})
       }
@@ -119,15 +120,16 @@ try {
     await page.locator('#speakerSearch').fill('25')
     assert.equal(await page.locator('#speakerResults .oradores-card').count(),1)
     assert.equal(await page.locator('[data-speaker-repertoire="local"]').innerText(),'1, 25, 38')
-    await page.locator('[data-workspace-tab="designacoes"]').click()
     await page.locator('#speakerContext').selectOption('local')
     await page.evaluate(()=>{window.open=url=>{window.messageUrl=String(url);return null}})
     await page.locator('#notifySpeakerAssignments').click()
+    await page.locator('#oradoresMessagePreview [data-open]').click()
     const message=await page.evaluate(()=>new URL(window.messageUrl).searchParams.get('text'))
     assert.match(message,/Tema 1:/)
     assert.match(message,/Congregação: Centro/)
     assert.match(message,/Endereço: Centro/)
     assert.ok(!message.includes('Localização:'))
+    await page.locator('#oradoresMessagePreview [data-close]').click()
     await page.locator('[data-workspace-tab="oradores"]').last().click()
     await page.locator('#newSpeaker').click()
     assert.equal(await page.locator('[name="masterId"] option[value="m1"]').count(),0)
@@ -175,7 +177,24 @@ try {
     await page.locator('#speakerForm [type="submit"]').click()
     await page.locator('#speakerForm').waitFor({state:'detached'})
     assert.deepEqual(data['tarefas/discursos'].oradores.local.temaIds,[])
-    for(const tab of ['oradores','designacoes','emergencia','congregacoes','intercambios','temas','eventos','pendencias']){
+    await page.locator('[data-workspace-tab="congregacoes"]').click()
+    await page.locator('#congregationContext').selectOption('centro')
+    await page.locator('[data-edit-congregation="centro"]').click()
+    await page.locator('#congregationForm [name="horizonteDatas"]').selectOption('180')
+    await page.locator('#congregationForm button.btn-primary').click()
+    assert.equal(data['tarefas/discursos'].congregacoes.centro.horizonteDatas,180)
+    await page.getByText(/Oferecer datas disponíveis · 180 dias/).click()
+    assert.equal(await page.locator('#availableHorizon').inputValue(),'180')
+    await page.getByText(/Intercâmbios ·/).click()
+    assert.equal(await page.locator('#notifyCongregationExchanges').isEnabled(),true)
+    await page.evaluate(()=>{window.open=url=>{window.messageUrl=String(url);return null}})
+    await page.locator('#notifyCongregationExchanges').click()
+    await page.locator('#oradoresMessagePreview [data-open]').click()
+    const finalized=await page.evaluate(()=>new URL(window.messageUrl).searchParams.get('text'))
+    assert.match(finalized,/27\/09\/2026/)
+    assert.ok(!finalized.includes('20/09/2026'))
+    await page.locator('#oradoresMessagePreview [data-close]').click()
+    for(const tab of ['oradores','emergencia','congregacoes','temas','eventos','pendencias']){
       await page.locator(`[data-workspace-tab="${tab}"]`).last().click()
       await page.waitForFunction(()=>!document.querySelector('#oradoresRoot')?.textContent?.includes('Carregando'))
       assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true,`${tab} sem overflow em ${width}px`)

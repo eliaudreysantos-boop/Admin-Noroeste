@@ -36,6 +36,7 @@ export interface TaskPerson {
   refFolgaDate?: string
   jovem?: boolean
   unavailableDates?: string[] | Record<string, boolean>
+  availabilityUpdatedAt?: string
 }
 
 export interface TaskMeeting {
@@ -301,8 +302,6 @@ function validateMeeting(
   entry: TaskMeetingEntry,
   finalAssignments: Partial<Record<TaskRole, string>>,
   context: TaskDomainContext,
-  roleFilter: TaskRole | null,
-  rules: TaskGenerationRules,
 ): string[] {
   const errors: string[] = []
   const byPerson = new Map<string, TaskRole[]>()
@@ -316,20 +315,12 @@ function validateMeeting(
   })
   TASK_ROLES.forEach(role => {
     const id = finalAssignments[role]
-    if (!id) {
-      if ((roleFilter === null || roleFilter === role) && roleApplies(role, entry.meeting)) errors.push(`${entry.meeting.date}: falta ${TASK_ROLE_LABELS[role]}.`)
-      return
-    }
+    if (!id) return
     const without = { ...finalAssignments }
     delete without[role]
     const result = eligibility(id, role, entry.meeting, without, context)
     if (!result.eligible) errors.push(`${entry.meeting.date} - ${TASK_ROLE_LABELS[role]}: ${personName(context.people[id], id)} (${result.reason}).`)
   })
-  const president = finalAssignments.presidente
-  if (rules.presidenteSegundaTarefa && president && roleApplies('presidente', entry.meeting)) {
-    const secondaries = PRESIDENT_SECONDARY.filter(role => finalAssignments[role] === president)
-    if (secondaries.length !== 1) errors.push(`${entry.meeting.date}: o Presidente precisa ter exatamente uma segunda função mecânica.`)
-  }
   return errors
 }
 
@@ -465,7 +456,7 @@ export function computeGeneration(
       }
       const chosen = rankCandidates(candidates, role, stats, context.people, rules)[0]
       if (!chosen) {
-        errors.push(`${entry.meeting.date}: sem candidato para ${TASK_ROLE_LABELS[role]}.`)
+        patch[`${entry.periodId}/meetings/${entry.meetingId}/assignments/${role}`] = null
         return
       }
       finalAssignments[role] = chosen
@@ -481,7 +472,7 @@ export function computeGeneration(
         if (reservedSecondary) finalAssignments[reservedSecondary] = chosen
       }
     })
-    errors.push(...validateMeeting(entry, finalAssignments, context, roleFilter, rules))
+    errors.push(...validateMeeting(entry, finalAssignments, context))
   })
 
   if (errors.length) return { aborted: true, patch: {}, generated: 0, errors: [...new Set(errors)] }

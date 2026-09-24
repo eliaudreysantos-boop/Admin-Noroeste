@@ -8,7 +8,7 @@ const source={
   'master/pessoas':{m:{name:'Ana',whatsapp:'79999999999',active:true}},
   'master/config/congregacao':{nome:'Noroeste'},
   'limpeza/periodos':{one:{semanas:[{dataFimSemana:'2026-10-04',grupoNome:'Grupo Azul'}]}},
-  'tarefas/discursos':{oradores:{a:{nome:'Ana',ativo:true,tipo:'local',telefone:'79999999999',temaIds:[]}},congregacoes:{local:{nome:'Noroeste',tipo:'local',ativa:true,horario:'09:30',localizacao:'Rua Um'},dest:{nome:'Central',tipo:'visitante',ativa:true,contato:'José',telefone:'79999999999',horario:'18:00'}},temas:{t:{numero:70,titulo:'Confiança'}},programacao:{out:{data:'2026-10-11',tipo:'saida_orador',oradorId:'a',temaId:'t',congregacaoDestinoId:'dest'},incoming:{data:'2026-10-04',tipo:'discurso_visitante',oradorId:'a',temaId:'t',congregacaoOrigemId:'dest'}}},
+  'tarefas/discursos':{oradores:{a:{nome:'Ana',ativo:true,tipo:'local',telefone:'79999999999',temaIds:[]}},congregacoes:{local:{nome:'Noroeste',tipo:'local',ativa:true,horario:'09:30',localizacao:'Rua Um'},dest:{nome:'Central',tipo:'visitante',ativa:true,contato:'José',telefone:'79999999999',horario:'18:00'}},temas:{t:{numero:70,titulo:'Confiança'}},programacao:{out:{data:'2026-10-11',tipo:'saida_orador',status:'confirmado',oradorId:'a',temaId:'t',congregacaoDestinoId:'dest'},incoming:{data:'2026-10-04',tipo:'discurso_visitante',status:'confirmado',oradorId:'a',temaId:'t',congregacaoOrigemId:'dest'}}},
   'tarefas/planning':{meetingDays:{weekendDow:0},s2Time:'09:30'},
 }
 try{
@@ -45,15 +45,18 @@ try{
     await page.evaluate(()=>{window.open=url=>{window.messageUrl=String(url);return null}})
     await page.locator('[data-menu-card="oradores"]').click()
     await page.locator('[data-workspace-tab="congregacoes"]').click()
-    await page.getByText('Enviar datas disponíveis',{exact:true}).click()
+    await page.getByText(/Oferecer datas disponíveis/).click()
     assert.equal(await page.locator('[data-available-date="2026-10-04"]').count(),0)
     for(const checkbox of await page.locator('[data-available-date]').all())await checkbox.uncheck()
     await page.locator('[data-available-date="2026-10-11"]').check()
     await page.locator('#sendAvailableDates').click()
+    await page.locator('#oradoresMessagePreview [data-open]').click()
     const free=await page.evaluate(()=>new URL(window.messageUrl).searchParams.get('text'))
     assert.match(free,/11\/10\/2026 — 09:30/);assert.ok(!free.includes('18/10/2026'))
-    await page.locator('[data-workspace-tab="intercambios"]').click()
+    await page.locator('#oradoresMessagePreview [data-close]').click()
+    await page.getByText(/Intercâmbios ·/).click()
     await page.locator('#notifyCongregationExchanges').click()
+    await page.locator('#oradoresMessagePreview [data-open]').click()
     const exchange=await page.evaluate(()=>new URL(window.messageUrl).searchParams.get('text'))
     assert.match(exchange,/🎙️ \*Convites\*/);assert.match(exchange,/🚗 \*Saídas\*/);assert.match(exchange,/Tema 70/)
     assert.deepEqual(errors,[]);assert.deepEqual(writes,[])

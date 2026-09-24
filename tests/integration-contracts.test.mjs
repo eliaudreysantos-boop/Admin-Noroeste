@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { fortalezaToday, isValidCivilDate, addCivilDays } from '../src/modules/civil-date.ts'
+import { fortalezaToday, isValidCivilDate, addCivilDays, nextCivilMonth } from '../src/modules/civil-date.ts'
 import { canonicalTaskPerson } from '../src/modules/central-person.ts'
 import { mergeAgendaSources } from '../src/modules/agenda-sync.ts'
 import { loadPartialAgendaRoot } from '../netlify/lib/agenda-root.ts'
@@ -22,6 +22,7 @@ function fixture() {return {
 }}
 test('datas civis respeitam Fortaleza, bissextos e passagem de mês',()=>{
   assert.equal(fortalezaToday(new Date('2026-10-01T01:00:00Z')),'2026-09-30')
+  assert.equal(nextCivilMonth('2026-12-31'),'2027-01')
   assert.equal(isValidCivilDate('2026-02-30'),false)
   assert.equal(isValidCivilDate('2024-02-29'),true)
   assert.equal(addCivilDays('2026-09-30',1),'2026-10-01')

@@ -27,10 +27,10 @@ test('pendências ignoram reuniões passadas e seção retirada',()=>{
  const result=operationsSummary(root,apps,'2026-10','2026-10-05')
  assert.equal(result.issues.length,0);assert.equal(result.workload.find(r=>r.id==='m2').count,0)
 })
-test('TPL respeita horários bloqueados e aponta horário sem dupla',()=>{
+test('TPL respeita horários bloqueados e não transforma vaga vazia em pendência',()=>{
  const root={master:{pessoas:people},escala:{scales:{l:{active:true,daysActive:[0],slots:['09:00']}},monthExclusions:{'2026-10':['2026-10-11','2026-10-18','2026-10-25']}}}
  const result=operationsSummary(root,{...apps,tarefas:false,escala:true},'2026-10','2026-10-01')
- assert.equal(result.issues.length,1);assert.equal(result.issues[0].date,'2026-10-04')
+ assert.equal(result.issues.length,0)
 })
 test('contagem de Limpeza não duplica responsável que também é membro, nem períodos sobrepostos',()=>{
  const week={referencia:'2026-10-07',superintendenteMid:'m1',ajudantesMid:['m2'],membrosMid:['m1','m2']}

@@ -1,225 +1,193 @@
 # Continuidade - Noroeste Admin SPA
 
-Atualizado em 17/09/2026. Este documento substitui os sete planos/auditorias
-antigos da raiz. Historico anterior permanece recuperavel pelo Git.
+Atualizado em 23/09/2026. Use este arquivo como o
+ponto de partida para novas ideias ou alteracoes.
 
-## Estado publicado - prevalece sobre o historico abaixo
+## Estado atual
 
-- Retomada em 18/09/2026: suite `npm run test:all`, `npm run build`,
-  `git diff --check` e testes de navegador locais passaram. No site publicado,
-  `back-navigation-browser` passou; `individual-browser` e
-  `publication-download-browser` reproduziram o erro conhecido com
-  serviceWorkers bloqueados (`registration.update` indefinido).
-- Correcao aplicada e publicada em `e3b7f7b` no remoto `teste/main`:
-  `refreshServiceWorkerWeekly` agora ignora registro de service worker
-  ausente/indefinido. Teste novo em `tests/pwa-sync.test.mjs`. Validado
-  localmente e no site publicado com Agenda e publicacao/download em
-  desktop/celular, alem de suite completa e build.
-- PWA publicada validada em 18/09/2026 com service worker ativo: abriu offline
-  apos reinicio do navegador, reconectou, preservou preferencias e isolou cada
-  instalacao em desktop e celular simulados. Downloads ICS avulsos tambem foram
-  validados no teste publicado da Agenda.
-- Commit `b595a05`: Minha Agenda simplificada. Filtros de origem/status e a
-  opcao de datas passadas foram removidos das visoes Pessoal e Geral; a Agenda
-  mostra todos os itens do periodo. Quando o navegador disponibiliza a PWA, o
-  app sugere a instalacao e permite dispensar o aviso. Pareamento e desbloqueio
-  foram revalidados em desktop e celular.
-- Commit `77e251e`: repaginacao e ICS avulso enviados para teste/main.
-- Deploy confirmado em https://noroeste-testes.netlify.app/ por assets novos.
-- Commit anterior `ad93734`: Voltar e PDFs A4, tambem publicado.
-- Build, suite test:all e diff --check aprovados antes do envio.
-- Apos deploy: navegacao nos seis modulos e Minha Agenda verificadas em desktop
-  e celular com APIs simuladas, sem escrita real no Firebase.
-- Teste publicado da Agenda com serviceWorkers bloqueados apresentou registro
-  indefinido em update; repeticao com serviceWorkers permitidos passou, sem
-  erros. Essa adaptacao foi apenas na execucao, nao no script versionado.
-- Topbar removida; manter somente bottombar azul original com Voltar/Sair.
-- Assinaturas removidas da interface; ICS avulso preservado. Links antigos e
-  backend nao foram revogados/apagados. Homologacao de assinaturas fora do escopo.
-- Testes de falha ao salvar, correcoes e carregamento lento foram atualizados
-  para a navegacao por abas e passaram no site publicado. O commit `fec1b17`
-  tambem manteve o motor de PDF fora do carregamento inicial dos modulos.
-- Ultimo commit publicado: `b595a05` em `teste/main`. Esta atualizacao do
-  Markdown sera registrada no proximo commit autorizado.
-- Proximo passo: validacao funcional pelo usuario no site publicado, com dados
-  e aparelhos reais.
+- Ultimo commit de implementacao: `1e88f62` (pendencias, ajuda nos campos e celular).
+- Branch de trabalho: `codex/ajustar-pdfs-a4`.
+- Em 23/09, o usuario autorizou explicitamente push no Git principal. Executado
+  `git push origin HEAD:main`: `origin/main` avancou de `c93758d` para `1e88f62`,
+  com 19 commits, sem force. O deploy de producao NAO foi verificado.
+- Antes disso, o usuario suspendeu pushes em testes por limite de creditos
+  Netlify. Ultimo push conhecido em testes: `73de347`; commits posteriores
+  foram apenas locais ate a autorizacao acima. Nao presumir testes atualizado.
+- A autorizacao de push no principal foi atendida; nao a tratar como permissao
+  permanente para novos deploys. Para novas tarefas, commit local e aguardar
+  autorizacao de push/destino. Esta atualizacao documental nao foi commitada.
+- `origin` (Admin-Noroeste) e `teste` (Noroeste-testes) sao dois remotos do mesmo
+  repositorio; nao sao dois commits independentes. Nao mover a main local antiga.
+- Testes: https://noroeste-testes.netlify.app/
+- Producao: https://admin-noroeste.netlify.app/ (nao publicar sem autorizacao
+  explicita do usuario).
+- Pasta de trabalho correta: `C:/Users/eliau/.codex/worktrees/pdf-a4/admin-spa`.
+  `C:/Users/eliau/Downloads/admin-spa` e um checkout antigo: preservar e nao usar
+  como fonte da versao atual.
+- Preview usado: http://127.0.0.1:5191/ a partir do worktree correto. Se parado,
+  executar `npm run dev -- --host 127.0.0.1 --port 5191` nessa pasta. Nao presumir
+  que o processo permanece ativo depois de reiniciar o ambiente.
 
-## Repaginacao implementada e publicada
+## Entregas recentes
 
-- Usuario autorizou commit e deploy desta repaginacao e retirada das assinaturas
-  em 17/09/2026. Destino exclusivo: teste/main e noroeste-testes.netlify.app.
-  Build e suite completa aprovados antes do envio. Conferir hash com git log;
-  referencias abaixo a "sem commit/deploy" descrevem a etapa anterior ao envio.
+- Cadastro de oradores locais vinculado ao Admin por masterId; identidade central
+  prevalece. Repertorio editavel por numeros separados por virgulas (`1, 25, 38`).
+  Card mostra os numeros, nunca a quantidade; contato/habilitacoes em detalhes.
+- Temas inicia com Livres; filtros Livres/Ja usados/Programados/Todos e PDF da
+  lista filtrada com ultima/proxima data. Programacao futura ocupa o tema.
+- Substituicoes tem PDF e nao tem seletor "Data do discurso". Abertura geral
+  lista repertorios; atalho da programacao conserva a data para verificar conflitos.
+- Entrada de Oradores: Pendencias dos proximos 90 dias, um item por programacao,
+  levando diretamente a acao/campo. Apoio passou a Mais opcoes.
+- Mensagens do app antigo sao o padrao (codigo em
+  `C:/Users/eliau/Downloads/tarefas-e-oradores s1 s2/src/shared/messaging/builders.ts`).
+  Emojis, saudacao, rodape, segundo orador e Sentinela restaurados; confirmacao
+  pergunta "Pode confirmar?"; intercambios separam Convites e Saidas.
+- Sentinela: um dirigente e um substituto locais ativos distintos, S2/sem secao;
+  discurso LOCAL do dirigente (inclusive segundo orador) gera substituicao na
+  mensagem do substituto. Mensagem so de Sentinela nao recebe rodape de discurso.
+- Congregacoes: enviar datas livres com horizonte 90/180/365 dias e selecao;
+  respeita programacao local, eventos e exclusoes. Saidas nao ocupam a reuniao.
+- Tarefas: mensagens por pessoa e dia, previa editavel/copiar/abrir WhatsApp.
+  Limpeza inclui grupo da escala gerada quando disponivel e permitido.
+- WhatsApp usa endereco escrito (`localizacao`), nunca `mapa`, Plus Code ou
+  coordenadas. Localizacao de mapa fica apenas no ICS. Telefone com DDD aceita
+  10/11 digitos, adicionando 55 na abertura; nao modifica cadastro automaticamente.
+- Texto padrao anterior exato migra em memoria; templates personalizados sao
+  preservados. Abrir WhatsApp nao significa mensagem enviada nem confirmada.
+- Melhorias aprovadas 1/7/8: pendencias com destino preciso, ajuda curta e celular.
+  Tarefas abre funcao; TPL abre participante/horario; Admin abre telefone por ID;
+  Campo destaca impedimentos reais de publicacao; Limpeza revela configuracao.
+  Escala bloqueada leva a Reabrir para edicao sem desbloquear automaticamente.
+- Celular: alvos de toque maiores, campos legiveis, acoes quebram linha e modais
+  rolam. Nao foram implementadas as demais sugestoes 2 a 6 como novo escopo.
+- Referencias detalhadas: `COMPARACAO-MENSAGENS.md`, `REVISAO-USABILIDADE.md`
+  e `REVISAO-ORADORES.md`. As secoes historicas podem descrever estados anteriores.
 
-- Decisao mais recente: usuario desistiu das assinaturas; manter apenas ICS avulso.
-  Controles e chamadas de assinatura removidos da Minha Agenda (Pessoal/Quadro).
-  Downloads de mes, proximos compromissos e Geral preservados. Nao prometer
-  atualizacao/exclusao automatica de compromissos importados.
-  Backend e links existentes NAO foram revogados ou apagados. Homologacao de
-  assinaturas Google/Apple deixa de ser criterio para finalizar o aplicativo.
-- Usuario pediu uma unica barra: topbar removida, bottombar azul original mantida.
+## Produto consolidado
 
-- Usuario aprovou "Implementar a repaginacao" apos o deploy ad93734 em teste/main.
-- Publicado em 77e251e: Admin abre Pessoas, Tarefas abre Escala e TPL
-  abre Escala do mes. Abas compartilhadas em `src/ui/workspace-nav.ts`.
-- Admin agrupa configuracoes, vinculos e backup em Administracao; TPL agrupa
-  sete destinos em tres areas. Servico de Campo tem Programacao/Configuracoes.
-- Voltar das abas retorna a principal sem remontar o modulo; da principal retorna
-  aos modulos. Guardas impedem respostas de abas antigas de substituir a atual.
-- Sem topbar, superficies mais simples, formularios secundarios recolhidos,
-  tres abas iguais na Agenda e PDFs primeiro no Quadro. Motores/PDFs inalterados.
-- Testes: suite test:all, build, navegacao desktop/mobile nos seis modulos,
-  publication-download-browser e individual-browser. Capturas em tmp/layout.
-- Testes antigos que dependem dos menus intermediarios devem ser adaptados ao
-  novo fluxo quando executados; nao reintroduzir os menus para satisfazer seletores.
-- Testar a versao em http://127.0.0.1:5190/ antes de nova publicacao.
-- As instrucoes antigas de nao implementar abaixo foram substituidas pelo aceite.
+- Modulos ativos: Admin, Tarefas, Oradores, Limpeza, Escala TPL, Servico de Campo
+  e Minha Agenda. Secretario e Vida e Ministerio continuam fora do aplicativo.
+- Oradores usa `tarefas/discursos`. Ha apenas uma secao: a antiga S2. Registros
+  sem secao sao aceitos; S1 e apenas legado ignorado. Nao recriar seletores S1/S2.
+- Tarefas possui regra opcional para evitar conflitos com Oradores por vinculo
+  cadastral (pessoaId/masterId), incluindo segundo orador e registros sem secao.
+- Navegacao: sem topbar; manter a bottombar azul com Voltar e Sair. As abas dos
+  modulos retornam de forma previsivel sem recarregar a pagina.
+- PDFs: baixar e publicar no Quadro sao acoes separadas. Os documentos
+  usam formato A4. Oradores usa paisagem, datas DD/MM e saidas do mes em diante.
+  NUNCA imprimir informacoes administrativas: status, regras, conflitos e
+  historico ficam no app, preferencialmente como badges, ocultos na impressao.
+  O endereco de Oradores usa `localizacao`, nao `observacoes`.
+- Minha Agenda: mantem Pessoal, Geral e Quadro; ICS avulso continua disponivel.
+  Assinaturas foram retiradas da interface e da logica. Endpoints `calendar` e
+  `calendar-subscriptions` retornam HTTP 410, sem consultar o banco. Registros
+  antigos privados foram preservados; nao reintroduzir assinaturas.
+- Minha Agenda simplificada: filtros de origem/status e datas passadas foram
+  removidos. Botoes WhatsApp foram removidos somente da Minha Agenda.
+  Sugestao de instalacao aparece no navegador e fica oculta no modo instalado.
+  Pareamento e desbloqueio de pessoa permanecem.
+- Controles Anterior/Proximo padronizados nos seletores mensais.
+- Oradores alimenta Agenda pessoal, Quadro e ICS com programacoes confirmadas.
+  Visitantes aparecem no Quadro; agenda pessoal exige vinculo, nao nome parecido.
+- Historico de inclusoes, alteracoes e retiradas: localStorage por pessoa/aparelho,
+  ate 100 registros, desde a primeira sincronizacao bem-sucedida. Nao e auditoria
+  central nem altera eventos ja importados. Retirada pode ser reatribuicao.
+- Nao adicionar botao "Atualizar agora": usuario recusou. Cache de ate 24h
+  permanece; ainda pode atrasar deteccao de mudancas. Nao prometer tempo real.
+- Congregacoes: `localizacao` = endereco de impressao; `mapa` = campo opcional
+  com HTTPS, Plus Code com cidade ou latitude, longitude. `agenda-location.ts`
+  limpa entidades HTML como &#x20; e gera link. ICS usa LOCATION, URL, link na
+  descricao e GEO quando coordenadas validas foram informadas. Nao geocodifica
+  automaticamente nem garante qual aplicativo de mapas o aparelho abrira.
+- Importacao ICS nao e sincronizacao: reimportar pode duplicar ou nao atualizar.
+  Orientacao: calendario separado Noroeste e substituir manualmente o periodo.
+- PWA: cache offline, reconexao, isolamento por instalacao e service worker
+  bloqueado foram cobertos por testes automatizados.
+- Desempenho: o motor de PDF e carregado somente quando um PDF e solicitado.
 
-## Atualizacao: Voltar e publicacao autorizados
+## Validacao concluida
 
-- Pedido posterior do usuario: corrigir Voltar, fazer commit e deploy no site de testes.
-- Corrigido: Limpeza e a programacao principal de Servico de Campo tinham marcador
-  de tela interna e Voltar remontava o mesmo modulo. Marcador removido dessas
-  raizes, preservado nas configuracoes de Servico de Campo.
-- Regressao reproduzida antes da correcao; teste `tests/back-navigation-browser.mjs`
-  aprovado nos seis modulos, dois ciclos sem reload, em 1280 e 390 pixels.
-- `npm run test:all` e `npm run build` aprovados nesta rodada.
-- Replanejamento aprovado, implementado e publicado posteriormente em 77e251e.
-- Commit/deploy desta rodada devem ser conferidos no Git e no site de testes;
-  referencias a "sem commit" abaixo descrevem o estado anterior a esta publicacao.
+- Ultima implementacao: `npm run test:all`, `npm run build` e
+  `git diff --check` passaram.
+- Testes de navegador 1280px/390px: `pending-guidance-browser.mjs`,
+  `oradores-browser.mjs`, `messages-browser.mjs` e `usability-browser.mjs`.
+  Incluem foco no campo correto, escala bloqueada, Admin/telefone, configuracoes
+  recolhidas, mensagens, repertorio e permissoes sem Admin. APIs simuladas;
+  nenhum envio real de WhatsApp nem escrita no banco real nesses testes.
+- Navegador: Agenda, PWA, navegacao, falhas de salvamento, publicacao/download
+  e PDFs foram validados em desktop e celular com APIs simuladas.
+- Testes de navegador anteriores usaram APIs simuladas; nao equivalem a teste
+  de importacao em calendario real. Conferencia visual final dos PDFs pendente.
 
-## Pedido inicial de replanejamento (historico superado pelo aceite)
+## Convencoes importantes
 
-- Replanejar o layout de TODOS os modulos ativos, nao apenas Admin e Minha Agenda.
-- Usuario relata: botao Voltar nao funciona ate atualizar a pagina.
-- NAO implementar o novo layout nem corrigir a navegacao ainda. Primeiro avaliar,
-  reproduzir o problema e apresentar um plano detalhado para aprovacao.
-- Nesta etapa foi autorizada somente a consolidacao e limpeza dos Markdown.
-- Nao fazer commit, push, deploy ou alteracoes no Firebase por iniciativa propria.
-- Proximo chat: ler este documento e inspecionar o codigo atual antes de propor.
+- Cadastro central em `master/pessoas`; vinculos usam `masterId`.
+- Preservar permissoes, disponibilidade, habilitacoes, bloqueios de periodos
+  publicados, edicoes manuais e isolamento entre pessoas.
+- Limpeza usa grupos proprios. Servico de Campo permite varias saidas no mesmo
+  dia. Mensagens e links WhatsApp pertencem a cada modulo.
+- O backend/Firebase de testes nao e sandbox: salvar e publicar pode gravar dados
+  online. Nao importar exportacoes nem alterar dados reais sem autorizacao.
+- Antes de novo commit/deploy, executar testes proporcionais a mudanca, build e
+  `git diff --check`. Publicar somente no destino autorizado.
 
-## Pasta correta e Git
+## Arquivos locais fora do Git
 
-- Trabalhar em `C:/Users/eliau/.codex/worktrees/pdf-a4/admin-spa`.
-- Branch: `codex/ajustar-pdfs-a4`; base: `e91c99bc081b37862baa967b0b3f478b7585e4af`.
-- `C:/Users/eliau/Downloads/admin-spa` e um checkout antigo com alteracoes do
-  usuario. Nao reverter, limpar ou usar como fonte da versao atual.
-- A antiga worktree `cb2a/admin-spa` nao e mais a pasta de trabalho desta rodada.
-- Remoto `teste`: https://github.com/ubsjosafamota-blip/Noroeste-testes.git
-- Site de testes: https://noroeste-testes.netlify.app/
-- Remoto `origin`: https://github.com/eliaudreysantos-boop/Admin-Noroeste.git
-- Site original: https://admin-noroeste.netlify.app/ (nao publicar nele).
-- Ultimo deploy confirmado: b595a05. Conferir remoto antes de nova publicacao.
-- Codigo, PDFs, testes e proxy Vite estao commitados/publicados. Apenas esta
-  atualizacao documental e posterior ao envio. Conferir git status ao retomar.
-- scripts/prepare-firebase-export.mjs ficou nao versionado por conter referencias
-  pessoais especificas; output/ e tmp/ tambem ficaram fora do commit.
-- `output/` e `tmp/` contem artefatos e dados pessoais: nao incluir no commit.
+- `output/` e `tmp/`: artefatos e possiveis dados pessoais; nao versionar.
+- `scripts/prepare-firebase-export.mjs`: script local com referencias pessoais;
+  manter fora do Git, salvo pedido explicito para revisa-lo e versiona-lo.
 
-## Aplicativo e principios a preservar
+## Ideias futuras
 
-- Ativos: Admin/Mestre, Tarefas, Escala TPL, Limpeza, Servico de Campo e Minha Agenda.
-- Secretario, Oradores e Vida e Ministerio foram retirados do aplicativo ativo.
-  Nao reintroduzir requisitos historicos desses modulos ou a aba Relatorio.
-- Minha Agenda conserva Pessoal, Geral e Quadro.
-- Cadastro central em `master/pessoas`; vinculos por masterId, sem inventar nomes.
-- Manter permissoes, disponibilidade, habilitacoes, bloqueios de periodos
-  publicados, isolamento entre pessoas e preservacao de edicoes manuais.
-- Baixar PDF e Publicar no Quadro sao acoes SEPARADAS por decisao do usuario.
-  Download nao publica. Publicacao precisa tratar falhas/rollback e duplicidade.
-- Documentos manuais do Admin permanecem separados dos PDFs dos quatro modulos.
-- Limpeza usa grupos proprios, sem dependencia de Secretario.
-- Servico de Campo tem rodizio por arranjo; varias saidas no mesmo dia sao validas.
-- Mensagens e links WhatsApp pertencem a cada modulo; preservar personalizacoes.
-- Minha Agenda: preservar preferencias por pessoa, identidade e cache/offline.
-  Assinaturas sairam do escopo; exportacao avulsa ICS permanece.
+- Revisao dos motores de Escala TPL e Tarefas concluida: TPL tem duas
+  preferencias liga/desliga (prioridade de pioneiro e equilibrio); Tarefas tem
+  quatro (conflito com Oradores, segunda tarefa do presidente, equilibrio e
+  repeticao de funcao). Os responsaveis com acesso ao respectivo modulo podem
+  configurá-las. Cada tela lista as restricoes fixas sem liga/desliga:
+  disponibilidade, vinculos/identidade, bloqueios e incompatibilidades reais.
+  Elas foram mantidas para nao gerar escalas invalidas; restricoes individuais
+  opcionais continuam configuradas no cadastro da pessoa.
+- Esclarecimento operacional: escala parcial e valida. Tarefas gera com as
+  pessoas disponiveis e deixa funcoes sem candidato vazias; horario vago nao
+  e pendencia. As pendencias de Tarefas e TPL priorizam revisar a
+  disponibilidade e preparar a escala do proximo mes antes do dia 1. Conflitos
+  reais de designacao continuam sendo apontados.
 
-## Plano original (ja aprovado e executado; referencia historica)
+### Commits recentes e pontos para continuidade
 
-1. Inventariar telas, acoes, navegacao e estados de cada modulo ativo em desktop
-   e celular. Mostrar o fluxo atual e quais telas podem ser reunidas/eliminadas.
-2. Diagnosticar primeiro Voltar: reproduzir apos login, entrada/troca de modulo,
-   telas internas, retorno repetido e reload. Registrar sequencia e erros.
-   Inspecionar `src/main.ts`, `src/router.ts`, eventos app-route-change,
-   data-module-index-marker e renderizacoes assincronas. Causa ainda desconhecida.
-3. Definir navegacao comum: retorno previsivel de um nivel, sem exigir reload,
-   com Sair distinto; estado e periodo preservados quando apropriado.
-4. Propor layout operacional simples para cada modulo: acao principal evidente,
-   menos telas intermediarias, configuracoes secundarias em secoes expansiveis.
-   Limpeza foi a maior queixa de complexidade; usuario prefere listas longas
-   recolhiveis tambem nas configuracoes de Servico de Campo.
-5. Apresentar proposta detalhada por modulo, o que fica/muda/sai, interacoes,
-   estados vazio/carregando/erro, riscos e ordem de implementacao. Aguardar aceite.
-6. Depois de autorizado: implementar por etapas e testar retorno, preservacao
-   de estado, acessibilidade, celular/desktop, PDFs e regras dos motores.
+- `1e88f62`: pendencias direcionadas, ajuda nos campos e ajustes de celular.
+- `aeb48ec`: padrao antigo de mensagens em Oradores e Tarefas.
+- `935fb87`: mensagem detalhada com emojis e endereco.
+- `a39fa1f`: retirada do seletor de data de Substituicoes.
+- `73de347`: Pendencias 90 dias, Mais opcoes, repertorio e filtros/PDF de temas.
+- `25db9cf`: usabilidade, protecao de edicao e estados de publicacao.
+- `65cd773`: disponibilidade de temas e relatorios de Oradores.
+- `05bcc06`: identidade master e repertorio numerico.
 
-## PDFs: alteracoes publicadas e verificadas
+- `b07d139`: Oradores na Agenda e padronizacao visual.
+- `60dbae6`: retirada de assinaturas; compatibilidade com secao unica.
+- `21b0918`: historico local de alteracoes da Agenda.
+- `c340675`: conflitos da secao unica, validacao de historico, gravacoes
+  condicionais em Oradores/Campo e publicacao de Limpeza/TPL; badges no app.
+- `81d94b7`: endereco separado de mapa e exportacao ICS com localizacao.
+- Revisar ainda publicacao concorrente: PDF e banco sao operacoes separadas;
+  gravacao condicional nao torna upload/rollback uma transacao unica.
+- Conferir baseline bruto de Oradores depois de confirmar/reconfirmar no mesmo
+  carregamento; edicao condicional pode exigir recarregar apos essas operacoes.
+- Localizacao ICS de Oradores depende do ID da congregacao destino/local.
+  Revisar fallback de programacoes locais sem ID, sem usar origem visitante.
+- Validar mapa em Android/iPhone e PDF visualmente. Nao alegar validacao fisica.
+- Padronizacao completa de acoes e estados de publicacao ainda nao foi concluida.
 
-- Tarefas: 1 A4 retrato, inclusive bimestre com 19 linhas; dois blocos com datas
-  nas linhas. Colunas: Operador 1/2 e Microfone 1/2; Presidente, Leitor, Entrada,
-  Auditorio. Fonte adaptativa, nomes com quebra, sem cortar dados.
-- TPL: 1 A4 paisagem por local; quatro locais = quatro folhas, antes eram 13.
-  Remove colunas de horarios inteiramente vazias, preserva datas/designacoes.
-- Limpeza: 1 A4 retrato; altura e padding corrigidos, linhas nao cruzam texto.
-- Servico de Campo: 1 A4 retrato, tabela legivel.
-- Arquivos alterados: `src/modules/{tarefas,escala,limpeza}-documents.ts`,
-  `src/ui/public-pdf-layout.ts` e os tres testes correspondentes em `tests/`.
-- Build aprovado; 47 testes focados aprovados; teste de navegador
-  `tests/publication-download-browser.mjs` aprovado em 1280 e 390 pixels.
-- Usuario gerou os quatro PDFs em Downloads em 17/09, cerca de 16:03. Todas as
-  sete paginas foram renderizadas e inspecionadas: 1/4/1/1, sem sobreposicoes.
-- Limpeza ainda repete numero na coluna N e no nome do grupo; detalhe cosmetico.
-- Nao confundir validacao de downloads locais com homologacao de publicacao online.
+### Dados de referencia preservados
 
-## Servidor local e acesso
+- Downloads: `banco do app velho.json` e `Banco do app novo.json`.
+- Arquivo reconciliado: `C:/Users/eliau/Downloads/Banco do app novo - Oradores S2 validado.json`.
+  Antigo prevalece; 55 programacoes S2. Nao importar automaticamente no Firebase.
 
-- URL usada: http://127.0.0.1:5190/ (verificar se o processo ainda esta ativo).
-- Reiniciar se necessario: `npm run dev -- --host 127.0.0.1 --port 5190`.
-- `vite.config.ts` tem proxy de `/.netlify/functions/` para o site de TESTES.
-  Sem isso Vite retorna HTML e a lista de login fica sem usuarios.
-- Lista de usuarios verificada no Edge automatizado: um usuario selecionavel.
-- Login usa senha habitual; nao colocar credenciais no documento ou codigo.
-- ATENCAO: nao e sandbox de dados. Salvar/publicar usa o backend online.
-- Melhorias anteriores: importacao lazy de PDF, restauracao de sessao paralela
-  a lista de usuarios, timeout de 15s em leituras. Ainda medir lentidao real.
-
-## Firebase e arquivos locais
-
-- Export recebido: `C:/Users/eliau/Downloads/oradoress2-default-rtdb-export.json`.
-- Copia preparada: `C:/Users/eliau/Downloads/oradoress2-export-ajustado.json`.
-- Original preservado. A copia remove `secretario`, `programacao` (Vida e
-  Ministerio) e o documento de Oradores em `agenda/documentos`. Nao havia raiz
-  `oradores` no export. Demais cadastros, usuarios e dados foram preservados.
-- Usuario identificou TPL `m_30985d99` como Eliaudrey Conceicao Santos.
-  Na copia, masterId vinculado a `m_3fa99d9d` e snapshots correspondentes ajustados.
-- Ultimo PDF baixado ja mostra Eliaudrey. Nao assumir por isso que toda a copia
-  foi importada: o agente NAO fez importacao nem escrita no Firebase online.
-- TPL `m_b6bca401` ainda sem identidade (Joao Alves, 08h, repetido na dupla).
-  Nao adivinhar. Usuario considera os dados de teste, nao bloquear o layout nisso.
-- Tarefas tem dois registros em 26/09/2026, weekend e weekend_merged.
-  Usuario declarou irrelevante por ser teste; foram mantidos.
-- Scripts novos: `scripts/prepare-firebase-export.mjs` cria copia sem sobrescrever;
-  `scripts/validate-firebase-pdfs.mjs` audita export e gera PDFs localmente.
-- Exemplo: `node scripts/validate-firebase-pdfs.mjs caminho.json 2026-09`.
-- Artefatos: `output/firebase-pdfs/`; auditoria visual Downloads: `tmp/pdfs/download-review/`.
-- Exports contem sessoes/dados privados: nao versionar, servir publicamente ou
-  enviar a terceiros. Importacao futura exige backup fresco, escopo e aprovacao;
-  mesclar nao remove ramos ausentes, substituir raiz pode perder dados recentes.
-
-## Pendencias reais de encerramento
-
-- Depois de autorizar codigo: `npm run test:all`, `npm run build`, testes de
-  navegador pertinentes e `git diff --check`; nao presumir aprovacao da suite
-  completa atual apenas com base nas rodadas antigas.
-- Usuario aprovar layout e fluxos publicados com seus dados: editar, salvar,
-  trocar abas e Voltar, principalmente no celular. Testes automatizados passaram.
-- Validar publicacao, retirada/reabertura, download e documentos manuais do Admin.
-- Medir latencia real de Functions/Firebase e verificar concorrencia de edicoes.
-- Homologar a PWA instalada em aparelho fisico; abertura offline, reconexao e
-  isolamento de identidade ja passaram em navegador automatizado.
-- Testar importacao avulsa de ICS no aparelho, com horarios America/Fortaleza.
-  Nao esperar atualizacao/exclusao automatica dos compromissos importados.
-  Homologacao de assinaturas e revogacao de links nao sao requisitos de conclusao.
-- Servico de Campo: ICS pessoal apenas para dirigente; Quadro sem alarme coletivo.
-- Commit/deploy concluido: b595a05 no site de testes. Limpeza do Firebase e envio
-  ao repositorio original sao etapas separadas, dependentes de autorizacao.
+O projeto esta pronto para receber novas ideias em outro chat. Comece por este
+arquivo, leia o modulo relacionado e proponha uma mudanca pequena e verificavel.
+Pendencias que exigem validacao humana, mas nao bloqueiam novas ideias: uso com
+dados reais no celular, instalacao PWA em aparelho fisico e importacao de ICS em
+um calendario real com fuso `America/Fortaleza`.

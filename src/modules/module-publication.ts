@@ -17,7 +17,7 @@ export async function renderPublicationStatus(host:HTMLElement|null,module:Publi
   try {
     const response=await apiJson<PublicationStatus>('module-publication',{method:'POST',body:JSON.stringify({action:'status',module,periodId})})
     if(!label.isConnected)return
-    label.textContent=module!=='oradores'&&response.published===true&&!response.document?'Período bloqueado, mas sem PDF no Quadro. Reabra e publique novamente.':module!=='oradores'&&response.published===false&&response.document?'PDF no Quadro com período aberto. Confira antes de editar.':!response.document?'Ainda não publicado no Quadro.':!response.document.sourceHash?'Publicação anterior: publique novamente para verificar a versão.':response.document.sourceHash===response.hash?'Publicado e atualizado.':'Publicado, mas os dados mudaram. Confira e publique novamente.'
+    label.textContent=module!=='oradores'&&response.published===true&&!response.document?'Período finalizado, mas sem PDF no Quadro (pode ter expirado após 60 dias). Reabra e publique novamente se necessário.':module!=='oradores'&&response.published===false&&response.document?'PDF no Quadro com período aberto. Confira antes de editar.':!response.document?'Ainda não publicado no Quadro.':!response.document.sourceHash?'Publicação anterior: publique novamente para verificar a versão.':response.document.sourceHash===response.hash?'Publicado e atualizado.':'Publicado, mas os dados mudaram. Confira e publique novamente.'
   }catch{if(label.isConnected)label.textContent='Não foi possível conferir a publicação. Reabra o módulo para tentar novamente.'}
 }
 

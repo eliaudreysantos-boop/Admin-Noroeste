@@ -9,7 +9,7 @@ test('documento bimestral fica disponível nos dois meses cobertos', () => {
   assert.equal(documentCoversMonth(item, '2026-09'), true)
   assert.equal(documentCoversMonth(item, '2026-10'), true)
   assert.equal(documentCoversMonth(item, '2026-11'), false)
-  assert.deepEqual(publicDocumentMonths([item]), ['2026-10', '2026-09'])
+  assert.deepEqual(publicDocumentMonths([item], Date.parse('2026-09-24T00:00:00Z')), ['2026-10', '2026-09'])
 })
 
 test('seleção mantém apenas a versão oficial mais recente de cada módulo e separa Admin', () => {
@@ -19,7 +19,7 @@ test('seleção mantém apenas a versão oficial mais recente de cada módulo e 
     doc({ id:'speakers', modulo:'oradores' }),
     doc({ id:'manual', modulo:'admin', tipo:'admin', nome:'comunicado.pdf' }),
     doc({ id:'secretary', modulo:'programacao' }),
-  ], '2026-09')
+  ], '2026-09', Date.parse('2026-09-24T00:00:00Z'))
   assert.equal(grouped.modules.tarefas?.id, 'new')
   assert.equal(grouped.modules.oradores?.id, 'speakers')
   assert.deepEqual(grouped.admin.map(item => item.id), ['manual'])
@@ -29,4 +29,11 @@ test('seleção mantém apenas a versão oficial mais recente de cada módulo e 
 test('id oficial é estável para republicação do mesmo período', () => {
   assert.equal(officialDocumentId('servicoCampo', '2026-09'), 'modulo-servicoCampo-2026-09')
   assert.equal(officialDocumentId('tarefas', '2026/09 bimestre'), officialDocumentId('tarefas', '2026/09 bimestre'))
+})
+
+test('PDF publicado expira para o Quadro após 60 dias', () => {
+  const published = doc({ criadoEm:'2026-09-01T10:00:00.000Z' })
+  assert.equal(groupPublicDocuments([published], '2026-09', Date.parse('2026-10-31T09:59:59Z')).modules.tarefas?.id, 'x')
+  assert.equal(groupPublicDocuments([published], '2026-09', Date.parse('2026-10-31T10:00:00Z')).modules.tarefas, undefined)
+  assert.deepEqual(publicDocumentMonths([published], Date.parse('2026-10-31T10:00:00Z')), [])
 })

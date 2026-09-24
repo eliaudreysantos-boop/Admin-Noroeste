@@ -2,9 +2,9 @@ import { focusCorrection, fieldHelp } from '../ui/field-guidance'
 import { substitutionDialog } from '../ui/substitution-dialog'
 import { taskSubstitutes } from './substitution-domain'
 import { canonicalTaskPerson } from './central-person'
-import { fortalezaToday, fortalezaCurrentMonth, isValidCivilDate } from './civil-date'
+import { fortalezaToday, fortalezaCurrentMonth, isValidCivilDate, nextCivilMonth } from './civil-date'
 import { tasksPersonMessage, tasksDayMessage } from './tarefas-messages'
-import { whatsappPhone } from './message-domain'
+import { showMessagePreview } from '../ui/message-preview'
 import type { LimpezaPeriodoGerado } from '../types'
 import { editorBusy, editorError, editorSaved } from '../ui/editor-feedback'
 import { lockPublicationUi } from '../ui/publication-busy'
@@ -75,6 +75,7 @@ interface TarefasPlanning {
   weekendDow?: number
   excludedDates?: string[] | Record<string, string>
   engineRules?: Partial<TaskGenerationRules>
+  availabilityReviewedMonth?: string
 }
 
 interface PendingTarget {
@@ -105,6 +106,7 @@ let selectedPeriodMode: 'month' | 'bimester' = 'bimester'
 let onlyPendingMeetings = localStorage.getItem(TAREFAS_PENDING_DATES_KEY) === 'true'
 let selectedGenerateRole = localStorage.getItem(TAREFAS_ROLE_KEY) ?? ''
 let participantSearch = ''
+let selectedTaskPersonId = ''
 let participantMeetingRule = ''
 let participantRoleFilter = ''
 let pendingTarget: PendingTarget | null = null
@@ -114,21 +116,7 @@ let loadPromise: Promise<boolean> | null = null
 
 
 function showTaskMessage(message:string,phone?:string):void {
-  if(!message){toast('Nenhuma designação para enviar.');return}
-  document.getElementById('taskMessagePreview')?.remove()
-  const dialog=document.createElement('dialog');dialog.id='taskMessagePreview'
-  dialog.style.cssText='width:min(600px,calc(100vw - 32px));max-height:85vh;border:1px solid var(--border);border-radius:12px;padding:18px'
-  dialog.innerHTML='<h3>Mensagem de Tarefas</h3><p>Confira antes de abrir o WhatsApp. O envio é manual.</p><textarea aria-label="Mensagem de Tarefas" class="form-input" rows="14"></textarea><div class="scale-actions"><button data-open class="btn btn-primary">Abrir no WhatsApp</button><button data-copy class="btn btn-ghost">Copiar</button><button data-close class="btn btn-ghost">Fechar</button></div>'
-  document.body.append(dialog)
-  const field=dialog.querySelector('textarea')!;field.value=message
-  dialog.querySelector('[data-open]')!.addEventListener('click',()=>{
-    const digits=phone===undefined?'':whatsappPhone(phone)
-    if(digits===null){toast('Cadastre um telefone com DDD no Admin ou copie a mensagem.');return}
-    window.open(`https://wa.me/${digits}?text=${encodeURIComponent(field.value)}`,'_blank','noopener,noreferrer')
-  })
-  dialog.querySelector('[data-copy]')!.addEventListener('click',()=>{void navigator.clipboard.writeText(field.value).then(()=>toast('Mensagem copiada')).catch(()=>toast('Não foi possível copiar. Selecione o texto da mensagem.'))})
-  dialog.querySelector('[data-close]')!.addEventListener('click',()=>dialog.close())
-  dialog.addEventListener('close',()=>dialog.remove());dialog.showModal()
+  showMessagePreview({id:'taskMessagePreview',title:'Mensagem de Tarefas',message,phone,allowNoPhone:phone===undefined,toast})
 }
 
 function monthNow(): string {
@@ -326,7 +314,7 @@ function renderIndex(): void {
   const items: ItemMenu[] = [
     { id: 'escala', titulo: 'Escala', subtitulo: 'Escolha o período, gere e revise a escala', icone: '▣', corFundo: '#003F72' },
     { id: 'participantes', titulo: 'Pessoas', subtitulo: 'Participantes e vínculos com Admin', icone: '♙', corFundo: '#006EB6' },
-    { id: 'pendencias', titulo: 'Pendências', subtitulo: 'Funções vazias e vínculos incompletos', icone: '!', corFundo: '#B3261E' },
+    { id: 'pendencias', titulo: 'Pendências', subtitulo: 'Disponibilidade e preparação do próximo período', icone: '!', corFundo: '#B3261E' },
     { id: 'config', titulo: 'Configuração', subtitulo: 'Período, regras, datas e mensagens', icone: '⚙', corFundo: '#5C6062' },
   ]
   renderMenuCards(content.querySelector<HTMLElement>('#tarefasMenu')!, items, id => { void openTarefasTab(id as TarefasTab) })
@@ -546,7 +534,7 @@ async function generateScale(startDate: string, mode: 'month' | 'bimester', role
     })
     await update(tarefasRef, patch)
     planning = { ...nextPlanning, editingPeriod: selectedPeriodMonth, scaleStartDate: undefined, generatedAt }
-    toast(`${result.generated} designações geradas para o período selecionado`)
+    toast(result.generated ? `${result.generated} designações geradas; vagas sem candidato ficaram vazias` : 'Escala preparada; vagas sem candidato ficaram vazias')
     await loadTarefas()
   } catch {
     toast('Não foi possível gerar a escala')
@@ -590,31 +578,41 @@ function renderParticipantes(): void {
     })
     .filter(([, person]) => !participantRoleFilter || person.roles?.[participantRoleFilter as TaskRole] === true)
     .sort(([, a], [, b]) => pessoaNome(a, '').localeCompare(pessoaNome(b, ''), 'pt-BR'))
+  if(targetPersonId&&rows.some(([id])=>id===targetPersonId))selectedTaskPersonId=targetPersonId
+  if(!rows.some(([id])=>id===selectedTaskPersonId))selectedTaskPersonId=rows[0]?.[0]??''
 
+  const preparationMonth = nextCivilMonth(todayStr())
   content.innerHTML = `
-    ${sectionTitle('Participantes', 'Pessoas gerenciadas pelo Admin. Edite funções, folga e vínculo.')}
+    ${sectionTitle('Participantes', 'Nome, telefone e vínculo vêm do Admin. O responsável de Tarefas atualiza funções, folgas e indisponibilidades.')}
     ${context.usuario.apps.mestre ? '<div style="display:flex;justify-content:flex-end;margin-bottom:10px"><button id="btnAddTaskPerson" class="btn btn-primary" type="button">Vincular pessoa</button></div>' : ''}
+    <div class="notice"><strong>Disponibilidade para ${escapeHtml(preparationMonth.slice(5, 7) + '/' + preparationMonth.slice(0, 4))}:</strong> ${planning.availabilityReviewedMonth === preparationMonth ? 'revisada' : 'aguardando revisão'} <button id="taskReviewAvailability" class="btn btn-ghost" type="button">Marcar como revisada</button></div>
     <div class="module-form-grid" style="margin-bottom:10px">
       <div class="form-group" style="margin:0"><label class="form-label" for="taskPersonSearch">Buscar</label><input id="taskPersonSearch" class="form-input" value="${escapeHtml(participantSearch)}" placeholder="Nome da pessoa"></div>
       <div class="form-group" style="margin:0"><label class="form-label" for="taskPersonMeetingFilter">Reuniões</label><select id="taskPersonMeetingFilter" class="form-select"><option value="">Todas</option><option value="midweek" ${participantMeetingRule === 'midweek' ? 'selected' : ''}>Meio de semana</option><option value="weekend" ${participantMeetingRule === 'weekend' ? 'selected' : ''}>Fim de semana</option><option value="both" ${participantMeetingRule === 'both' ? 'selected' : ''}>Todas as reuniões</option></select></div>
       <div class="form-group" style="margin:0"><label class="form-label" for="taskPersonRoleFilter">Função</label><select id="taskPersonRoleFilter" class="form-select"><option value="">Todas</option>${TASK_ROLES.map(role => `<option value="${role}" ${participantRoleFilter === role ? 'selected' : ''}>${escapeHtml(TASK_ROLE_LABELS[role])}</option>`).join('')}</select></div>
       <div style="display:flex;align-items:end"><button id="taskClearPersonFilters" class="btn btn-ghost" type="button" style="width:100%">Limpar filtros</button></div>
     </div>
+    <div class="form-group"><label class="form-label" for="taskPersonContext">Pessoa selecionada</label><select id="taskPersonContext" class="form-select">${rows.map(([id,person])=>`<option value="${escapeHtml(id)}" ${id===selectedTaskPersonId?'selected':''}>${escapeHtml(pessoaNome(person,id))}</option>`).join('')}</select></div>
     <div style="display:flex;flex-direction:column;gap:6px">
       ${rows.length
-        ? rows.map(([id, p]) => pessoaRow(id, p, usage[id] ?? 0, lastUse[id] ?? '', id === targetPersonId)).join('')
+        ? rows.filter(([id])=>id===selectedTaskPersonId).map(([id, p]) => pessoaRow(id, p, usage[id] ?? 0, lastUse[id] ?? '', id === targetPersonId)).join('')
         : emptyState('Nenhum participante. Adicione pelo módulo Admin.')}
     </div>`
   content.querySelectorAll<HTMLButtonElement>('[data-message-task-person]').forEach(button=>button.addEventListener('click',()=>{const id=button.dataset.messageTaskPerson!;showTaskMessage(tasksPersonMessage(id,pessoas,scaleMeetingEntries().map(entry=>entry.meeting),todayStr(),taskMessageSettings.meetingText),personPhone(pessoas[id]))}))
   document.getElementById('btnAddTaskPerson')?.addEventListener('click', () => openTaskPersonModal(null))
+  document.getElementById('taskReviewAvailability')?.addEventListener('click', async () => {
+    try { await update(tarefasPlanejamentoRef, { availabilityReviewedMonth:preparationMonth }); planning.availabilityReviewedMonth=preparationMonth; toast('Disponibilidades revisadas'); renderParticipantes() }
+    catch { toast('Não foi possível registrar a revisão') }
+  })
   content.querySelectorAll<HTMLButtonElement>('[data-edit-task-person]').forEach(button => {
     button.addEventListener('click', () => openTaskPersonModal(button.dataset['editTaskPerson'] ?? null))
   })
   document.getElementById('taskPersonSearch')?.addEventListener('input', event => { participantSearch = (event.target as HTMLInputElement).value; renderParticipantes() })
+  document.getElementById('taskPersonContext')?.addEventListener('change',event=>{selectedTaskPersonId=(event.currentTarget as HTMLSelectElement).value;renderParticipantes()})
   document.getElementById('taskPersonMeetingFilter')?.addEventListener('change', event => { participantMeetingRule = (event.target as HTMLSelectElement).value; renderParticipantes() })
   document.getElementById('taskPersonRoleFilter')?.addEventListener('change', event => { participantRoleFilter = (event.target as HTMLSelectElement).value; renderParticipantes() })
   document.getElementById('taskClearPersonFilters')?.addEventListener('click', () => { participantSearch = ''; participantMeetingRule = ''; participantRoleFilter = ''; renderParticipantes() })
-  if(targetPersonId){if(pessoas[targetPersonId]&&context.usuario.apps.mestre){openTaskPersonModal(targetPersonId);focusCorrection(document.getElementById('taskPersonMaster'))}else focusCorrection([...content.querySelectorAll<HTMLElement>('[data-task-person-id]')].find(row=>row.dataset.taskPersonId===targetPersonId)??null);pendingTarget=null}
+  if(targetPersonId){if(pessoas[targetPersonId]&&(context.usuario.apps.mestre||context.usuario.apps.tarefas)){openTaskPersonModal(targetPersonId);focusCorrection(document.getElementById('taskPersonUnavailable'))}else focusCorrection([...content.querySelectorAll<HTMLElement>('[data-task-person-id]')].find(row=>row.dataset.taskPersonId===targetPersonId)??null);pendingTarget=null}
 }
 
 function planningExcludedDates(): string[] {
@@ -628,11 +626,12 @@ function renderTaskConfig(): void {
   if (!content) return
   const dates = planningExcludedDates().sort()
   const rules = normalizeTaskGenerationRules(planning.engineRules)
-  const canEditRules = context.usuario.apps.mestre === true
+  const canEditRules = context.usuario.apps.mestre === true || context.usuario.apps.tarefas === true
   content.innerHTML = `${sectionTitle('Configuração', 'Preferências próprias de Tarefas. Dias e horários das reuniões continuam vindo do Admin.')}
     <div class="form-panel" data-editor-scope><div class="module-form-grid"><label class="form-field"><span>Formato padrão</span><select id="taskConfigMode"><option value="month" ${selectedPeriodMode === 'month' ? 'selected' : ''}>Mensal</option><option value="bimester" ${selectedPeriodMode === 'bimester' ? 'selected' : ''}>Bimestral</option></select></label><label class="form-field"><span>Fonte preferida do PDF: <strong id="taskConfigFontValue">${printFont()} pt</strong></span><input id="taskConfigFont" type="range" min="${PRINT_MIN_PT}" max="${PRINT_MAX_PT}" value="${printFont()}"></label></div><button id="saveTaskConfig" class="btn btn-primary" type="button">Salvar preferências</button></div>
     <div class="form-panel" data-editor-scope><h3 style="margin-top:0">Regras do motor</h3><p class="form-help">Estas opções valem apenas para as próximas gerações. Regras de integridade continuam obrigatórias.</p><div class="engine-rule-list"><label><input id="taskRuleSpeakers" type="checkbox" ${rules.evitarConflitosOradores ? 'checked' : ''} ${canEditRules ? '' : 'disabled'}> Evitar designar quem tem discurso ou saída de Oradores na mesma data (S2)</label><label><input id="taskRulePresident" type="checkbox" ${rules.presidenteSegundaTarefa ? 'checked' : ''} ${canEditRules ? '' : 'disabled'}> Aproveitar o presidente em uma segunda tarefa mecânica</label><label><input id="taskRuleBalance" type="checkbox" ${rules.equilibrarDesignacoes ? 'checked' : ''} ${canEditRules ? '' : 'disabled'}> Equilibrar o total de designações</label><label><input id="taskRuleRepeat" type="checkbox" ${rules.evitarRepetirFuncao ? 'checked' : ''} ${canEditRules ? '' : 'disabled'}> Evitar repetir a mesma função</label></div>${canEditRules ? '<div class="scale-actions" style="margin-top:12px"><button id="saveTaskRules" class="btn btn-primary" type="button">Salvar regras</button><button id="restoreTaskRules" class="btn btn-ghost" type="button">Restaurar padrões</button></div>' : '<div class="notice">Somente o Admin pode alterar estas regras.</div>'}</div>
     <div class="form-panel"><h3 style="margin-top:0">Datas sem reunião</h3><div style="display:flex;gap:8px"><input id="taskExcludedDate" class="form-input" type="date"><button id="addTaskExcludedDate" class="btn btn-ghost" type="button">Adicionar</button></div><div class="module-option-list" style="margin-top:10px">${dates.map(date => `<div class="module-list-row"><strong>${escapeHtml(formatDate(date))}</strong><button class="btn btn-danger" data-remove-task-date="${escapeHtml(date)}" type="button">Remover</button></div>`).join('') || '<p class="empty-state">Nenhuma data excluída.</p>'}</div></div><div id="taskMessageSettings"></div>`
+  document.getElementById('taskRuleSpeakers')?.closest('.form-panel')?.insertAdjacentHTML('beforeend', '<details class="workspace-disclosure"><summary>Regras fixas sem liga/desliga</summary><p class="form-help">O motor sempre respeita pessoa ativa, função habilitada, tipo de reunião, folga e indisponibilidade cadastradas, reunião bloqueada e incompatibilidade entre funções. Também mantém as restrições de participação dos jovens. Essas proteções não são preferências de distribuição.</p></details>')
   content.querySelectorAll<HTMLElement>(':scope > .form-panel').forEach((panel, index) => {
     const details = document.createElement('details')
     details.className = 'workspace-disclosure'
@@ -668,7 +667,7 @@ function renderTaskConfig(): void {
 }
 
 async function saveTaskRules(value?: TaskGenerationRules): Promise<void> {
-  if (!context.usuario.apps.mestre) { toast('Somente o Admin pode alterar as regras'); return }
+  if (!context.usuario.apps.mestre && !context.usuario.apps.tarefas) { toast('Sem permissão para configurar Tarefas'); return }
   const next = value ?? {
     evitarConflitosOradores:(document.getElementById('taskRuleSpeakers') as HTMLInputElement).checked,
     presidenteSegundaTarefa:(document.getElementById('taskRulePresident') as HTMLInputElement).checked,
@@ -690,33 +689,29 @@ function renderPendencias(): void {
   if (!content) return
 
   const items: Array<{ level: PendingLevel; title: string; detail: string; tab: TarefasTab; target?: PendingTarget }> = []
-  const futureEntries = scaleMeetingEntries()
-    .filter(entry => entry.meeting.date && entry.meeting.date >= todayStr() && canonicalMeetingType(entry.meeting.type) && !meetingIsBlocked(domainContext(), entry.meeting))
-  if (!futureEntries.length) {
+  const preparationMonth = nextCivilMonth(todayStr())
+  const nextPeriodId = periodKeyForDate(`${preparationMonth}-01`, planning.periodMode === 'month' ? 'month' : 'bimester')
+  if (planning.availabilityReviewedMonth !== preparationMonth) {
     items.push({
-      level: 'alta',
-      title: 'Escala futura ainda não gerada',
-      detail: 'Abra a Escala, informe a data inicial e gere as designações.',
-      tab: 'escala',
+      level: 'media',
+      title: 'Revisar disponibilidades para ' + preparationMonth.slice(5, 7) + '/' + preparationMonth.slice(0, 4),
+      detail: 'Confira funções, folgas e datas indisponíveis; depois marque a revisão em Participantes.',
+      tab: 'participantes',
     })
   }
-
+  if (!periods[nextPeriodId]?.generatedAt) {
+    items.push({
+      level: 'alta',
+      title: 'Gerar a escala antes de 01/' + preparationMonth.slice(5, 7),
+      detail: 'Prepare o próximo período, mesmo que algumas funções fiquem vagas.',
+      tab: 'escala',
+      target: { periodId: nextPeriodId },
+    })
+  }
+  const futureEntries = scaleMeetingEntries()
+    .filter(entry => entry.meeting.date && entry.meeting.date >= todayStr() && canonicalMeetingType(entry.meeting.type) && !meetingIsBlocked(domainContext(), entry.meeting))
   futureEntries.forEach(entry => {
     const { meeting } = entry
-    const missing = GENERATED_ROLES
-      .filter(role => meetingAllowsRole(meeting, role) && !assignmentForRole(meeting, role))
-      .map(role => roleLabel(role))
-    if (missing.length) {
-      items.push({
-        level: missing.length === GENERATED_ROLES.filter(role => meetingAllowsRole(meeting, role)).length ? 'alta' : 'media',
-        title: missing.length === GENERATED_ROLES.filter(role => meetingAllowsRole(meeting, role)).length
-          ? `Escala de ${formatDate(meeting.date)} por gerar`
-          : `Reunião de ${formatDate(meeting.date)} incompleta`,
-        detail: `Funções sem pessoa: ${missing.join(', ')}`,
-        tab: 'escala',
-        target: { periodId: entry.periodId, meetingId: entry.meetingId, role: GENERATED_ROLES.find(role=>meetingAllowsRole(meeting,role)&&!assignmentForRole(meeting,role)) },
-      })
-    }
     GENERATED_ROLES.forEach(role => {
       const personId = assignmentForRole(meeting, role)
       if (!personId) return
@@ -773,7 +768,7 @@ function renderPendencias(): void {
       const item = items[Number(button.dataset['pendingIndex'])]
       if (!item) return
       pendingTarget = item.target ?? null
-      if (item.target?.periodId) { selectedPeriodMonth = item.target.periodId.slice(0,7); selectedPeriodMode=Object.values(periods[item.target.periodId]?.meetings??{}).some(meeting=>meeting.date?.slice(0,7)!==selectedPeriodMonth)?'bimester':'month' }
+      if (item.target?.periodId) { selectedPeriodMonth = item.target.periodId.slice(0,7); selectedPeriodMode=planning.periodMode === 'month' ? 'month' : 'bimester' }
       if(item.tab==='participantes'){participantSearch='';participantMeetingRule='';participantRoleFilter=''}
       activeTab = item.tab
       renderContent()
@@ -937,7 +932,7 @@ function pessoaRow(id: string, p: TarefasPessoa, recentUsage: number, lastUse: s
       </div>
       <button class="btn btn-ghost" type="button" data-message-task-person="${escapeHtml(id)}" style="padding:4px 9px;font-size:.76rem">Mensagem</button>
       <span style="width:9px;height:9px;border-radius:50%;background:${linked ? '#1A6B3C' : '#B3261E'}"></span>
-      ${context.usuario.apps.mestre ? `<button class="btn btn-ghost" type="button" data-edit-task-person="${escapeHtml(id)}" style="padding:4px 9px;font-size:.76rem">Editar</button>` : ''}
+      ${context.usuario.apps.mestre || context.usuario.apps.tarefas ? `<button class="btn btn-ghost" type="button" data-edit-task-person="${escapeHtml(id)}" style="padding:4px 9px;font-size:.76rem">Editar</button>` : ''}
     </div>`
 }
 
@@ -946,7 +941,7 @@ function taskRoleCheck(role: keyof NonNullable<TarefasPessoa['roles']>, label: s
 }
 
 function openTaskPersonModal(id: string | null): void {
-  if (!context.usuario.apps.mestre) { toast('Somente o Admin pode configurar participantes'); return }
+  if (!context.usuario.apps.mestre && (!context.usuario.apps.tarefas || !id)) { toast('Sem permissão para configurar este participante'); return }
   const person = id ? pessoas[id] : undefined
   const unavailable = Array.isArray(person?.unavailableDates)
     ? person.unavailableDates
@@ -973,7 +968,7 @@ function openTaskPersonModal(id: string | null): void {
       </div>
       <div class="form-help">WhatsApp: ${escapeHtml(personPhone(person) || 'não informado')}. Edite os dados pessoais no Admin.</div>
     </div>` : ''}
-    <div class="form-group"><label class="form-label" for="taskPersonMaster">Pessoa do cadastro Admin</label><select id="taskPersonMaster" class="form-select" ${id && person?.masterId ? 'disabled' : ''}><option value="">Selecionar pelo nome ou ID...</option>${masterOptions}</select></div>
+    <div class="form-group"><label class="form-label" for="taskPersonMaster">Pessoa do cadastro Admin</label><select id="taskPersonMaster" class="form-select" ${!context.usuario.apps.mestre || id && person?.masterId ? 'disabled' : ''}><option value="">Selecionar pelo nome ou ID...</option>${masterOptions}</select></div>
     <div class="module-form-grid">
       <div class="form-group"><label class="form-label" for="taskPersonRule">Reuniões</label><select id="taskPersonRule" class="form-select"><option value="both" ${(person?.rule ?? 'both') === 'both' ? 'selected' : ''}>Todas</option><option value="midweek" ${person?.rule === 'midweek' ? 'selected' : ''}>Meio de semana</option><option value="weekend" ${person?.rule === 'weekend' ? 'selected' : ''}>Fim de semana</option><option value="none" ${person?.rule === 'none' ? 'selected' : ''}>Fora da escala</option></select></div>
       <div class="form-group"><label class="form-label" for="taskPersonRest">Referência da folga</label><input id="taskPersonRest" class="form-input" type="date" value="${escapeHtml(person?.refFolgaDate)}"></div>
@@ -990,7 +985,7 @@ function openTaskPersonModal(id: string | null): void {
 }
 
 async function saveTaskPerson(id: string | null, overlay: HTMLElement): Promise<void> {
-  if (!context.usuario.apps.mestre) { toast('Somente o Admin pode configurar participantes'); return }
+  if (!context.usuario.apps.mestre && (!context.usuario.apps.tarefas || !id)) { toast('Sem permissão para configurar este participante'); return }
   const person = id ? pessoas[id] : undefined
   const input = (elementId: string) => (document.getElementById(elementId) as HTMLInputElement).value.trim()
   const unavailableDates = input('taskPersonUnavailable').split(/[\s,;]+/).filter(Boolean)
@@ -1015,6 +1010,7 @@ async function saveTaskPerson(id: string | null, overlay: HTMLElement): Promise<
   const release=editorBusy(overlay)
   try {
     await update(tarefasPeopleRef, patch)
+    selectedTaskPersonId=finalId
     overlay.remove()
     toast('Participante atualizado')
     await loadTarefas()

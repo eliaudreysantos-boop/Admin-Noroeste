@@ -26,21 +26,17 @@ export function operationsSummary(root:PublicationRoot,apps:AppPermissions,month
     const tasks=root.tarefas??{},profiles:Record<string,TaskPerson>=Object.fromEntries(Object.entries(tasks.people??{}).map(([id,p]:any)=>[id,canonicalTaskPerson(id,p,people)]))
     const context:TaskDomainContext={people:profiles,periods:tasks.scale?.periods??{},events:tasks.events??{},discursos:tasks.discursos??{},engineRules:tasks.planning?.engineRules}
     for(const [id,p] of Object.entries(profiles))if(p.active!==false&&p.rule!=='none')member('tarefas',p.masterId||id,p.name||id)
-    let meetings=0
     for(const entry of meetingEntries(context.periods)) {
       const date=entry.meeting.date??''
       if(!date.startsWith(month)||!TASK_ROLES.some(role=>roleApplies(role,entry.meeting))||meetingIsBlocked(context,entry.meeting))continue
-      meetings++
       const reasons:string[]=[]
       for(const role of TASK_ROLES.filter(role=>roleApplies(role,entry.meeting))) {
         const id=assignmentForRole(entry.meeting,role),p=profiles[id??'']
         if(id)count('tarefas',p?.masterId||id,p?.name||'Cadastro não encontrado',p?.active===true)
-        if(!id)reasons.push('funções sem pessoa')
-        else if(manualConflictReason(context,entry,role,id))reasons.push('designações com conflito')
+        if(id&&manualConflictReason(context,entry,role,id))reasons.push('designações com conflito')
       }
       if(future(date)&&reasons.length)issue('tarefas',[...new Set(reasons)].join(' · '),date)
     }
-    if(!meetings)issue('tarefas','Nenhuma reunião gerada neste mês')
   }
   if(activityAllowed(apps,'oradores')) {
     const talks=selectSecondSection(normalizeSpeakersRoot(root.tarefas?.discursos??{}))
@@ -79,7 +75,7 @@ export function operationsSummary(root:PublicationRoot,apps:AppPermissions,month
           const cell=scale.tables?.[localId]?.[month]?.rows?.[date]?.slots?.[time]??{p1:'',p2:''}
           for(const id of [cell.p1,cell.p2].filter(Boolean))count('escala',id,participants[id]?.name||id,participants[id]?.active===true)
           if(local.active===false||!future(date)||input.exclusions.includes(date)||isBlocked(input.blocks,month,localId,new Date(date+'T12:00:00Z').getUTCDay(),time))continue
-          if(!cell.p1||!cell.p2||validatePair(input,date,time,cell.p1,cell.p2).length)issue('escala',`${local.name||localId} · ${time}: dupla incompleta ou com conflito`,date)
+          if((cell.p1||cell.p2)&&validatePair(input,date,time,cell.p1,cell.p2).length)issue('escala',`${local.name||localId} · ${time}: dupla incompleta ou com conflito`,date)
         }
       }
     }

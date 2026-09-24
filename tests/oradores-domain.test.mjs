@@ -8,6 +8,13 @@ import { hasSpeakerAssignment } from '../src/modules/tarefas-domain.ts'
 import { collectAgendaEvents } from '../src/modules/individual-domain.ts'
 import { filteredThemeRows, themeUsageIndex } from '../src/modules/oradores-themes.ts'
 
+test('prazo de datas por congregação persiste e valores antigos usam o padrão',()=>{
+  const root=normalizeSpeakersRoot({congregacoes:{a:{nome:'A',horizonteDatas:180},b:{nome:'B'},c:{nome:'C',horizonteDatas:999}}})
+  assert.equal(root.congregacoes.a.horizonteDatas,180)
+  assert.equal(root.congregacoes.b.horizonteDatas,undefined)
+  assert.equal(root.congregacoes.c.horizonteDatas,undefined)
+})
+
 test('disponibilidade reúne histórico e agenda: saídas não ocupam, futuro e hoje ocupam',()=>{
   const root={temas:Object.fromEntries(['free','used','future','out','shared','s1'].map((id,i)=>[id,{numero:i+1,titulo:id,ativo:true}])),
     historicoTemas:{h:{temaId:'used',data:'2026-08-01'},shared:{temaId:'shared',data:'2025-01-01',secao:'s1',historicoCompartilhado:true}},

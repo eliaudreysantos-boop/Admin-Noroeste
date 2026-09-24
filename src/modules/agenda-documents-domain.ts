@@ -1,4 +1,5 @@
 import type { AgendaPublicDocument, AgendaPublicDocumentModule } from '../types.ts'
+import { pdfHasExpired } from './pdf-expiry.ts'
 
 export const PUBLIC_PDF_MODULES = ['tarefas', 'oradores', 'escala', 'limpeza', 'servicoCampo'] as const
 export type PublicPdfModule = typeof PUBLIC_PDF_MODULES[number]
@@ -27,10 +28,10 @@ export function documentCoversMonth(item: AgendaPublicDocument, month: string): 
   return item.periodo === month || item.periodo.startsWith(month)
 }
 
-export function groupPublicDocuments(documents: AgendaPublicDocument[], month: string): PublicDocumentGroups {
+export function groupPublicDocuments(documents: AgendaPublicDocument[], month: string, now = Date.now()): PublicDocumentGroups {
   const modules: Partial<Record<PublicPdfModule, AgendaPublicDocument>> = {}
   const admin: AgendaPublicDocument[] = []
-  documents.filter(item => documentCoversMonth(item, month)).forEach(item => {
+  documents.filter(item => !pdfHasExpired(item.criadoEm, now) && documentCoversMonth(item, month)).forEach(item => {
     if (documentKind(item) === 'admin' || item.modulo === 'admin') {
       admin.push(item)
       return
@@ -44,9 +45,9 @@ export function groupPublicDocuments(documents: AgendaPublicDocument[], month: s
   return { modules, admin }
 }
 
-export function publicDocumentMonths(documents: AgendaPublicDocument[]): string[] {
+export function publicDocumentMonths(documents: AgendaPublicDocument[], now = Date.now()): string[] {
   const result = new Set<string>()
-  documents.forEach(item => {
+  documents.filter(item => !pdfHasExpired(item.criadoEm, now)).forEach(item => {
     const start = item.inicio?.slice(0, 7)
     const end = item.fim?.slice(0, 7)
     if (!validMonth(start ?? '') || !validMonth(end ?? '') || start! > end!) {

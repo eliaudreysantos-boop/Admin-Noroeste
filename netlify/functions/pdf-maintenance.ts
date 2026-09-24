@@ -4,9 +4,9 @@ import { appSession,json,objectBody,validCsrf } from '../lib/secure-session.ts'
 import { adminDatabase } from '../lib/subscription-store.ts'
 import { ACTIVITY_ROOT } from '../lib/activity.ts'
 import { validStoragePath,canReadPublicStoragePath } from './storage-file.ts'
+import { PDF_RETENTION_DAYS, pdfHasExpired } from '../../src/modules/pdf-expiry.ts'
 
 const STORE='admin-noroeste-pdfs'
-const RETENTION_MS=90*24*60*60*1000
 const PREFIX='agenda/documentos/'
 const record=(value:unknown):Record<string,unknown>=>value&&typeof value==='object'&&!Array.isArray(value)?value as Record<string,unknown>:{}
 function referencedPaths(value:unknown):Set<string> {
@@ -26,7 +26,7 @@ function ageStatus(createdAt:unknown,now:number):'retido'|'elegivel'|'desconheci
   if(typeof createdAt!=='string')return 'desconhecido'
   const time=Date.parse(createdAt)
   if(!Number.isFinite(time)||time>now)return 'desconhecido'
-  return now-time>=RETENTION_MS?'elegivel':'retido'
+  return pdfHasExpired(createdAt,now)?'elegivel':'retido'
 }
 
 export async function pdfMaintenanceResponse(request:Request,sessionFor=appSession,databaseFor=adminDatabase,storeFor=()=>getStore(STORE,{consistency:'strong'})):Promise<Response> {
@@ -53,7 +53,7 @@ export async function pdfMaintenanceResponse(request:Request,sessionFor=appSessi
         const status=referenced.has(blob.key)?'ativo':ageStatus(createdAt,now)
         return {path:blob.key,etag:blob.etag,createdAt:typeof createdAt==='string'?createdAt:null,bytes:Number(metadata?.metadata?.['bytes'])||null,status}
       })))
-      return json(200,{checkedAt:new Date(now).toISOString(),retentionDays:90,files,health:{database:'ok',storage:'ok',version:process.env['COMMIT_REF']?.slice(0,12)||'desconhecida'}})
+      return json(200,{checkedAt:new Date(now).toISOString(),retentionDays:PDF_RETENTION_DAYS,files,health:{database:'ok',storage:'ok',version:process.env['COMMIT_REF']?.slice(0,12)||'desconhecida'}})
     }
     const body=await objectBody(request)
     const paths=body['paths']

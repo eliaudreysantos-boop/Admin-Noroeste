@@ -35,7 +35,7 @@ try {
     const response=endpoint==='activity'?await activityResponse(request,async()=>session,database):await databaseResponse(request,database,async()=>session)
     return route.fulfill({status:response.status,body:await response.text(),headers:{'content-type':'application/json'}})
   })
-  const home=async()=>{await page.goto(process.env.APP_TEST_URL);await page.locator('[data-operation-open="tarefas"]').first().waitFor()}
+  const home=async()=>{await page.goto(process.env.APP_TEST_URL);await page.locator('[data-menu-card="tarefas"]').first().waitFor()}
   await home()
   assert.equal(await page.getByRole('heading',{name:'Painel de trabalho'}).count(),1)
   assert.equal(await page.locator('.home-publication-row').count(),5)
@@ -46,7 +46,7 @@ try {
   assert.match(await page.locator('[data-workload-rows]').textContent(),/2 participantes ativos sem designação/)
   await page.locator('[data-operation-history] > summary').click();await page.getByText('Nenhuma alteração registrada.').waitFor()
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true)
-  await page.locator('[data-operation-open="tarefas"]').first().click();await page.locator('[data-pending-index]').first().waitFor()
+  await page.locator('[data-menu-card="tarefas"]').first().click();await page.locator('[data-workspace-tab="escala"]').waitFor()
   await page.locator('[data-workspace-tab="escala"]').click()
   if(width<560)await page.locator('.task-mobile-scale summary').first().click()
   const scope=width<560?'.task-mobile-scale':'.task-scale-table'

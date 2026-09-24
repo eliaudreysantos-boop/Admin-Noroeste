@@ -106,6 +106,13 @@ test('documentos do Admin e de modulos permanecem independentes', async () => {
   for (const path of paths.slice(0, 2)) assert.equal((await storageFileResponse(storageRequest('GET', path), () => store, session)).status, 200)
 })
 
+test('link direto de PDF vencido deixa de abrir após 60 dias', async () => {
+  const bytes = await pdf(1)
+  const store = { async getWithMetadata() { return { data:bytes.buffer, metadata:{ createdAt:new Date(Date.now()-61*86400_000).toISOString() } } } }
+  const response = await storageFileResponse(storageRequest('GET', 'agenda/documentos/admin/aviso.pdf'), () => store, session)
+  assert.equal(response.status, 410)
+})
+
 test('falha de gravacao nao anuncia sucesso e permite repetir a substituicao', async () => {
   const store = memoryStorage(), path = 'agenda/documentos/modulos/tarefas/2026-09.pdf'
   const original = await pdf(1), replacement = await pdf(2)
