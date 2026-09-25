@@ -34,32 +34,10 @@ export function assignmentsForPerson(personId: string, month: string, tables: Es
   return result.sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time))
 }
 
-export function assignmentsForDay(date: string, month: string, tables: EscalaTables, locals: Record<string, EscalaLocal>, participants: Record<string, EscalaParticipant>) {
-  const result: { local: string; time: string; pair: string; order: number }[] = []
-  for (const [localId, byMonth] of Object.entries(tables)) {
-    for (const [time, cell] of Object.entries(byMonth[month]?.rows?.[date]?.slots ?? {})) {
-      if (!cell.p1 && !cell.p2) continue
-      result.push({ local: String(locals[localId]?.name ?? localId), time, pair: [cell.p1, cell.p2].filter(Boolean).map(id => participantName(participants[id], id)).join(' e '), order: Number(locals[localId]?.sortOrder ?? 0) })
-    }
-  }
-  return result.sort((a, b) => a.time.localeCompare(b.time) || a.order - b.order)
-}
-
 export function personMessage(prefix: string, person: EscalaParticipant, month: string, assignments: ReturnType<typeof assignmentsForPerson>): string {
   const lines = [`${prefix.trim() || `Olá, ${participantName(person)}! Tudo bem? Aqui estão seus dias no carrinho`} em ${monthLabel(month)}:`, '']
   if (!assignments.length) return [...lines, 'Neste mês você não ficou com nenhum horário.'].join('\n')
   return [...lines, ...assignments.map(item => `${dayLabel(item.date)} · ${item.time} · ${item.local}${item.partner ? ` com ${item.partner}` : ''}`)].join('\n')
-}
-
-export function dayMessage(prefix: string, date: string, assignments: ReturnType<typeof assignmentsForDay>): string {
-  const lines = [`${prefix.trim() || 'Olá, tudo bem? Segue a designação no carrinho'} — ${dayLabel(date)}:`, '']
-  if (!assignments.length) return [...lines, 'Nenhuma dupla marcada para este dia.'].join('\n')
-  let local = ''
-  for (const item of assignments) {
-    if (item.local !== local) { if (local) lines.push(''); lines.push(item.local); local = item.local }
-    lines.push(`${item.time} — ${item.pair}`)
-  }
-  return lines.join('\n')
 }
 
 export function confirmationMessage(prefix: string, personId: string, person: EscalaParticipant, locals: Record<string, EscalaLocal>, availability: EscalaAvailability): string {

@@ -9,7 +9,7 @@ const ATTEMPT_WINDOW_MS = 10 * 60 * 1000
 const ATTEMPT_BLOCK_MS = 30 * 1000
 const MAX_ATTEMPTS = 5
 
-export interface SafeUser extends Omit<Usuario, 'senha'> { senha: '' }
+interface SafeUser extends Omit<Usuario, 'senha'> { senha: '' }
 export interface AppSession { token: string; csrf: string; uid: string; expiresAt: number; usuario: SafeUser }
 export interface DeviceSession { token: string; masterId: string; installationId: string; expiresAt: number }
 interface LoginAttempt { count: number; firstAt: number; blockedUntil: number; expiresAt: number }

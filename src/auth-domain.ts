@@ -1,4 +1,4 @@
-export interface CachedUserChoice {
+interface CachedUserChoice {
   nome: string
   ativo: boolean
 }

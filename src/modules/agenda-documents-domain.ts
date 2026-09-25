@@ -1,4 +1,4 @@
-import type { AgendaPublicDocument, AgendaPublicDocumentModule } from '../types.ts'
+import type { AgendaPublicDocument } from '../types.ts'
 import { pdfHasExpired } from './pdf-expiry.ts'
 
 export const PUBLIC_PDF_MODULES = ['tarefas', 'oradores', 'escala', 'limpeza', 'servicoCampo'] as const
@@ -63,8 +63,4 @@ export function publicDocumentMonths(documents: AgendaPublicDocument[], now = Da
     }
   })
   return [...result].sort((a, b) => b.localeCompare(a))
-}
-
-export function isPublicPdfModule(value: AgendaPublicDocumentModule): value is PublicPdfModule {
-  return PUBLIC_PDF_MODULES.includes(value as PublicPdfModule)
 }

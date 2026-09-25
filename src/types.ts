@@ -18,7 +18,7 @@ export type ModuleName =
   | 'servicoCampo'
   | 'individual'
 
-export type TipoDesignacao =
+type TipoDesignacao =
   | 'presidente'
   | 'leitor'
   | 'microfone'
@@ -32,7 +32,7 @@ export type TipoDesignacao =
 
 // ─── Master ────────────────────────────────────────────────────────────────
 
-export interface MasterLimpeza {
+interface MasterLimpeza {
   grupo: number | null
 }
 
@@ -45,7 +45,7 @@ export interface MasterPessoa {
   limpeza:  MasterLimpeza
 }
 
-export interface MasterMeta {
+interface MasterMeta {
   schemaVersion: number
   createdAt:     string
   description:   string
@@ -60,7 +60,7 @@ export interface ConfigCongregacao {
   idioma:   string
 }
 
-export interface ConfigReuniao {
+interface ConfigReuniao {
   diaSemana: number   // 0-6: 0=domingo
   horario:   string   // 'HH:MM'
 }
@@ -108,7 +108,7 @@ export interface ConfigLimpeza {
   gruposConfig:          Record<string, ConfigLimpezaGrupo>
 }
 
-export interface ConfigDesignacao {
+interface ConfigDesignacao {
   textoIcs:   string
   ativo:      boolean
   aprovadoEm: string   // 'YYYY-MM-DD' | ''
@@ -139,7 +139,7 @@ export interface AgendaConfig {
   icsReminders?: Partial<Record<AgendaReminderModule, string[]>>
 }
 
-export type AgendaPublicDocumentModule =
+type AgendaPublicDocumentModule =
   | 'tarefas'
   | 'oradores'
   | 'limpeza'
@@ -188,7 +188,7 @@ export interface Usuario {
 export type RawPessoas   = Record<string, MasterPessoa>
 export type RawUsuarios  = Record<string, Usuario>
 
-export interface RawMaster {
+interface RawMaster {
   meta?:   MasterMeta
   config?: MasterConfig
   pessoas: RawPessoas

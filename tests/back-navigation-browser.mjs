@@ -27,9 +27,9 @@ try {
         if (module === 'individual') await page.getByRole('tab', { name:'Pessoal', exact:true }).waitFor()
         if (module === 'servicoCampo') {
           await page.locator('[data-workspace-tab="configuracao"]').click()
-          await page.locator('#serviceSchedule').waitFor({ state:'attached' })
+          await page.locator('#serviceTemplateForm').waitFor({ state:'attached' })
           await page.locator('#btnBack').click()
-          await page.locator('#serviceConfig').waitFor({ state:'attached' })
+          await page.locator('#serviceMonth').waitFor({ state:'attached' })
         }
         if (module === 'tarefas' || module === 'escala' || module === 'mestre') {
           await page.locator('.workspace-tabs [data-workspace-tab="'+(module === 'mestre' ? 'usuarios' : 'participantes')+'"]').click()

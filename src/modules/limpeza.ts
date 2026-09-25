@@ -33,7 +33,6 @@ import {
   type CleaningPeriodMode,
 } from './limpeza-domain'
 import { apiJson } from '../secure-api.ts'
-import { mountModuleMessageSettings } from './module-message-settings'
 
 let pessoas: RawPessoas = {}
 let limpeza: Partial<ConfigLimpeza> = {}
@@ -187,8 +186,7 @@ function renderContent(): void {
     <details ${selectedPeriodId ? '' : 'open'}><summary>Gerar escala</summary><div id="cleaningGenerate"></div></details>
     </section><section data-cleaning-panel="grupos" hidden><h3>Grupos e participantes</h3><div id="cleaningGroups"></div></section>
     <section data-cleaning-panel="config" hidden><h3>Configurações de Limpeza</h3><p class="form-help">Cadastros e regras. Alterar configurações não substitui a escala já gerada.</p>
-    <details><summary>Rotação e responsáveis</summary><div id="cleaningConfig"></div></details>
-    <div id="cleaningMessageSettings"></div></section>`
+    <details><summary>Rotação e responsáveis</summary><div id="cleaningConfig"></div></details></section>`
   const selectPanel=(id:string):void=>{
     content.querySelector<HTMLElement>('[data-workspace-home]')!.dataset.workspaceActive=id
     content.querySelectorAll<HTMLElement>('[data-cleaning-panel]').forEach(panel=>panel.hidden=panel.dataset.cleaningPanel!==id)
@@ -201,7 +199,6 @@ function renderContent(): void {
   renderGrupos()
   renderConfig()
   renderCleaningGuidance()
-  void mountModuleMessageSettings('cleaningMessageSettings', 'limpeza', toast)
 }
 
 function renderCleaningGuidance():void {
@@ -252,7 +249,7 @@ function renderEscala(): void {
       <div class="form-group"><label class="form-label">Período</label><select id="limpezaPeriodMode" class="form-select"><option value="month" ${periodMode === 'month' ? 'selected' : ''}>Mensal</option><option value="bimester" ${periodMode === 'bimester' ? 'selected' : ''}>Bimestral</option></select></div>
       <div class="form-group"><label class="form-label">Mês inicial</label><input id="limpezaPeriodAnchor" class="form-input" type="month" value="${periodAnchor.slice(0, 7)}"></div>
     </div>
-    <button id="btnGerarEscalaLimpeza" class="btn btn-primary btn-full" type="button">Gerar escala</button>`
+    <button id="btnGerarEscalaLimpeza" class="btn btn-primary btn-full" type="button">${periodos[periodBounds(`${periodAnchor.slice(0,7)}-01`,periodMode).id]?'Gerar novamente':'Gerar escala'}</button>`
   document.getElementById('limpezaPeriodMode')?.addEventListener('change', event => {
     periodMode = (event.target as HTMLSelectElement).value as CleaningPeriodMode
     localStorage.setItem(CLEANING_PERIOD_MODE_KEY, periodMode)
@@ -274,6 +271,7 @@ async function saveGeneratedPeriod(): Promise<void> {
     }
     const periodId = periodBounds(`${periodAnchor.slice(0, 7)}-01`, periodMode).id
     assertCleaningPeriodEditable(periodos[periodId])
+    if(periodos[periodId]&&!confirm('Gerar novamente este período? Ajustes manuais de grupo serão preservados, mas a escala será recalculada com os cadastros atuais.'))return
     button?.setAttribute('disabled', '')
     if (button) button.textContent = 'Gerando...'
     const generated = generateCleaningPeriod(
@@ -334,7 +332,7 @@ function renderGrupos(): void {
       }).join('')}
     </div>
     <div style="position:sticky;bottom:8px;margin-top:14px">
-      <button id="btnSalvarLimpezaGrupos" class="btn btn-primary btn-full">
+      <button id="btnSalvarLimpezaGrupos" class="btn btn-primary btn-full" disabled>
         Salvar Grupos
       </button>
     </div>`
@@ -347,6 +345,7 @@ function renderGrupos(): void {
       const val = sel.value ? parseInt(sel.value, 10) : null
       limpezaChanges.set(mid, val)
       updateLimpezaCounters(ativos)
+      ;(document.getElementById('btnSalvarLimpezaGrupos') as HTMLButtonElement).disabled=limpezaChanges.size===0
     })
   })
 
@@ -559,8 +558,8 @@ function renderPdf(): void {
       <label class="form-field"><span>Escala gerada</span><select id="pdfLimpezaPeriodo" class="form-select" ${Object.keys(periodos).length ? '' : 'disabled'}>${generatedPeriodOptions() || '<option>Nenhuma escala gerada</option>'}</select></label>
       <details><summary>Ajustar PDF</summary><label class="form-field"><span>Fonte base: <strong id="pdfLimpezaFonteValor">${fontSize} pt</strong></span><input id="pdfLimpezaFonte" type="range" min="8" max="22" value="${fontSize}"></label></details>
       <span class="admin-badge">${period?.publicado ? 'Publicado' : 'Rascunho'}</span>
-      <button id="btnGerarPdfLimpeza" class="btn btn-ghost btn-full" type="button" ${period ? '' : 'disabled'}>Baixar PDF</button>
-      <button id="btnPublicarPdfLimpeza" class="btn ${period?.publicado ? 'btn-ghost' : 'btn-primary'} btn-full" style="margin-top:8px" type="button" ${period ? '' : 'disabled'}>${period?.publicado ? 'Reabrir para edição' : 'Publicar no Quadro'}</button>
+      ${period?`<button id="btnGerarPdfLimpeza" class="btn btn-ghost btn-full" type="button">Baixar PDF</button>
+      <button id="btnPublicarPdfLimpeza" class="btn ${period.publicado ? 'btn-ghost' : 'btn-primary'} btn-full" style="margin-top:8px" type="button">${period.publicado ? 'Reabrir para edição' : 'Publicar no Quadro'}</button>`:'<p class="form-help">Gere uma escala para liberar o PDF e a publicação no Quadro.</p>'}
     </div>`
   const schedule = document.getElementById('cleaningSchedule')
   if (schedule) schedule.innerHTML = period ? renderPeriodRows(period) : '<p class="empty-state">Nenhuma escala gerada.</p>'

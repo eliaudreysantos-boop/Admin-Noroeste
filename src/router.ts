@@ -70,10 +70,6 @@ export async function navigateTo(modulo: ModuleName, overview?:AppContext['overv
   try {
     await loadModule(modulo, { ..._ctx,overview }, () => requestId === navigationId)
     if (requestId === navigationId) {
-      if(modulo!=='individual') {
-        const overviewButton=document.createElement('button');overviewButton.className='btn btn-ghost';overviewButton.textContent='Resumo e histórico';overviewButton.dataset.operationsHome=''
-        overviewButton.addEventListener('click',()=>renderMenu(_accessList));content.prepend(overviewButton)
-      }
       animateRoute(content)
     }
   } catch {

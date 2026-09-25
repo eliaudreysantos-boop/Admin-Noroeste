@@ -75,7 +75,7 @@ function installEditGuard():void {
   document.addEventListener('click',event=>{
     if (!document.getElementById('oradoresRoot')) return
     const button=(event.target as HTMLElement)?.closest('button')
-    if (!button || !button.matches('[data-operations-home], [data-workspace-tab], [data-module-index], #btnBack, #btnSair, [id^="cancel"], [id^="new"], [data-edit-speaker], [data-edit-schedule], [data-edit-theme], [data-edit-congregation], [data-edit-event], [data-confirm-schedule], [data-reconfirm-schedule], [data-substitute-date], #clearScheduleFilters, #fillScheduleDates, #oradoresPrev, #oradoresNext')) return
+    if (!button || !button.matches('[data-workspace-tab], [data-module-index], #btnBack, #btnSair, [id^="cancel"], [id^="new"], [data-edit-speaker], [data-edit-schedule], [data-edit-theme], [data-edit-congregation], [data-edit-event], [data-confirm-schedule], [data-reconfirm-schedule], [data-substitute-date], #clearScheduleFilters, #fillScheduleDates, #oradoresPrev, #oradoresNext')) return
     if (!allowLeave()) {event.preventDefault();event.stopImmediatePropagation()}
   },{...options,capture:true})
   window.addEventListener('beforeunload',event=>{if(document.getElementById('oradoresRoot')&&(dirty||saving)){event.preventDefault();event.returnValue=''}},options)
@@ -93,7 +93,6 @@ let scheduleEditorOpen=false
 let editingId = ''
 let rawSchedule:Record<string, unknown> = {}
 let scheduleDraft: Record<string, string> | null = null
-let selectedSpeakerId = ''
 let selectedCongregationId = ''
 let loadPromise: Promise<boolean> | null = null
 let downloadingPdf = false
@@ -137,7 +136,6 @@ async function load(): Promise<boolean> {
     taskPeople=peopleSnapshot.exists() ? peopleSnapshot.val() as Record<string,TaskPerson> : {}
     speakerBaseline=(rootSnapshot.val() as SpeakersRoot|null)?.oradores??null;rawSpeakers=structuredClone(data.oradores??{});hydrateSpeakers()
     messageSettings={...defaultModuleMessageSettings('oradores'),...(messageSnapshot.exists()?messageSnapshot.val()??{}:{})}
-    selectedSpeakerId=selectedSpeakerId && speakers()[selectedSpeakerId]?.tipo==='local' ? selectedSpeakerId : Object.entries(speakers()).filter(([,item])=>item.tipo==='local').sort((a,b)=>a[1].nome.localeCompare(b[1].nome,'pt-BR'))[0]?.[0] ?? ''
     selectedCongregationId=selectedCongregationId && congregations()[selectedCongregationId] ? selectedCongregationId : Object.entries(congregations()).filter(([,item])=>item.tipo==='visitante').sort((a,b)=>a[1].nome.localeCompare(b[1].nome,'pt-BR'))[0]?.[0] ?? ''
     return true
   } catch { toast('Não foi possível carregar Oradores'); return false }
@@ -392,25 +390,20 @@ function speakerEditor(): string {
 function renderSpeakers(): void {
   root().innerHTML=`${sectionTitle('Oradores')}<p class="form-help">Selecione um orador local para consultar, editar ou preparar a mensagem das designações. Visitantes são definidos na programação.</p><div class="service-actions">${canEditPeople()?'<button id="newSpeaker" class="btn btn-primary">Adicionar do cadastro Admin</button>':''}</div>
     ${speakerEditor()}${field('Buscar orador ou número de tema',`<input id="speakerSearch" type="search" placeholder="Nome ou número do tema" value="${esc(speakerQuery)}" ${editingId?'disabled':''}>`)}
-    <label class="form-field context-select"><span>Orador</span><select id="speakerContext" class="form-select" ${editingId?'disabled':''}></select></label><div id="speakerResults" class="oradores-list"></div>`
+    <div id="speakerResults" class="oradores-list"></div>`
   const list=():void=>{
     const rows=Object.entries(speakers()).filter(([,item])=>item.tipo==='local'&&matchesSpeaker(item,speakerQuery,themes())).sort((a,b)=>Number(b[1].ativo)-Number(a[1].ativo)||a[1].nome.localeCompare(b[1].nome,'pt-BR'))
-    if(!rows.some(([id])=>id===selectedSpeakerId))selectedSpeakerId=rows[0]?.[0]??''
-    const selector=document.getElementById('speakerContext') as HTMLSelectElement
-    selector.innerHTML=rows.map(([id,item])=>option(id,item.nome,selectedSpeakerId)).join('')||'<option value="">Nenhum orador encontrado</option>'
-    const selected=rows.find(([id])=>id===selectedSpeakerId)
-    document.getElementById('speakerResults')!.innerHTML=selected?[selected].map(([id,item])=>`<article class="oradores-card"><div class="oradores-card-head"><div><strong>${esc(item.nome)}</strong><small>${esc(SPEAKER_ROLE_LABEL[item.funcao])}</small></div><span class="status-pill">${item.ativo?'Ativo':'Inativo'}</span></div>
+    document.getElementById('speakerResults')!.innerHTML=rows.map(([id,item])=>`<article class="oradores-card"><div class="oradores-card-head"><div><strong>${esc(item.nome)}</strong><small>${esc(SPEAKER_ROLE_LABEL[item.funcao])}</small></div><span class="status-pill">${item.ativo?'Ativo':'Inativo'}</span></div>
       <div class="oradores-card-grid"><div><span>Números dos temas no repertório</span><strong data-speaker-repertoire="${esc(id)}">${esc(repertoireNumbers(item.temaIds,themes())||'Nenhum tema')}</strong></div></div>
       <details><summary>Contato e habilitações</summary><div class="oradores-card-grid"><div><span>Telefone</span><strong>${esc(item.telefone||'Não informado')}</strong></div><div><span>Saída</span><strong>${item.aprovadoParaSaida?'Aprovado':'Não aprovado'}</strong></div><div><span>A Sentinela</span><strong>${item.sentinelaDirigente?'Dirigente':item.sentinelaSubstituto?'Substituto':'—'}</strong></div></div></details>
       ${item.tipo==='local'&&!item.masterId?'<p class="notice warning">Vincule esta pessoa ao cadastro Admin para habilitar a programação.</p>':''}
       <h3>Próximas designações</h3><div class="oradores-list">${assignmentEntries(data,id,today(),planning.s2Time).map(entry=>`<div class="module-list-row"><div><strong>${esc(formatSpeakerDate(entry.date))}</strong><small>${esc(entry.text)}</small></div></div>`).join('')||'<p class="form-help">Nenhuma designação futura.</p>'}</div>
-      <div class="service-actions">${canEditPeople()?`<button class="btn btn-ghost" data-edit-speaker="${esc(id)}">Editar</button>`:''}<button id="notifySpeakerAssignments" class="btn btn-primary" ${assignmentEntries(data,id,today(),planning.s2Time).length?'':'disabled'}>Preparar mensagem das designações</button></div></article>`).join(''):empty('Nenhum orador encontrado.')
+      <div class="service-actions">${canEditPeople()?`<button class="btn btn-ghost" data-edit-speaker="${esc(id)}">Editar</button>`:''}<button data-notify-speaker="${esc(id)}" class="btn btn-primary" ${assignmentEntries(data,id,today(),planning.s2Time).length?'':'disabled'}>Preparar mensagem das designações</button></div></article>`).join('')||empty('Nenhum orador encontrado.')
     document.querySelectorAll<HTMLButtonElement>('[data-edit-speaker]').forEach(button=>button.addEventListener('click',()=>{editingId=button.dataset.editSpeaker!;renderSpeakers()}))
-    document.getElementById('notifySpeakerAssignments')?.addEventListener('click',()=>{const speaker=speakers()[selectedSpeakerId];if(speaker)showMessagePreview({id:'oradoresMessagePreview',title:`Designações de ${speaker.nome}`,message:assignmentsMessage(data,selectedSpeakerId,today(),messageSettings.meetingText,planning.s2Time),phone:speaker.telefone,toast})})
+    document.querySelectorAll<HTMLButtonElement>('[data-notify-speaker]').forEach(button=>button.addEventListener('click',()=>{const id=button.dataset.notifySpeaker!,speaker=speakers()[id];if(speaker)showMessagePreview({id:'oradoresMessagePreview',title:`Designações de ${speaker.nome}`,message:assignmentsMessage(data,id,today(),messageSettings.meetingText,planning.s2Time),phone:speaker.telefone,toast})}))
   }
   list()
   document.getElementById('speakerSearch')?.addEventListener('input',event=>{speakerQuery=(event.target as HTMLInputElement).value;list()})
-  document.getElementById('speakerContext')?.addEventListener('change',event=>{selectedSpeakerId=(event.currentTarget as HTMLSelectElement).value;list()})
   document.getElementById('newSpeaker')?.addEventListener('click',()=>{editingId='new';renderSpeakers()})
   document.getElementById('cancelSpeakerEdit')?.addEventListener('click',()=>{editingId='';renderSpeakers()})
   const form=document.getElementById('speakerForm') as HTMLFormElement|null
@@ -476,7 +469,7 @@ async function downloadOperationalReport(button:HTMLButtonElement,generate:()=>P
 function renderThemes():void {
   root().innerHTML=`${sectionTitle('Temas')}<div class="service-actions"><button id="newTheme" class="btn btn-primary">Novo tema</button><button id="themesPdf" class="btn btn-ghost">Baixar PDF dos temas</button></div>${themeEditor()}
     ${field('Localizar tema',`<input id="themeSearch" type="search" value="${esc(themeQuery)}" placeholder="Digite o número ou parte do título">`)}
-    <div class="service-actions">${Object.entries(THEME_FILTER_LABELS).map(([key,label])=>`<button class="btn btn-ghost" data-theme-filter="${key}">${label}</button>`).join('')}</div>
+    <div class="service-actions">${Object.entries(THEME_FILTER_LABELS).map(([key,label])=>`<button class="btn ${themeFilter===key?'btn-primary':'btn-ghost'}" data-theme-filter="${key}" aria-pressed="${themeFilter===key}">${label}</button>`).join('')}</div>
     <p id="themeCount" class="form-help"></p><div id="themeResults"></div>`
   const list=():void=>{
     const rows=filteredThemeRows(data,today(),themeFilter,themeQuery)

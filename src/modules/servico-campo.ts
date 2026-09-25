@@ -10,7 +10,6 @@ import { child, compareAndSet, configCongregacaoRef, get, pessoasRef, servicoCam
 import { moduleBackButton, moduleTitle } from '../ui/module-header'
 import { renderWorkspaceNav } from '../ui/workspace-nav'
 import { fieldServiceConflicts, generateFieldServicePeriod, validFieldServiceMonth, validFieldServiceTime, type FieldServiceAssignment, type FieldServicePeriod, type FieldServiceTemplate } from './servico-campo-domain'
-import { mountModuleMessageSettings } from './module-message-settings'
 
 interface ServiceRoot {
   templates?: Record<string, FieldServiceTemplate>
@@ -134,7 +133,7 @@ function renderSchedule(): void {
   const eligible = new Set(leaderIds()), blank = assignments.filter(item => !item.leaderId || !eligible.has(item.leaderId)).length
   const nextMonth = nextCivilMonth(fortalezaToday())
   const prepareNext = !periods()[nextMonth] && Object.values(templates()).some(item => item.active !== false)
-  root().innerHTML = `${sectionTitle('Programação de Serviço de Campo')}<button id="serviceConfig" class="btn btn-ghost" type="button">Configurações</button>${periodControl()}<span class="admin-badge">${locked ? 'Publicado' : 'Rascunho'}</span>${locked ? '<div class="notice">Este mês está publicado no Quadro e bloqueado para edição.</div>' : ''}<div class="service-summary"><div><strong>${assignments.length}</strong><span>Saídas</span></div><div><strong>${new Set(assignments.map(item => item.date)).size}</strong><span>Dias</span></div><div><strong>${blank}</strong><span>Sem dirigente</span></div><div><strong>${leaderIds().length}</strong><span>No rodízio</span></div></div><div class="service-actions"><button id="serviceGenerate" class="btn ${assignments.length ? 'btn-ghost' : 'btn-primary'}" type="button" ${locked ? 'disabled' : ''}>${assignments.length ? 'Completar mês' : 'Gerar rodízio'}</button><button id="servicePdf" class="btn btn-ghost" type="button" ${assignments.length ? '' : 'disabled'}>Baixar PDF</button>${!locked ? `<button id="servicePublish" class="btn btn-primary" type="button" ${assignments.length ? '' : 'disabled'}>Publicar no Quadro</button>` : ''}${locked ? '<button id="serviceReopen" class="btn btn-ghost" type="button">Reabrir para edição</button>' : ''}</div>${locked ? '' : manualAssignmentForm()}<div class="service-assignment-list">${assignments.map(item => assignmentRow(item, locked)).join('') || '<p class="empty-state">Configure as saídas e gere o rodízio deste mês.</p>'}</div>`
+  root().innerHTML = `${sectionTitle('Programação de Serviço de Campo')}${periodControl()}<span class="admin-badge">${locked ? 'Publicado' : 'Rascunho'}</span>${locked ? '<div class="notice">Este mês está publicado no Quadro e bloqueado para edição.</div>' : ''}<div class="service-summary"><div><strong>${assignments.length}</strong><span>Saídas</span></div><div><strong>${new Set(assignments.map(item => item.date)).size}</strong><span>Dias</span></div><div><strong>${blank}</strong><span>Sem dirigente</span></div><div><strong>${leaderIds().length}</strong><span>No rodízio</span></div></div><div class="service-actions"><button id="serviceGenerate" class="btn ${assignments.length ? 'btn-ghost' : 'btn-primary'}" type="button" ${locked ? 'disabled' : ''}>${assignments.length ? 'Completar mês' : 'Gerar rodízio'}</button><button id="servicePdf" class="btn btn-ghost" type="button" ${assignments.length ? '' : 'disabled'}>Baixar PDF</button>${!locked ? `<button id="servicePublish" class="btn btn-primary" type="button" ${assignments.length ? '' : 'disabled'}>Publicar no Quadro</button>` : ''}${locked ? '<button id="serviceReopen" class="btn btn-ghost" type="button">Reabrir para edição</button>' : ''}</div>${locked ? '' : manualAssignmentForm()}<div class="service-assignment-list">${assignments.map(item => assignmentRow(item, locked)).join('') || '<p class="empty-state">Configure as saídas e gere o rodízio deste mês.</p>'}</div>`
   if (prepareNext) root().querySelector('.service-summary')?.insertAdjacentHTML('beforebegin', `<div class="notice">Prepare o rodízio de ${nextMonth.slice(5,7)}/${nextMonth.slice(0,4)} antes do dia 1º. <button id="servicePrepareNext" class="btn btn-ghost" type="button">Abrir próximo mês</button></div>`)
   document.getElementById('servicePrepareNext')?.addEventListener('click', () => { selectedMonth=nextMonth; localStorage.setItem(MONTH_KEY,nextMonth); render() })
   const problems=assignments.filter(item=>!item.leaderId||!eligible.has(item.leaderId)||fieldServiceConflicts(assignments).some(conflict=>conflict.id===item.id))
@@ -147,7 +146,6 @@ function renderSchedule(): void {
   fieldHelp(root(),'#manualServiceForm [name="location"]','Ex.: Salão do Reino ou Rua das Flores, 25. Use um local fácil de reconhecer.')
   fieldHelp(root(),'#manualServiceForm [name="leaderId"]','Selecione um dirigente aprovado. Não é criado um novo cadastro aqui.')
   bindPeriod()
-  document.getElementById('serviceConfig')?.addEventListener('click', () => void openScreen('configuracao'))
   document.getElementById('servicePublish')?.addEventListener('click', () => void publishPeriod())
   document.getElementById('serviceGenerate')?.addEventListener('click', () => void generatePeriod())
   document.getElementById('servicePdf')?.addEventListener('click', () => void openPdf())
@@ -253,11 +251,10 @@ async function openPdf(): Promise<void> {
 
 function renderConfiguration(): void {
   const current = templates()[editingTemplateId]
-  const templateRows = Object.values(templates()).sort((a, b) => a.sortOrder - b.sortOrder || a.dow - b.dow || a.time.localeCompare(b.time)).map(item => `<details class="service-template"><summary><strong>${item.date ? esc(dateLabel(item.date)) : DAYS[item.dow]} · ${esc(item.time)}</strong><small>${esc(item.location)} · ${esc(item.label)} · ${item.active ? 'Ativa' : 'Inativa'} · ${item.leaderIds?.length ? `${item.leaderIds.length} dirigente(s)` : 'rodízio pendente'}</small></summary><div class="service-actions"><button class="btn btn-ghost" data-edit-service-template="${esc(item.id)}">Editar</button><button class="btn btn-danger" data-delete-service-template="${esc(item.id)}" title="Remover saída">✕</button></div></details>`).join('')
+  const templateRows = Object.values(templates()).sort((a, b) => a.sortOrder - b.sortOrder || a.dow - b.dow || a.time.localeCompare(b.time)).map(item => `<details class="service-template"><summary><strong>${item.date ? esc(dateLabel(item.date)) : DAYS[item.dow]} · ${esc(item.time)}</strong><small>${esc(item.location)} · ${esc(item.label)} · ${item.active ? 'Ativa' : 'Inativa'} · ${item.leaderIds?.length ? `${item.leaderIds.length} dirigente(s)` : 'rodízio pendente'}</small></summary><div class="service-actions"><button class="btn btn-ghost" data-edit-service-template="${esc(item.id)}">Editar</button><button class="btn btn-danger" data-delete-service-template="${esc(item.id)}">Remover</button></div></details>`).join('')
   const leaderRows = Object.entries(people).filter(([, person]) => person.active !== false && person.sex === 'M').sort((a, b) => a[1].name.localeCompare(b[1].name, 'pt-BR')).map(([masterId, person]) => `<label class="service-leader-option"><input type="checkbox" data-service-eligible="${esc(masterId)}" ${data.leaders?.[masterId] ? 'checked' : ''}><span><strong>${esc(person.name)}</strong><small>${esc(roleLabel(person))}</small></span></label>`).join('')
   const ownLeaderRows = leaderIds().map(masterId => `<label class="service-leader-option"><input name="templateLeader" type="checkbox" value="${esc(masterId)}" ${current?.leaderIds?.includes(masterId) ? 'checked' : ''}><span><strong>${esc(personName(masterId))}</strong><small>${esc(roleLabel(people[masterId]!))}</small></span></label>`).join('')
   root().innerHTML = `${sectionTitle('Configuração do Serviço de Campo')}
-    <button id="serviceSchedule" class="btn btn-ghost" type="button">Voltar à programação</button>
     <details ${current ? 'open' : ''}><summary>${current ? 'Editar saída' : 'Nova saída'}</summary><form id="serviceTemplateForm" class="form-panel"><h3>${current ? 'Editar saída' : 'Nova saída'}</h3>
       <input name="templateId" type="hidden" value="${esc(current?.id)}">
       <div class="module-form-grid">
@@ -267,16 +264,15 @@ function renderConfiguration(): void {
         <label class="form-field"><span>Hora</span><input name="time" type="time" value="${esc(current?.time ?? '08:30')}" required></label>
         <label class="form-field"><span>Local</span><input name="location" maxlength="80" value="${esc(current?.location)}" required></label>
         <label class="form-field"><span>Descrição</span><input name="label" maxlength="60" value="${esc(current?.label ?? 'Saída de campo')}"></label>
-        <label class="form-field"><span>Ordem</span><input name="sortOrder" type="number" value="${current?.sortOrder ?? Object.keys(templates()).length}"></label>
         <label><input name="active" type="checkbox" ${current?.active !== false ? 'checked' : ''}> Saída ativa</label>
       </div>
+      <details><summary>Mais opções</summary><label class="form-field"><span>Ordem de exibição</span><input name="sortOrder" type="number" min="0" value="${current?.sortOrder ?? Object.keys(templates()).length}"></label></details>
       <details><summary>Dirigentes deste arranjo</summary><div class="service-leader-grid">${ownLeaderRows || '<p class="empty-state">Nenhum dirigente aprovado.</p>'}</div></details>
       <div class="service-actions"><button class="btn btn-primary" type="submit">Salvar saída</button>${current ? '<button id="cancelServiceTemplate" class="btn btn-ghost" type="button">Cancelar</button>' : ''}</div>
     </form></details>
     <details open><summary>Saídas recorrentes · ${Object.keys(templates()).length}</summary><div class="module-option-list">${templateRows || '<p class="empty-state">Nenhuma saída cadastrada.</p>'}</div></details>
     <details class="form-panel" data-editor-scope><summary>Dirigentes aprovados · ${leaderIds().length}</summary><div class="service-leader-grid">${leaderRows || '<p class="empty-state">Nenhum irmão ativo disponível no cadastro Admin.</p>'}</div><button id="saveServiceLeaders" class="btn btn-primary" type="button">Salvar dirigentes</button></details>
-    <div id="fieldServiceMessageSettings"></div>`
-  document.getElementById('serviceSchedule')?.addEventListener('click', () => void openScreen('programacao'))
+    `
   const form = document.getElementById('serviceTemplateForm') as HTMLFormElement
   const syncMode = (): void => {
     const byDate = (form.elements.namedItem('mode') as HTMLSelectElement).value === 'date'
@@ -291,7 +287,6 @@ function renderConfiguration(): void {
   document.querySelectorAll<HTMLButtonElement>('[data-edit-service-template]').forEach(button => button.addEventListener('click', () => { editingTemplateId = button.dataset.editServiceTemplate!; render() }))
   document.querySelectorAll<HTMLButtonElement>('[data-delete-service-template]').forEach(button => button.addEventListener('click', () => void deleteTemplate(button.dataset.deleteServiceTemplate!)))
   document.getElementById('saveServiceLeaders')?.addEventListener('click', () => void saveLeaders())
-  void mountModuleMessageSettings('fieldServiceMessageSettings', 'servicoCampo', toast)
 }
 
 async function saveTemplate(form: HTMLFormElement): Promise<void> {

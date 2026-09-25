@@ -14,7 +14,7 @@ export interface AgendaEvent {
 
 export interface AnnouncementEvent extends AgendaEvent { people: string[] }
 
-export type BoardMeetingKind = 'midweek' | 'weekend'
+type BoardMeetingKind = 'midweek' | 'weekend'
 export interface BoardMeetingDate { date: string; kind: BoardMeetingKind }
 
 export interface AgendaIcsOptions {

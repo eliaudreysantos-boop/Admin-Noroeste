@@ -17,10 +17,6 @@ export function clearCsrfToken(): void {
   csrfToken = ''
 }
 
-export function currentCsrfToken(): string {
-  return csrfToken
-}
-
 export async function apiJson<T>(name: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers)
   if (init.body && !headers.has('content-type')) headers.set('content-type', 'application/json')
@@ -51,7 +47,7 @@ export async function apiJson<T>(name: string, init: RequestInit = {}): Promise<
   }
 }
 
-export function bytesToBase64(bytes: Uint8Array): string {
+function bytesToBase64(bytes: Uint8Array): string {
   let binary = ''
   const chunkSize = 32_768
   for (let offset = 0; offset < bytes.length; offset += chunkSize) {

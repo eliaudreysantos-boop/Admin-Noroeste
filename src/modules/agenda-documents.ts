@@ -3,7 +3,7 @@ import { deleteStoredFile, uploadPdf } from '../secure-api.ts'
 import type { AgendaPublicDocument } from '../types.ts'
 import { safeDocumentKey } from './agenda-documents-domain.ts'
 
-export async function archiveAgendaPdf(
+async function archiveAgendaPdf(
   bytes: Uint8Array,
   metadata: Pick<AgendaPublicDocument, 'modulo' | 'periodo' | 'nome'>,
 ): Promise<AgendaPublicDocument> {

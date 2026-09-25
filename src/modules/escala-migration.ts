@@ -7,7 +7,7 @@ export interface EscalaMigrationData {
   [key: string]: unknown
 }
 
-export interface EscalaMigrationConflict {
+interface EscalaMigrationConflict {
   masterId: string
   field: string
   values: unknown[]

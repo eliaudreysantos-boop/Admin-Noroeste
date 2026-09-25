@@ -49,11 +49,6 @@ export function cleaningGroupFor(date: string, start: string, totalGroups: numbe
   return ((weeks % totalGroups) + totalGroups) % totalGroups + 1
 }
 
-export function formatCleaningDate(value: string): string {
-  const [year, month, day] = value.split('-')
-  return year && month && day ? `${day}/${month}/${year.slice(-2)}` : value
-}
-
 export function monthLabel(value: string): string {
   const date = isoDate(value)
   return MONTHS[date.getUTCMonth()] ?? value

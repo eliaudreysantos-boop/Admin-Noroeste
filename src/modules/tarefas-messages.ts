@@ -6,7 +6,7 @@ function heading(meeting:TaskMeeting):string {
   return `📅 *${day}/${month}/${year}* — Reunião de ${canonicalMeetingType(meeting.type)==='midweek'?'meio de semana':'fim de semana'}`
 }
 // Resolve only explicit IDs, including canonical master IDs; never match names.
-export function taskRecipientIds(id:string,people:Record<string,TaskPerson>):Set<string> {
+function taskRecipientIds(id:string,people:Record<string,TaskPerson>):Set<string> {
   const master=people[id]?.masterId||id
   return new Set([id,master,...Object.keys(people).filter(key=>people[key]?.masterId===master)])
 }

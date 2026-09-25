@@ -4,10 +4,10 @@ export const TASK_ROLES = [
 ] as const
 
 export type TaskRole = typeof TASK_ROLES[number]
-export type TaskBaseRole = 'presidente' | 'operador' | 'leitor' | 'entrada' | 'auditorio' | 'microfone'
+type TaskBaseRole = 'presidente' | 'operador' | 'leitor' | 'entrada' | 'auditorio' | 'microfone'
 export type TaskMeetingType = 'midweek' | 'weekend'
 
-export const TASK_ROLE_BASE: Record<TaskRole, TaskBaseRole> = {
+const TASK_ROLE_BASE: Record<TaskRole, TaskBaseRole> = {
   presidente: 'presidente', operador1: 'operador', operador2: 'operador',
   leitor: 'leitor', entrada: 'entrada', auditorio: 'auditorio',
   mic1: 'microfone', mic2: 'microfone',
@@ -108,7 +108,7 @@ export interface TaskPlanning {
   excludedDates?: string[] | Record<string, string>
 }
 
-export type IneligibilityReason =
+type IneligibilityReason =
   | 'Pessoa não encontrada'
   | 'Pessoa inativa'
   | 'Função não aplicável nesta reunião'
@@ -177,11 +177,11 @@ export function roleApplies(role: TaskRole, meeting: TaskMeeting): boolean {
   return type !== 'midweek' || (role !== 'presidente' && role !== 'leitor')
 }
 
-export function personHasRole(person: TaskPerson, role: TaskRole): boolean {
+function personHasRole(person: TaskPerson, role: TaskRole): boolean {
   return person.roles?.[TASK_ROLE_BASE[role]] === true || person.roles?.[role] === true
 }
 
-export function ruleAllows(person: TaskPerson, meeting: TaskMeeting): boolean {
+function ruleAllows(person: TaskPerson, meeting: TaskMeeting): boolean {
   const type = canonicalMeetingType(meeting.type)
   const rule = person.rule ?? 'both'
   if (!type || rule === 'none') return false
@@ -201,7 +201,7 @@ export function isFolga(person: TaskPerson, date: string | undefined): boolean {
   return reference !== null && current !== null && reference === current
 }
 
-export function isUnavailable(person: TaskPerson, date: string | undefined): boolean {
+function isUnavailable(person: TaskPerson, date: string | undefined): boolean {
   if (!date || !person.unavailableDates) return false
   if (Array.isArray(person.unavailableDates)) return person.unavailableDates.includes(date)
   return person.unavailableDates[date] === true

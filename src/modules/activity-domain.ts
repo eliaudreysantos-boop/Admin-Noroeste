@@ -1,7 +1,6 @@
 import type { AppPermissions, ModuleName } from '../types.ts'
 
 export const ACTIVITY_MODULES: ModuleName[] = ['mestre','tarefas','oradores','limpeza','escala','servicoCampo']
-export const MODULE_LABELS: Record<string,string> = { mestre:'Admin', tarefas:'Tarefas', oradores:'Oradores', limpeza:'Limpeza', escala:'Escala TPL', servicoCampo:'Serviço de Campo' }
 export interface ActivityEntry {
   id:string; at:string; actorId:string; actorName:string; module:ModuleName
   action:'alterar'|'remover'|'publicar'|'reabrir'; paths:string[]

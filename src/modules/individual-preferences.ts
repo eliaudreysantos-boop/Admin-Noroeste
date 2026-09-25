@@ -3,7 +3,7 @@ import { validAgendaDate } from './individual-domain.ts'
 
 export type AgendaScreen = 'agenda' | 'geral' | 'quadro'
 export type AgendaUiContext = 'standalone' | 'admin'
-export type PersonalView = 'week' | 'month'
+type PersonalView = 'week' | 'month'
 export type PersonalPanel = 'calendar' | 'sharing'
 export type BoardPanel = 'meetings' | 'moduleDocuments' | 'adminDocuments'
 

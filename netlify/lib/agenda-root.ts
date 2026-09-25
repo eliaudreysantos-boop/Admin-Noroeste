@@ -1,6 +1,6 @@
 import { adminDatabase } from './subscription-store.ts'
 
-export const AGENDA_SOURCE_PATHS:Record<string,string[]>={
+const AGENDA_SOURCE_PATHS:Record<string,string[]>={
   tarefas:['tarefas/people','tarefas/scale/periods'],
   oradores:['tarefas/people','tarefas/discursos'],
   limpeza:['limpeza/periodos'],

@@ -77,6 +77,7 @@ let activeConfigSection: 'congregacao' | 'agenda' = 'congregacao'
 
 let pessoaFilter = { nome: '', role: '', ativo: 'true', sex: '' }
 let selectedMasterPersonId = ''
+let usuarioFilter = { nome:'', ativo:'' }
 
 // ─── Constantes ──────────────────────────────────────────────────────────────
 
@@ -716,7 +717,7 @@ function renderPessoas(): void {
         <option value="true">Ativos</option>
         <option value="false">Inativos</option>
         <option value="">Todos</option>
-      </select></div></details>
+      </select>${pessoaFilter.nome||pessoaFilter.role||pessoaFilter.sex||pessoaFilter.ativo!=='true'?'<button id="clearPersonFilters" class="btn btn-ghost" type="button">Limpar filtros</button>':''}</div></details>
     </div>
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
       <span style="font-size:.8rem;color:var(--ink-3)">
@@ -727,10 +728,9 @@ function renderPessoas(): void {
         + Adicionar
       </button>
     </div>
-    <label class="form-group"><span class="form-label">Pessoa selecionada</span><select id="masterPersonContext" class="form-select">${filtered.map(([mid,p])=>`<option value="${escapeHtml(mid)}" ${mid===selectedMasterPersonId?'selected':''}>${escapeHtml(p.name)}</option>`).join('')}</select></label>
     <div id="pessoaList">
       ${filtered.length
-        ? filtered.filter(([mid])=>mid===selectedMasterPersonId).map(([mid, p]) => pessoaCard(mid, p)).join('')
+        ? filtered.map(([mid, p]) => pessoaCard(mid, p)).join('')
         : '<p style="color:var(--ink-3);text-align:center;padding:24px 0">Nenhuma pessoa encontrada.</p>'}
     </div>`
 
@@ -754,9 +754,9 @@ function renderPessoas(): void {
     pessoaFilter.ativo = (e.target as HTMLSelectElement).value
     renderPessoas()
   })
+  document.getElementById('clearPersonFilters')?.addEventListener('click',()=>{pessoaFilter={nome:'',role:'',ativo:'true',sex:''};renderPessoas()})
   document.getElementById('btnAddPessoa')!
     .addEventListener('click', () => openPessoaModal(null))
-  document.getElementById('masterPersonContext')?.addEventListener('change',e=>{selectedMasterPersonId=(e.currentTarget as HTMLSelectElement).value;renderPessoas()})
 
   document.querySelectorAll<HTMLButtonElement>('[data-edit-pessoa]').forEach(btn => {
     btn.addEventListener('click', () => openPessoaModal(btn.dataset['editPessoa']!))
@@ -791,8 +791,8 @@ function pessoaCard(mid: string, p: MasterPessoa): string {
       </div>
       <button class="btn btn-ghost" data-edit-pessoa="${escapeHtml(mid)}"
         style="padding:4px 10px;font-size:.78rem;flex-shrink:0">Editar</button>
-      <button class="btn btn-danger" data-del-pessoa="${escapeHtml(mid)}"
-        style="padding:4px 8px;font-size:.82rem;flex-shrink:0">✕</button>
+      <button class="btn btn-danger" data-del-pessoa="${escapeHtml(mid)}" aria-label="Remover ${escapeHtml(p.name)}"
+        style="padding:4px 8px;font-size:.78rem;flex-shrink:0">Remover</button>
     </div>`
 }
 
@@ -1024,10 +1024,13 @@ function findMasterReferences(data: Record<string, unknown>, mid: string): strin
 function renderUsuarios(): void {
   const mc = document.getElementById('mestreContent')!
   const list = Object.entries(usuarios)
+    .filter(([,user])=>!usuarioFilter.nome||(user.nome+' '+(user.masterId??'')).toLocaleLowerCase('pt-BR').includes(usuarioFilter.nome.toLocaleLowerCase('pt-BR')))
+    .filter(([,user])=>usuarioFilter.ativo===''||String(user.ativo)===usuarioFilter.ativo)
     .sort((a, b) => a[1].nome.localeCompare(b[1].nome, 'pt-BR'))
 
   mc.innerHTML = `
-    <div style="display:flex;justify-content:flex-end;margin-bottom:10px">
+    <div class="module-form-grid" style="margin-bottom:10px"><label class="form-field"><span>Buscar acesso</span><input id="usuarioSearch" class="form-input" type="search" value="${escapeHtml(usuarioFilter.nome)}" placeholder="Nome ou ID"></label><label class="form-field"><span>Situação</span><select id="usuarioStatus" class="form-select"><option value="" ${usuarioFilter.ativo===''?'selected':''}>Todos</option><option value="true" ${usuarioFilter.ativo==='true'?'selected':''}>Ativos</option><option value="false" ${usuarioFilter.ativo==='false'?'selected':''}>Inativos</option></select></label></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><span style="font-size:.8rem;color:var(--ink-3)">${list.length} acesso(s)</span>
       <button id="btnAddUsuario" class="btn btn-primary" style="padding:5px 12px;font-size:.82rem">
         + Adicionar
       </button>
@@ -1040,6 +1043,8 @@ function renderUsuarios(): void {
 
   document.getElementById('btnAddUsuario')!
     .addEventListener('click', () => openUsuarioModal(null))
+  document.getElementById('usuarioSearch')?.addEventListener('input',event=>{usuarioFilter.nome=(event.target as HTMLInputElement).value;renderUsuarios()})
+  document.getElementById('usuarioStatus')?.addEventListener('change',event=>{usuarioFilter.ativo=(event.target as HTMLSelectElement).value;renderUsuarios()})
   document.querySelectorAll<HTMLButtonElement>('[data-edit-usuario]').forEach(btn => {
     btn.addEventListener('click', () => openUsuarioModal(btn.dataset['editUsuario']!))
   })
@@ -1066,8 +1071,8 @@ function usuarioCard(uid: string, u: Usuario): string {
       </div>
       <button class="btn btn-ghost" data-edit-usuario="${escapeHtml(uid)}"
         style="padding:4px 10px;font-size:.78rem;flex-shrink:0">Editar</button>
-      <button class="btn btn-danger" data-del-usuario="${escapeHtml(uid)}"
-        style="padding:4px 8px;font-size:.82rem;flex-shrink:0">✕</button>
+      <button class="btn btn-danger" data-del-usuario="${escapeHtml(uid)}" aria-label="Remover acesso de ${escapeHtml(linkedName || u.nome)}"
+        style="padding:4px 8px;font-size:.78rem;flex-shrink:0">Remover</button>
     </div>`
 }
 

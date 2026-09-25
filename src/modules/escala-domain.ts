@@ -52,8 +52,8 @@ export interface EscalaLocal {
   [key: string]: unknown
 }
 
-export interface EscalaCell { p1: string; p2: string }
-export interface EscalaRow { dow: number; slots: Record<string, EscalaCell> }
+interface EscalaCell { p1: string; p2: string }
+interface EscalaRow { dow: number; slots: Record<string, EscalaCell> }
 export interface EscalaTable { slots: string[]; rows: Record<string, EscalaRow> }
 export type EscalaTables = Record<string, Record<string, EscalaTable>>
 export type EscalaAvailability = Record<string, Record<string, Record<string, boolean>>>
@@ -106,7 +106,7 @@ export function participantDirectoryForHistory(
   return { ...historical, ...current }
 }
 
-export interface EmptySlot {
+interface EmptySlot {
   date: string
   time: string
   reason: 'bloqueado' | 'sem_candidatos' | 'sem_par_valido'
@@ -123,11 +123,11 @@ export function availabilityKey(dow: number, time: string): string {
   return `${dow}|${time}`
 }
 
-export function dateAtNoon(iso: string): Date {
+function dateAtNoon(iso: string): Date {
   return new Date(`${iso}T12:00:00`)
 }
 
-export function daysBetween(a: string, b: string): number {
+function daysBetween(a: string, b: string): number {
   return Math.round((dateAtNoon(b).getTime() - dateAtNoon(a).getTime()) / 86_400_000)
 }
 
@@ -196,7 +196,7 @@ function addCellCount(counts: Record<string, number>, cell: EscalaCell | undefin
   }
 }
 
-export function monthlyCounts(tables: EscalaTables, month: string, participants: Record<string, EscalaParticipant>, excludedLocalId = ''): Record<string, number> {
+function monthlyCounts(tables: EscalaTables, month: string, participants: Record<string, EscalaParticipant>, excludedLocalId = ''): Record<string, number> {
   const counts = Object.fromEntries(Object.keys(participants).map(id => [id, 0])) as Record<string, number>
   for (const [localId, byMonth] of Object.entries(tables)) {
     if (localId === excludedLocalId) continue
@@ -209,7 +209,7 @@ export function monthlyCounts(tables: EscalaTables, month: string, participants:
 
 interface DayState { used: Set<string>; slots: Record<string, EscalaCell> }
 
-export function personRule(
+function personRule(
   participantId: string,
   person: EscalaParticipant,
   context: { date: string; dow: number; time: string; month: string; localId: string; step: number },

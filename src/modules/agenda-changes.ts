@@ -1,5 +1,5 @@
 import type { AgendaEvent } from './individual-domain'
-export interface AgendaChange { kind:'alterado' | 'retirado' | 'adicionado'; before?:AgendaEvent; after?:AgendaEvent; detectedAt:string }
+interface AgendaChange { kind:'alterado' | 'retirado' | 'adicionado'; before?:AgendaEvent; after?:AgendaEvent; detectedAt:string }
 export interface AgendaHistory { events:AgendaEvent[]; changes:AgendaChange[] }
 const key = (event:AgendaEvent):string => `${event.source}:${event.id}`
 export function parseAgendaHistory(raw:string | null):AgendaHistory | null {

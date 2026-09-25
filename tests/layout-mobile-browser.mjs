@@ -60,7 +60,6 @@ try {
    }
    if(module==='escala'){
     await page.locator('[data-workspace-tab="participantes"]').first().click()
-    assert.equal(await page.locator('#pContext').inputValue(),'p')
     assert.equal(await page.locator('#pList .entity-card').count(),1)
     await page.locator('[data-person-availability="p"]').click()
     await page.locator('[data-avail]').first().waitFor()
@@ -85,7 +84,7 @@ try {
     assert.equal(await page.locator('[data-personal-date="2026-10-04"]').getAttribute('aria-pressed'),'true')
     assert.equal(await page.locator('.agenda-next').count(),0)
     assert.match(await page.locator('.agenda-event-location').innerText(),/Salão/)
-    assert.equal(await page.locator('.agenda-personal-panel').filter({has:page.locator('summary').getByText('Mais opções')}).count(),1)
+    assert.equal(await page.locator('.agenda-personal-panel').filter({has:page.locator('summary').getByText('Mais opções')}).count(),0)
     await page.locator('[data-agenda-screen="quadro"]').click()
     assert.equal(await page.locator('[data-agenda-panel="moduleDocuments"]').getAttribute('open'),'')
     await page.locator('[data-agenda-screen="agenda"]').click()

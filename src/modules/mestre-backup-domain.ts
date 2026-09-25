@@ -1,4 +1,4 @@
-export interface BackupSummary {
+interface BackupSummary {
   pessoas: number
   usuarios: number
   modulos: number

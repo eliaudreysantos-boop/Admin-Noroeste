@@ -6,7 +6,7 @@ function environment(): Record<string, string | undefined> {
   return ((globalThis as unknown as { process?: { env?: Record<string, string | undefined> } }).process?.env ?? {})
 }
 
-export function adminApp(): App {
+function adminApp(): App {
   const env = environment()
   const databaseURL = env['FIREBASE_DATABASE_URL']?.trim()
   const credentials = env['FIREBASE_SERVICE_ACCOUNT_JSON']?.trim()

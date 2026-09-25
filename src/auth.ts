@@ -1,4 +1,4 @@
-import type { Usuario, AppPermissions } from './types'
+import type { Usuario } from './types'
 import { sanitizeCachedUserChoices, type CachedUserChoices } from './auth-domain'
 import { apiJson, clearCsrfToken, setCsrfToken } from './secure-api.ts'
 
@@ -46,8 +46,4 @@ export async function logout(): Promise<void> {
   try { await apiJson('auth-session', { method:'DELETE' }) }
   catch { /* A tela ainda deve encerrar localmente quando a rede cair. */ }
   finally { clearCsrfToken() }
-}
-
-export function hasModuleAccess(usuario: Usuario, modulo: keyof AppPermissions): boolean {
-  return usuario.apps.mestre || usuario.apps[modulo] === true
 }
