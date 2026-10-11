@@ -44,6 +44,21 @@ export function scheduleCardText(item:TalkSchedule,root:SpeakersRoot,localTime='
   const second=root.oradores?.[item.oradorSecundarioId??'']?.nome||item.oradorSecundarioNome
   return [messageDate(item.data,time),`🏛️ *${item.secao==='s1'?'1ª seção':'2ª seção'}*`,`🎙️ *${kind}*`,`👤 *Orador:* ${speaker}`,second?`👤 *Segundo orador:* ${second}`:'',themeLine(item,root),`🏛️ *Congregação${item.tipo==='saida_orador'?' de destino':item.tipo==='discurso_visitante'?' de origem':''}:* ${place}`].filter(Boolean).join('\n')
 }
+export function scheduleConfirmationText(item:TalkSchedule,root:SpeakersRoot,localTime=''):string {
+  const speaker=root.oradores?.[item.oradorId??'']?.nome||item.oradorNome||'irmão'
+  const congregation=item.tipo==='saida_orador'
+    ? root.congregacoes?.[scheduleCongregationId(item)]
+    : localCongregation(root,item)
+  const address=messageAddress(congregation?.localizacao)
+  return [
+    `Olá, ${speaker}! Confirmando seu discurso:`,
+    '',
+    scheduleCardText(item,root,localTime),
+    ...(address?[`📍 Endereço: ${address}`]:[]),
+    '',
+    'Pode confirmar?',
+  ].join('\n')
+}
 export function assignmentEntries(root:SpeakersRoot,id:string,today:string,localTime=''):{date:string;text:string;talk:boolean}[] {
   const rows=Object.values(root.programacao??{}).filter(item=>item.data>=today)
   const entries=rows.filter(item=>item.oradorId===id||item.oradorSecundarioId===id).map(item=>({date:item.data,text:speakerAssignmentMessage(item,root,item.oradorSecundarioId===id&&item.oradorId!==id,localTime),talk:true}))

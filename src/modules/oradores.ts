@@ -3,7 +3,7 @@ import { localPreferences, persistDisclosures } from '../ui/local-preferences'
 import { mountRecordEditor } from '../ui/record-editor'
 import { fortalezaToday, fortalezaCurrentMonth } from './civil-date'
 import { availableDates } from './oradores-available'
-import { assignmentEntries, assignmentsMessage, exchangesMessage, availableMessage, scheduleCardText } from './oradores-messages'
+import { assignmentEntries, assignmentsMessage, exchangesMessage, availableMessage, scheduleConfirmationText } from './oradores-messages'
 import { cleanAddress } from './agenda-location'
 import { congregationInUse, localSpeakerOriginName } from './oradores-congregations'
 import { apiJson, ApiError } from '../secure-api'
@@ -45,6 +45,7 @@ let taskPeriods:Record<string,unknown>={}
 let speakerQuery=''
 let scheduleQuery=''
 let scheduleFilter=''
+let scheduleKindFilter:TalkKind|''=''
 let onlyFuture=false
 let dirty=false
 let saving=false
@@ -125,9 +126,11 @@ export default function mount(context: AppContext): void {
   const month=preferences.get('month',legacyMonth)
   selectedMonth=context.overview?.month??(/^\d{4}-(0[1-9]|1[0-2])$/.test(month)?month:fortalezaCurrentMonth())
   preferences.set('month',selectedMonth)
-  appContext=context;themeFilter='available';themeQuery='';dirty=false;saving=false;masterPeople={};rawSpeakers={};taskPeriods={};speakerQuery='';scheduleQuery='';scheduleFilter='';onlyFuture=false;installEditGuard()
+  appContext=context;themeFilter='available';themeQuery='';dirty=false;saving=false;masterPeople={};rawSpeakers={};taskPeriods={};speakerQuery='';scheduleFilter='';scheduleKindFilter='';onlyFuture=false;installEditGuard()
   const savedFilter=preferences.get('scheduleFilter','')
   scheduleFilter=['','speaker','theme'].includes(savedFilter)?savedFilter:''
+  const savedKind=preferences.get('scheduleKindFilter','')
+  scheduleKindFilter=Object.prototype.hasOwnProperty.call(TALK_KIND_LABEL,savedKind)?savedKind as TalkKind:''
   onlyFuture=preferences.get('onlyFuture',false)
   const savedTheme=preferences.get('themeFilter','available')
   themeFilter=Object.prototype.hasOwnProperty.call(THEME_FILTER_LABELS,savedTheme)?savedTheme as ThemeFilter:'available'
@@ -235,34 +238,36 @@ function scheduleEditor(): string {
 function scheduleCard(id:string,item:TalkSchedule,showActions=true): string {
   const speaker=speakers()[item.oradorId??'']?.nome?.trim() || item.oradorNome?.trim() || 'Sem orador', theme=themes()[item.temaId??''], congregation=item.tipo==='discurso_local'?localSpeakerOriginName(item,congregations()):congregations()[scheduleCongregationId(item)]?.nome ?? scheduleCongregationName(item)
   const section=` · ${scheduleSection(item)==='s1'?'1ª seção':'2ª seção'}`
-  const actions=showActions?`<div class="service-actions"><button class="btn btn-ghost" data-edit-schedule="${esc(id)}" type="button">Editar</button><button class="btn btn-ghost" data-whatsapp-schedule="${esc(id)}" type="button">WhatsApp</button><button class="btn btn-ghost" data-copy-schedule="${esc(id)}" type="button">Copiar texto</button></div>`:''
-  return `<article class="oradores-card"><div class="oradores-card-head"><div><strong>${esc(formatSpeakerDate(item.data))}</strong><small>${esc(TALK_KIND_LABEL[item.tipo]+section)}</small></div></div><div class="oradores-card-grid"><div><span>Orador</span><strong>${esc(speaker)}</strong></div><div><span>Tema</span><strong>${esc(theme?`${String(theme.numero).padStart(3,'0')} - ${theme.titulo}`:item.temaTitulo||'Sem tema')}</strong></div>${congregation?`<div><span>Congregação</span><strong>${esc(congregation)}</strong></div>`:''}${item.oradorSecundarioNome?`<div><span>Segundo orador</span><strong>${esc(item.oradorSecundarioNome)}</strong></div>`:''}</div>${actions}</article>`
+  const actions=showActions?`<div class="service-actions"><button class="btn btn-whatsapp" data-whatsapp-schedule="${esc(id)}" type="button">Pedir confirmação</button><button class="btn btn-ghost" data-copy-schedule="${esc(id)}" type="button">Copiar mensagem</button><button class="btn btn-ghost" data-edit-schedule="${esc(id)}" type="button">Editar</button></div>`:''
+  return `<article class="oradores-card oradores-card--schedule oradores-card--${esc(item.tipo)}"><div class="oradores-card-head"><div><strong>${esc(formatSpeakerDate(item.data))}</strong><small>${esc(TALK_KIND_LABEL[item.tipo]+section)}</small></div></div><div class="oradores-card-grid"><div><span>Orador</span><strong>${esc(speaker)}</strong></div><div><span>Tema</span><strong>${esc(theme?`${String(theme.numero).padStart(3,'0')} - ${theme.titulo}`:item.temaTitulo||'Sem tema')}</strong></div>${congregation?`<div><span>Congregação</span><strong>${esc(congregation)}</strong></div>`:''}${item.oradorSecundarioNome?`<div><span>Segundo orador</span><strong>${esc(item.oradorSecundarioNome)}</strong></div>`:''}</div>${actions}</article>`
 }
 
 function renderSchedule(): void {
   const monthRows=Object.entries(schedule()).filter(([,item])=>sameMonth(item.data,selectedMonth)&&visibleSchedule(item))
   const hasCombinedPdfRows=Object.values(schedule()).some(item=>sameMonth(item.data,selectedMonth)||(item.tipo==='saida_orador'&&item.data>=`${selectedMonth}-01`))
   const matchesFilter=(item:TalkSchedule,filter:string):boolean=>filter==='speaker'?!item.oradorId&&!item.oradorNome:filter==='theme'?!item.temaId&&!item.temaTitulo:true
-  const rows=monthRows.filter(([,item])=>(!onlyFuture||item.data>=today())&&matchesFilter(item,scheduleFilter)&&[`${speakers()[item.oradorId??'']?.nome??item.oradorNome??''}`,themes()[item.temaId??'']?.titulo??item.temaTitulo??'',String(themes()[item.temaId??'']?.numero??item.temaNumero??'')].some(value=>value.toLocaleLowerCase('pt-BR').includes(scheduleQuery.toLocaleLowerCase('pt-BR')))).sort((a,b)=>a[1].data.localeCompare(b[1].data)||a[1].tipo.localeCompare(b[1].tipo))
+  const rows=monthRows.filter(([,item])=>(!onlyFuture||item.data>=today())&&(!scheduleKindFilter||item.tipo===scheduleKindFilter)&&matchesFilter(item,scheduleFilter)&&[`${speakers()[item.oradorId??'']?.nome??item.oradorNome??''}`,themes()[item.temaId??'']?.titulo??item.temaTitulo??'',String(themes()[item.temaId??'']?.numero??item.temaNumero??'')].some(value=>value.toLocaleLowerCase('pt-BR').includes(scheduleQuery.toLocaleLowerCase('pt-BR')))).sort((a,b)=>a[1].data.localeCompare(b[1].data)||a[1].tipo.localeCompare(b[1].tipo))
   root().innerHTML=`${sectionTitle('Programação de oradores')}${periodControl()}<div class="service-actions"><button id="newSchedule" class="btn btn-primary" type="button">Nova programação</button><button id="speakerSchedulePdf" class="btn btn-ghost" type="button" ${hasCombinedPdfRows?'':'disabled'}>Baixar PDF</button><button id="speakerScheduleXlsx" class="btn btn-ghost" type="button" ${hasCombinedPdfRows?'':'disabled'}>Baixar XLSX</button><button id="speakerSchedulePublish" class="btn btn-ghost" type="button" ${hasCombinedPdfRows?'':'disabled'}>Publicar no Quadro</button></div><details class="workspace-disclosure" data-ui-preference="schedule-options"><summary>Mais opções da programação</summary><div class="service-actions"><button id="fillScheduleDates" class="btn btn-ghost" type="button">Criar datas do mês</button><button id="substitutionsPdf" class="btn btn-ghost" type="button">Baixar PDF de substituições</button></div></details><p id="speakerPublicationStatus" class="notice" aria-live="polite">Consultando publicação…</p>${monthRows.length ? '<p class="form-help">Publicar no Quadro atualiza o PDF; editar a programação não atualiza o arquivo já publicado.</p>' : ''}${scheduleEditor()}${monthRows.length ? `<div class="service-actions">${[['','Todos'],['speaker','Sem orador'],['theme','Sem tema']].map(([key,label])=>`<button class="btn ${scheduleFilter===key?'btn-primary':'btn-ghost'}" data-schedule-filter="${key}" aria-pressed="${scheduleFilter===key}">${label}: ${monthRows.filter(([,item])=>matchesFilter(item,key!)).length}</button>`).join('')}</div>
+    ${field('Tipo de arranjo',`<select id="scheduleKindFilter">${option('','Todos os tipos',scheduleKindFilter)}${Object.entries(TALK_KIND_LABEL).map(([kind,label])=>option(kind,label,scheduleKindFilter)).join('')}</select>`)}
     ${field('Buscar na programação',`<input id="scheduleSearch" type="search" value="${esc(scheduleQuery)}" placeholder="Orador, número ou título do tema">`)}
-    <label class="oradores-check"><input id="scheduleOnlyFuture" type="checkbox" ${onlyFuture?'checked':''}> Só o que falta (datas de hoje em diante)</label>` : ''}<div class="oradores-list">${rows.map(([id,item])=>scheduleCard(id,item)).join('')||empty(monthRows.length?'Nenhum resultado para esta busca ou filtro.':'Nenhuma programação neste mês. Use “Nova programação” ou “Criar datas do mês” para começar.')}</div>${monthRows.length && (scheduleQuery||scheduleFilter||onlyFuture)?'<button id="clearScheduleFilters" class="btn btn-ghost">Limpar filtros</button>':''}`
+    <label class="oradores-check"><input id="scheduleOnlyFuture" type="checkbox" ${onlyFuture?'checked':''}> Só o que falta (datas de hoje em diante)</label>` : ''}<div class="oradores-list">${rows.map(([id,item])=>scheduleCard(id,item)).join('')||empty(monthRows.length?'Nenhum resultado para esta busca ou filtro.':'Nenhuma programação neste mês. Use “Nova programação” ou “Criar datas do mês” para começar.')}</div>${monthRows.length && (scheduleQuery||scheduleFilter||scheduleKindFilter||onlyFuture)?'<button id="clearScheduleFilters" class="btn btn-ghost">Limpar filtros</button>':''}`
   mountRecordEditor(root(), 'speakerScheduleForm')
   bindPeriod()
   void showPublicationStatus()
-  document.getElementById('clearScheduleFilters')?.addEventListener('click',()=>{if(!allowLeave())return;scheduleQuery='';scheduleFilter='';onlyFuture=false;preferences.set('scheduleFilter','');preferences.set('onlyFuture',false);renderSchedule()})
+  document.getElementById('clearScheduleFilters')?.addEventListener('click',()=>{if(!allowLeave())return;scheduleQuery='';scheduleFilter='';scheduleKindFilter='';onlyFuture=false;preferences.set('scheduleFilter','');preferences.set('scheduleKindFilter','');preferences.set('onlyFuture',false);renderSchedule()})
   document.querySelectorAll<HTMLButtonElement>('[data-copy-schedule]').forEach(button=>button.addEventListener('click',async()=>{
     const item=schedule()[button.dataset.copySchedule??'']
     if(!item||!visibleSchedule(item))return
-    await copyMessageText(scheduleCardText(item,data,selectedSection==='s1'?planning.s1Time:planning.s2Time),toast)
+    await copyMessageText(scheduleConfirmationText(item,data,selectedSection==='s1'?planning.s1Time:planning.s2Time),toast)
   }))
   document.querySelectorAll<HTMLButtonElement>('[data-whatsapp-schedule]').forEach(button=>button.addEventListener('click',()=>{
     const item=schedule()[button.dataset.whatsappSchedule??'']
     if(!item||!visibleSchedule(item))return
-    const message=scheduleCardText(item,data,selectedSection==='s1'?planning.s1Time:planning.s2Time)
+    const message=scheduleConfirmationText(item,data,selectedSection==='s1'?planning.s1Time:planning.s2Time)
     openMessageWhatsApp(message,toast,speakers()[item.oradorId??'']?.telefone??'')
   }))
   document.querySelectorAll<HTMLButtonElement>('[data-schedule-filter]').forEach(button=>button.addEventListener('click',()=>{if(!allowLeave())return;scheduleFilter=button.dataset.scheduleFilter??'';preferences.set('scheduleFilter',scheduleFilter);renderSchedule()}))
+  document.getElementById('scheduleKindFilter')?.addEventListener('change',event=>{if(!allowLeave())return;scheduleKindFilter=(event.target as HTMLSelectElement).value as TalkKind|'';preferences.set('scheduleKindFilter',scheduleKindFilter);renderSchedule()})
   document.getElementById('scheduleSearch')?.addEventListener('change',event=>{if(!allowLeave())return;scheduleQuery=(event.target as HTMLInputElement).value;renderSchedule()})
   document.getElementById('scheduleOnlyFuture')?.addEventListener('change',event=>{if(!allowLeave())return;onlyFuture=(event.target as HTMLInputElement).checked;preferences.set('onlyFuture',onlyFuture);renderSchedule()})
   bindScheduleFields()

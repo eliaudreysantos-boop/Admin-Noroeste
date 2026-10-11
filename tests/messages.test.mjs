@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { whatsappPhone, contextualMessage, SPEAKER_FOOTER, SPEAKER_TEMPLATE } from '../src/modules/message-domain.ts'
-import { assignmentsMessage, assignmentEntries, exchangesMessage, availableMessage, scheduleCardText } from '../src/modules/oradores-messages.ts'
+import { assignmentsMessage, assignmentEntries, exchangesMessage, availableMessage, scheduleCardText, scheduleConfirmationText } from '../src/modules/oradores-messages.ts'
 import { availableDates } from '../src/modules/oradores-available.ts'
 import { tasksPersonMessage, tasksDayMessage } from '../src/modules/tarefas-messages.ts'
 const root={
@@ -49,6 +49,15 @@ test('texto do card descreve a programação sem solicitar confirmação nem exp
   const outgoing=scheduleCardText(root.programacao.out,root)
   assert.match(outgoing,/Saída de orador/)
   assert.match(outgoing,/Congregação de destino.*Central/)
+})
+test('mensagem padrão pede confirmação com dados e endereço do arranjo',()=>{
+  const local=scheduleConfirmationText(root.programacao.local,root,'09:30')
+  for(const value of ['Olá, Ana!','04/10/2026','09:30','Tema 70','Endereço: Rua Um, 10','Pode confirmar?'])assert.ok(local.includes(value),value)
+  assert.match(local,/📅 \*[^\n]+\*/)
+  assert.ok(!local.includes('�'))
+  const outgoing=scheduleConfirmationText(root.programacao.out,root)
+  assert.ok(outgoing.includes('Endereço: Rua Dois, 20'))
+  assert.ok(!outgoing.includes('Rua Um, 10'))
 })
 test('datas livres respeitam dia, exclusões, eventos, S2 e não confundem saída com ocupação local',()=>{
   const dates=availableDates(root,{e:{data:'2026-11-01',tipo:'celebracao'}},{meetingDays:{weekendDow:0},excludedDates:['2026-11-08']},'2026-10-01',40)
