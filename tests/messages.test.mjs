@@ -58,6 +58,10 @@ test('mensagem padrão pede confirmação com dados e endereço do arranjo',()=>
   const outgoing=scheduleConfirmationText(root.programacao.out,root)
   assert.ok(outgoing.includes('Endereço: Rua Dois, 20'))
   assert.ok(!outgoing.includes('Rua Um, 10'))
+  const incomplete=scheduleConfirmationText({data:'2026-10-11',tipo:'saida_orador',secao:'s2'},root)
+  assert.match(incomplete,/Orador:\* A definir/)
+  assert.match(incomplete,/Congregação de destino:\* A definir/)
+  assert.match(incomplete,/Pode confirmar\?/)
 })
 test('datas livres respeitam dia, exclusões, eventos, S2 e não confundem saída com ocupação local',()=>{
   const dates=availableDates(root,{e:{data:'2026-11-01',tipo:'celebracao'}},{meetingDays:{weekendDow:0},excludedDates:['2026-11-08']},'2026-10-01',40)

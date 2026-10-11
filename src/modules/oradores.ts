@@ -238,7 +238,7 @@ function scheduleEditor(): string {
 function scheduleCard(id:string,item:TalkSchedule,showActions=true): string {
   const speaker=speakers()[item.oradorId??'']?.nome?.trim() || item.oradorNome?.trim() || 'Sem orador', theme=themes()[item.temaId??''], congregation=item.tipo==='discurso_local'?localSpeakerOriginName(item,congregations()):congregations()[scheduleCongregationId(item)]?.nome ?? scheduleCongregationName(item)
   const section=` · ${scheduleSection(item)==='s1'?'1ª seção':'2ª seção'}`
-  const actions=showActions?`<div class="service-actions"><button class="btn btn-whatsapp" data-whatsapp-schedule="${esc(id)}" type="button">Pedir confirmação</button><button class="btn btn-ghost" data-copy-schedule="${esc(id)}" type="button">Copiar mensagem</button><button class="btn btn-ghost" data-edit-schedule="${esc(id)}" type="button">Editar</button></div>`:''
+  const actions=showActions?`<div class="service-actions"><button class="btn btn-primary" data-copy-schedule="${esc(id)}" type="button">Copiar confirmação</button><button class="btn btn-ghost" data-edit-schedule="${esc(id)}" type="button">Editar</button></div>`:''
   return `<article class="oradores-card oradores-card--schedule oradores-card--${esc(item.tipo)}"><div class="oradores-card-head"><div><strong>${esc(formatSpeakerDate(item.data))}</strong><small>${esc(TALK_KIND_LABEL[item.tipo]+section)}</small></div></div><div class="oradores-card-grid"><div><span>Orador</span><strong>${esc(speaker)}</strong></div><div><span>Tema</span><strong>${esc(theme?`${String(theme.numero).padStart(3,'0')} - ${theme.titulo}`:item.temaTitulo||'Sem tema')}</strong></div>${congregation?`<div><span>Congregação</span><strong>${esc(congregation)}</strong></div>`:''}${item.oradorSecundarioNome?`<div><span>Segundo orador</span><strong>${esc(item.oradorSecundarioNome)}</strong></div>`:''}</div>${actions}</article>`
 }
 
@@ -259,12 +259,6 @@ function renderSchedule(): void {
     const item=schedule()[button.dataset.copySchedule??'']
     if(!item||!visibleSchedule(item))return
     await copyMessageText(scheduleConfirmationText(item,data,selectedSection==='s1'?planning.s1Time:planning.s2Time),toast)
-  }))
-  document.querySelectorAll<HTMLButtonElement>('[data-whatsapp-schedule]').forEach(button=>button.addEventListener('click',()=>{
-    const item=schedule()[button.dataset.whatsappSchedule??'']
-    if(!item||!visibleSchedule(item))return
-    const message=scheduleConfirmationText(item,data,selectedSection==='s1'?planning.s1Time:planning.s2Time)
-    openMessageWhatsApp(message,toast,speakers()[item.oradorId??'']?.telefone??'')
   }))
   document.querySelectorAll<HTMLButtonElement>('[data-schedule-filter]').forEach(button=>button.addEventListener('click',()=>{if(!allowLeave())return;scheduleFilter=button.dataset.scheduleFilter??'';preferences.set('scheduleFilter',scheduleFilter);renderSchedule()}))
   document.getElementById('scheduleKindFilter')?.addEventListener('change',event=>{if(!allowLeave())return;scheduleKindFilter=(event.target as HTMLSelectElement).value as TalkKind|'';preferences.set('scheduleKindFilter',scheduleKindFilter);renderSchedule()})
